@@ -1,12 +1,13 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { Search, MapPin, PackageX, Loader2 } from 'lucide-react';
+import { Search, MapPin, PackageX, Loader2, X, Receipt } from 'lucide-react';
 
 interface StockEntry {
   sku: string;
   name?: string | null;
   stockCategory?: string | null;
+  listPrice?: number | null;
   byLocation?: Record<string, { onHand: number; allocated: number; backordered: number }>;
 }
 
@@ -16,16 +17,155 @@ interface PriceInfo {
   discountPercent: number | null;
 }
 
-const PAGE_SIZE = 24;
+interface OrderLine {
+  orderNo: string;
+  orderDate: string;
+  statusFlag: string;
+  qtyOrdered: number;
+  qtyShipped: number;
+  qtyBackordered: number;
+  customerCode: string;
+}
+
+const PAGE_SIZE = 30;
+
+const STATUS_LABELS: Record<string, string> = {
+  C: 'Completed',
+  A: 'Active',
+  X: 'Cancelled',
+  B: 'Backordered',
+  H: 'On hold',
+  S: 'Standing order',
+  '': 'Draft',
+};
 
 function formatMoney(value: number | null) {
   if (value == null) return null;
   return new Intl.NumberFormat('en-AU', { style: 'currency', currency: 'AUD' }).format(value);
 }
 
+function formatDate(value: string | null | undefined) {
+  if (!value) return '-';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '-';
+  return d.toLocaleDateString('en-AU', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
 function totalOnHand(byLocation?: StockEntry['byLocation']) {
   if (!byLocation) return 0;
   return Object.values(byLocation).reduce((sum, loc) => sum + (loc.onHand || 0), 0);
+}
+
+function ProductDetail({ item, price, onClose }: { item: StockEntry; price?: PriceInfo; onClose: () => void }) {
+  const [orders, setOrders] = useState<OrderLine[] | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    fetch(`/api/orders/by-sku?sku=${encodeURIComponent(item.sku)}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (!cancelled) setOrders(data.orders ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setOrders([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [item.sku]);
+
+  const locations = Object.entries(item.byLocation ?? {});
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center" role="dialog" aria-modal="true">
+      <div className="absolute inset-0 bg-ink/40" onClick={onClose} />
+      <div className="relative bg-white rounded-t-2xl sm:rounded-2xl shadow-soft w-full sm:max-w-lg max-h-[85vh] overflow-y-auto">
+        <div className="sticky top-0 bg-white border-b border-ink/10 px-5 py-4 flex items-start justify-between gap-3">
+          <div>
+            <p className="font-semibold text-ink leading-snug">{item.name || item.sku}</p>
+            <p className="text-xs text-ink/40 font-mono mt-0.5">{item.sku}</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-full hover:bg-ink/5 flex-shrink-0">
+            <X className="h-4 w-4 text-ink/50" />
+          </button>
+        </div>
+
+        <div className="p-5 space-y-5">
+          <div className="flex items-baseline gap-3">
+            {price?.price != null ? (
+              <>
+                <span className="font-display text-2xl text-deep font-bold">{formatMoney(price.price)}</span>
+                {price.listPrice != null && price.price !== price.listPrice && (
+                  <span className="text-sm text-ink/40 line-through">{formatMoney(price.listPrice)}</span>
+                )}
+                {price.discountPercent ? (
+                  <span className="text-sm font-semibold text-sunset">-{price.discountPercent}%</span>
+                ) : null}
+              </>
+            ) : (
+              <span className="text-sm text-ink/30">Price on request</span>
+            )}
+          </div>
+
+          {locations.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-ink/40 uppercase tracking-wide mb-2">Stock by location</p>
+              <div className="flex flex-wrap gap-2">
+                {locations.map(([loc, qty]) => (
+                  <span
+                    key={loc}
+                    className="inline-flex items-center gap-1.5 rounded-full bg-foam px-3 py-1.5 text-xs font-medium text-ink/70"
+                  >
+                    <MapPin className="h-3 w-3 text-wave" />
+                    {loc}: {qty.onHand} on hand
+                    {qty.backordered ? <span className="text-amber"> · {qty.backordered} backordered</span> : null}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div>
+            <p className="text-xs font-semibold text-ink/40 uppercase tracking-wide mb-2">Your orders for this product</p>
+            {loading ? (
+              <div className="flex items-center gap-2 text-sm text-ink/40 py-4">
+                <Loader2 className="h-4 w-4 animate-spin" /> Loading order history...
+              </div>
+            ) : orders && orders.length > 0 ? (
+              <div className="space-y-2">
+                {orders.map((o, i) => (
+                  <div
+                    key={`${o.orderNo}-${i}`}
+                    className="flex items-center justify-between rounded-xl bg-foam px-3.5 py-2.5 text-sm"
+                  >
+                    <div>
+                      <p className="font-medium text-ink">Order {o.orderNo}</p>
+                      <p className="text-xs text-ink/40">{formatDate(o.orderDate)}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-ink/70">
+                        {o.qtyShipped}/{o.qtyOrdered} shipped
+                      </p>
+                      <p className="text-xs text-ink/40">{STATUS_LABELS[o.statusFlag] ?? (o.statusFlag || 'Unknown')}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 text-sm text-ink/40 py-4">
+                <Receipt className="h-4 w-4" /> No past orders found for this product.
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export default function ProductsPage() {
@@ -36,6 +176,7 @@ export default function ProductsPage() {
   const [page, setPage] = useState(0);
   const [prices, setPrices] = useState<Record<string, PriceInfo>>({});
   const [pricesLoading, setPricesLoading] = useState(false);
+  const [selected, setSelected] = useState<StockEntry | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -88,7 +229,7 @@ export default function ProductsPage() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            items: visible.map((v) => ({ sku: v.sku, stockCategory: v.stockCategory })),
+            items: visible.map((v) => ({ sku: v.sku, stockCategory: v.stockCategory, listPrice: v.listPrice })),
             qty: 1,
           }),
         });
@@ -115,7 +256,7 @@ export default function ProductsPage() {
   }, [currentPage, query, allStock.length]);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <div>
         <h1 className="font-display text-3xl text-deep font-bold">Products</h1>
         <p className="text-ink/50 mt-1">Search stock and pricing across every location.</p>
@@ -152,63 +293,52 @@ export default function ProductsPage() {
               <p className="text-ink/40">No products matched that search.</p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
               {visible.map((item) => {
                 const stock = totalOnHand(item.byLocation);
-                const locations = Object.entries(item.byLocation ?? {});
                 const price = prices[item.sku];
                 return (
-                  <div
+                  <button
                     key={item.sku}
-                    className="rounded-2xl bg-white border border-ink/10 shadow-soft p-5 flex flex-col gap-3 hover:shadow-glow hover:border-wave/20 transition-all"
+                    onClick={() => setSelected(item)}
+                    className="text-left rounded-xl bg-white border border-ink/10 shadow-soft p-3 flex flex-col gap-2 hover:shadow-glow hover:border-wave/20 transition-all"
                   >
                     <div>
-                      <p className="font-semibold text-ink leading-snug">{item.name || item.sku}</p>
-                      <p className="text-xs text-ink/40 mt-0.5 font-mono">{item.sku}</p>
+                      <p className="text-sm font-semibold text-ink leading-snug line-clamp-2">
+                        {item.name || item.sku}
+                      </p>
+                      <p className="text-[11px] text-ink/40 mt-0.5 font-mono">{item.sku}</p>
                     </div>
 
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      {stock > 0 ? (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-splash/10 text-splash px-2.5 py-1 text-xs font-semibold">
-                          {stock} in stock
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-amber/10 text-amber px-2.5 py-1 text-xs font-semibold">
-                          Out of stock
-                        </span>
-                      )}
-                      {locations.length > 0 && (
-                        <span className="inline-flex items-center gap-1 text-xs text-ink/40">
-                          <MapPin className="h-3 w-3" />
-                          {locations.map(([loc]) => loc).join(', ')}
-                        </span>
-                      )}
-                    </div>
+                    {stock > 0 ? (
+                      <span className="inline-flex items-center self-start gap-1 rounded-full bg-splash/10 text-splash px-2 py-0.5 text-[11px] font-semibold">
+                        {stock} in stock
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center self-start gap-1 rounded-full bg-amber/10 text-amber px-2 py-0.5 text-[11px] font-semibold">
+                        Out of stock
+                      </span>
+                    )}
 
-                    <div className="mt-auto pt-3 border-t border-ink/5">
+                    <div className="mt-auto pt-2 border-t border-ink/5">
                       {pricesLoading && !price ? (
-                        <span className="text-xs text-ink/30">Pricing...</span>
+                        <span className="text-[11px] text-ink/30">Pricing...</span>
                       ) : price?.price != null ? (
-                        <div className="flex items-baseline gap-2">
-                          <span className="font-display text-xl text-deep font-bold">
+                        <div className="flex items-baseline gap-1.5 flex-wrap">
+                          <span className="font-display text-base text-deep font-bold">
                             {formatMoney(price.price)}
                           </span>
-                          {price.listPrice != null && price.price !== price.listPrice && (
-                            <span className="text-xs text-ink/40 line-through">
-                              {formatMoney(price.listPrice)}
-                            </span>
-                          )}
                           {price.discountPercent ? (
-                            <span className="text-xs font-semibold text-sunset">
+                            <span className="text-[11px] font-semibold text-sunset">
                               -{price.discountPercent}%
                             </span>
                           ) : null}
                         </div>
                       ) : (
-                        <span className="text-xs text-ink/30">Price on request</span>
+                        <span className="text-[11px] text-ink/30">Price on request</span>
                       )}
                     </div>
-                  </div>
+                  </button>
                 );
               })}
             </div>
@@ -236,6 +366,10 @@ export default function ProductsPage() {
             </div>
           )}
         </>
+      )}
+
+      {selected && (
+        <ProductDetail item={selected} price={prices[selected.sku]} onClose={() => setSelected(null)} />
       )}
     </div>
   );

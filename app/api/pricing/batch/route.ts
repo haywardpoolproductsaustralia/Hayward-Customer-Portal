@@ -6,6 +6,7 @@ import { computePrice, findRuleForSku, PricingRule } from '@/lib/pricing';
 interface BatchItem {
   sku: string;
   stockCategory?: string | null;
+  listPrice?: number | null;
 }
 
 export async function POST(req: NextRequest) {
@@ -19,7 +20,10 @@ export async function POST(req: NextRequest) {
   const qty = Number(body?.qty ?? 1) || 1;
 
   if (items.length === 0) {
-    return NextResponse.json({ error: 'Provide items: [{ sku, stockCategory }]' }, { status: 400 });
+    return NextResponse.json(
+      { error: 'Provide items: [{ sku, stockCategory, listPrice }]' },
+      { status: 400 }
+    );
   }
 
   const representativeCode = access.branchCode ?? access.customerCodes[0];
@@ -36,19 +40,20 @@ export async function POST(req: NextRequest) {
   // One rules fetch, reused for every item in the batch.
   const rules = (await getJSON<PricingRule[]>(`pricing:${priceType}`)) ?? [];
 
-  const results = items.map(({ sku, stockCategory }) => {
+  const results = items.map(({ sku, stockCategory, listPrice }) => {
     const rule = findRuleForSku(rules, sku, stockCategory);
     if (!rule) {
-      return { sku, listPrice: null, price: null, discountPercent: null };
+      return { sku, listPrice: listPrice ?? null, price: null, discountPercent: null };
     }
-    const price = computePrice(rule, qty);
+    const resolvedListPrice = listPrice ?? null;
+    const price = computePrice(rule, qty, resolvedListPrice);
     return {
       sku,
-      listPrice: rule.listPrice,
+      listPrice: resolvedListPrice,
       price,
       discountPercent:
-        rule.listPrice && price != null
-          ? Math.round((1 - price / rule.listPrice) * 1000) / 10
+        resolvedListPrice && price != null
+          ? Math.round((1 - price / resolvedListPrice) * 1000) / 10
           : null,
     };
   });

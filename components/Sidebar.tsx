@@ -2,8 +2,9 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { usePathname } from 'next/navigation';
-import { Boxes, Receipt, Tag, BookOpen, Menu, X, Droplets, Home } from 'lucide-react';
+import { Boxes, Receipt, Tag, BookOpen, Menu, X, Home } from 'lucide-react';
 
 const NAV_ITEMS = [
   { href: '/dashboard', label: 'Home', icon: Home },
@@ -45,10 +46,7 @@ export function SidebarNav() {
     <>
       {/* Mobile top bar */}
       <div className="lg:hidden flex items-center justify-between px-4 py-3 bg-white border-b border-ink/10 sticky top-0 z-40">
-        <div className="flex items-center gap-2">
-          <Droplets className="h-5 w-5 text-wave" strokeWidth={2.5} />
-          <span className="font-display text-lg text-deep font-bold">Hayward</span>
-        </div>
+        <Image src="/hayward-logo.png" alt="Hayward" width={105} height={24} className="h-6 w-auto" priority />
         <button onClick={() => setOpen(true)} aria-label="Open menu" className="p-2">
           <Menu className="h-5 w-5 text-ink/60" />
         </button>
@@ -59,7 +57,7 @@ export function SidebarNav() {
         <div className="lg:hidden fixed inset-0 z-50 flex">
           <div className="w-72 bg-white p-4 flex flex-col gap-1 shadow-soft">
             <div className="flex items-center justify-between mb-4 px-2">
-              <span className="font-display text-lg text-deep font-bold">Hayward</span>
+              <Image src="/hayward-logo.png" alt="Hayward" width={105} height={24} className="h-6 w-auto" />
               <button onClick={() => setOpen(false)} aria-label="Close menu" className="p-2">
                 <X className="h-5 w-5 text-ink/60" />
               </button>
@@ -72,9 +70,8 @@ export function SidebarNav() {
 
       {/* Desktop sidebar */}
       <aside className="hidden lg:flex lg:flex-col lg:w-60 lg:fixed lg:inset-y-0 bg-white border-r border-ink/10 px-4 py-6 z-30">
-        <div className="flex items-center gap-2 px-2 mb-8">
-          <Droplets className="h-6 w-6 text-wave" strokeWidth={2.5} />
-          <span className="font-display text-xl text-deep font-bold">Hayward</span>
+        <div className="px-2 mb-8">
+          <Image src="/hayward-logo.png" alt="Hayward" width={140} height={32} className="h-8 w-auto" priority />
         </div>
         <NavLinks pathname={pathname} />
       </aside>

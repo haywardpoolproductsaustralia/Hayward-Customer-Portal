@@ -19,9 +19,16 @@ function round2(v: number): number {
  * existing Pricing Tool: the highest quantity-break threshold the qty
  * meets or exceeds wins; if none match, fall back to the flat discount,
  * then to the lowest tier's discount as a last resort.
+ *
+ * `listPrice` is passed in explicitly (the SKU's own STKMAST.SELLING_PRICE1,
+ * cached on the stock entry) rather than read from `rule.listPrice` -
+ * category-level rules have no SKU of their own in SPRTRAN, so their
+ * `listPrice` is always null even though the discount itself is perfectly
+ * valid. Using the SKU's own list price means category-fallback pricing
+ * actually produces a price instead of silently coming back empty.
  */
-export function computePrice(rule: PricingRule, qty: number): number | null {
-  if (rule.listPrice == null) return null;
+export function computePrice(rule: PricingRule, qty: number, listPrice: number | null): number | null {
+  if (listPrice == null) return null;
 
   const sortedBreaks = [...rule.breaks].sort((a, b) => a.qty - b.qty);
 
@@ -31,13 +38,13 @@ export function computePrice(rule: PricingRule, qty: number): number | null {
   }
 
   if (bestDiscount != null) {
-    return round2(rule.listPrice * (1 - bestDiscount / 100));
+    return round2(listPrice * (1 - bestDiscount / 100));
   }
   if (rule.priceDiscount) {
-    return round2(rule.listPrice * (1 - rule.priceDiscount / 100));
+    return round2(listPrice * (1 - rule.priceDiscount / 100));
   }
   if (sortedBreaks.length > 0) {
-    return round2(rule.listPrice * (1 - sortedBreaks[0].discount / 100));
+    return round2(listPrice * (1 - sortedBreaks[0].discount / 100));
   }
   return null;
 }
