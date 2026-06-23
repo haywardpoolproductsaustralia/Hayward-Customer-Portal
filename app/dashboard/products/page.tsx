@@ -1,0 +1,242 @@
+'use client';
+
+import { useEffect, useMemo, useState } from 'react';
+import { Search, MapPin, PackageX, Loader2 } from 'lucide-react';
+
+interface StockEntry {
+  sku: string;
+  name?: string | null;
+  stockCategory?: string | null;
+  byLocation?: Record<string, { onHand: number; allocated: number; backordered: number }>;
+}
+
+interface PriceInfo {
+  listPrice: number | null;
+  price: number | null;
+  discountPercent: number | null;
+}
+
+const PAGE_SIZE = 24;
+
+function formatMoney(value: number | null) {
+  if (value == null) return null;
+  return new Intl.NumberFormat('en-AU', { style: 'currency', currency: 'AUD' }).format(value);
+}
+
+function totalOnHand(byLocation?: StockEntry['byLocation']) {
+  if (!byLocation) return 0;
+  return Object.values(byLocation).reduce((sum, loc) => sum + (loc.onHand || 0), 0);
+}
+
+export default function ProductsPage() {
+  const [query, setQuery] = useState('');
+  const [allStock, setAllStock] = useState<StockEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [page, setPage] = useState(0);
+  const [prices, setPrices] = useState<Record<string, PriceInfo>>({});
+  const [pricesLoading, setPricesLoading] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadAll() {
+      setLoading(true);
+      setError(null);
+      try {
+        const res = await fetch('/api/stock');
+        const data = await res.json();
+        if (!cancelled) {
+          if (!res.ok) setError(data.error ?? 'Could not load products right now.');
+          else setAllStock(data.results ?? []);
+        }
+      } catch {
+        if (!cancelled) setError('Could not reach the product list right now. Try again in a moment.');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    loadAll();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const filtered = useMemo(() => {
+    const trimmed = query.trim().toUpperCase();
+    if (!trimmed) return allStock;
+    return allStock.filter(
+      (r) => r.sku.includes(trimmed) || (r.name ?? '').toUpperCase().includes(trimmed)
+    );
+  }, [query, allStock]);
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const currentPage = Math.min(page, pageCount - 1);
+  const visible = filtered.slice(currentPage * PAGE_SIZE, currentPage * PAGE_SIZE + PAGE_SIZE);
+
+  useEffect(() => {
+    setPage(0);
+  }, [query]);
+
+  useEffect(() => {
+    if (visible.length === 0) return;
+    let cancelled = false;
+
+    async function loadPrices() {
+      setPricesLoading(true);
+      try {
+        const res = await fetch('/api/pricing/batch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            items: visible.map((v) => ({ sku: v.sku, stockCategory: v.stockCategory })),
+            qty: 1,
+          }),
+        });
+        const data = await res.json();
+        if (!cancelled && res.ok) {
+          const next: Record<string, PriceInfo> = {};
+          for (const r of data.results ?? []) {
+            next[r.sku] = { listPrice: r.listPrice, price: r.price, discountPercent: r.discountPercent };
+          }
+          setPrices((prev) => ({ ...prev, ...next }));
+        }
+      } catch {
+        // Stock is still useful even if pricing fails - don't block the page on it.
+      } finally {
+        if (!cancelled) setPricesLoading(false);
+      }
+    }
+
+    loadPrices();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPage, query, allStock.length]);
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="font-display text-3xl text-deep font-bold">Products</h1>
+        <p className="text-ink/50 mt-1">Search stock and pricing across every location.</p>
+      </div>
+
+      <div className="relative max-w-lg">
+        <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-ink/30" />
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search by SKU or product name"
+          className="w-full rounded-full border border-ink/10 bg-white pl-11 pr-4 py-3 text-sm shadow-soft focus:border-wave focus:ring-2 focus:ring-wave/20 outline-none"
+        />
+      </div>
+
+      {loading && (
+        <div className="flex items-center gap-2 text-ink/40 py-12 justify-center">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Loading products...
+        </div>
+      )}
+      {error && <p className="text-sm text-coral">{error}</p>}
+
+      {!loading && !error && (
+        <>
+          <p className="text-xs text-ink/40">
+            {filtered.length} {filtered.length === 1 ? 'product' : 'products'}
+            {query && ` matching "${query}"`}
+          </p>
+
+          {filtered.length === 0 ? (
+            <div className="rounded-2xl bg-white border border-ink/10 shadow-soft py-16 flex flex-col items-center gap-2">
+              <PackageX className="h-8 w-8 text-ink/20" />
+              <p className="text-ink/40">No products matched that search.</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {visible.map((item) => {
+                const stock = totalOnHand(item.byLocation);
+                const locations = Object.entries(item.byLocation ?? {});
+                const price = prices[item.sku];
+                return (
+                  <div
+                    key={item.sku}
+                    className="rounded-2xl bg-white border border-ink/10 shadow-soft p-5 flex flex-col gap-3 hover:shadow-glow hover:border-wave/20 transition-all"
+                  >
+                    <div>
+                      <p className="font-semibold text-ink leading-snug">{item.name || item.sku}</p>
+                      <p className="text-xs text-ink/40 mt-0.5 font-mono">{item.sku}</p>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {stock > 0 ? (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-splash/10 text-splash px-2.5 py-1 text-xs font-semibold">
+                          {stock} in stock
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-amber/10 text-amber px-2.5 py-1 text-xs font-semibold">
+                          Out of stock
+                        </span>
+                      )}
+                      {locations.length > 0 && (
+                        <span className="inline-flex items-center gap-1 text-xs text-ink/40">
+                          <MapPin className="h-3 w-3" />
+                          {locations.map(([loc]) => loc).join(', ')}
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="mt-auto pt-3 border-t border-ink/5">
+                      {pricesLoading && !price ? (
+                        <span className="text-xs text-ink/30">Pricing...</span>
+                      ) : price?.price != null ? (
+                        <div className="flex items-baseline gap-2">
+                          <span className="font-display text-xl text-deep font-bold">
+                            {formatMoney(price.price)}
+                          </span>
+                          {price.listPrice != null && price.price !== price.listPrice && (
+                            <span className="text-xs text-ink/40 line-through">
+                              {formatMoney(price.listPrice)}
+                            </span>
+                          )}
+                          {price.discountPercent ? (
+                            <span className="text-xs font-semibold text-sunset">
+                              -{price.discountPercent}%
+                            </span>
+                          ) : null}
+                        </div>
+                      ) : (
+                        <span className="text-xs text-ink/30">Price on request</span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {pageCount > 1 && (
+            <div className="flex items-center justify-between pt-2">
+              <button
+                onClick={() => setPage((p) => Math.max(0, p - 1))}
+                disabled={currentPage === 0}
+                className="rounded-full border border-ink/10 bg-white px-4 py-2 text-sm font-medium shadow-soft disabled:opacity-40"
+              >
+                Previous
+              </button>
+              <span className="text-xs text-ink/40">
+                Page {currentPage + 1} of {pageCount}
+              </span>
+              <button
+                onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
+                disabled={currentPage >= pageCount - 1}
+                className="rounded-full border border-ink/10 bg-white px-4 py-2 text-sm font-medium shadow-soft disabled:opacity-40"
+              >
+                Next
+              </button>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}

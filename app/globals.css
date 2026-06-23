@@ -1,0 +1,16 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html {
+  scroll-behavior: smooth;
+}
+
+:focus-visible {
+  outline: 2px solid #0EA5E9;
+  outline-offset: 2px;
+}
+
+.bg-wave-gradient {
+  background: radial-gradient(120% 120% at 0% 0%, #E0F7FA 0%, #F0F9FF 45%, #FFFFFF 100%);
+}
