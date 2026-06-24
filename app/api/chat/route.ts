@@ -31,16 +31,27 @@ const MAX_TOOL_ROUNDS = 5;
 
 async function toolSearchProducts(query: string) {
   const all = (await getJSON<StockEntry[]>('stock:all')) ?? [];
-  const trimmed = query.toUpperCase();
-  const matches = all
-    .filter((r) => r.sku.includes(trimmed) || (r.name ?? '').toUpperCase().includes(trimmed))
-    .slice(0, 10)
-    .map((r) => ({
-      sku: r.sku,
-      name: r.name,
-      totalOnHand: Object.values(r.byLocation ?? {}).reduce((sum, l) => sum + (l.onHand || 0), 0),
-    }));
-  return { matches, truncated: matches.length === 10 };
+
+  // Multi-word matching (every word must appear somewhere in SKU or name)
+  // rather than one literal phrase - "sand filter" should match "FILTER
+  // SAND TYPE X" just as well as "SAND FILTER SYSTEM", regardless of
+  // word order. This also makes partial SKU codes work naturally - a
+  // single "word" query like "AV250" still matches via substring.
+  const words = query.toUpperCase().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return { matches: [], truncated: false };
+
+  const filtered = all.filter((r) => {
+    const haystack = `${r.sku} ${r.name ?? ''}`.toUpperCase();
+    return words.every((w) => haystack.includes(w));
+  });
+
+  const matches = filtered.slice(0, 12).map((r) => ({
+    sku: r.sku,
+    name: r.name,
+    totalOnHand: Object.values(r.byLocation ?? {}).reduce((sum, l) => sum + (l.onHand || 0), 0),
+  }));
+
+  return { matches, truncated: filtered.length > 12 };
 }
 
 async function toolGetPrice(access: CustomerAccess, sku: string, qty = 1) {
@@ -62,30 +73,46 @@ async function toolGetPrice(access: CustomerAccess, sku: string, qty = 1) {
   return { sku, qty, listPrice, price, name: stockEntry.name };
 }
 
-async function toolGetOrderHistory(access: CustomerAccess, sku?: string) {
+async function toolGetOrderHistory(access: CustomerAccess, sku?: string, orderNo?: string) {
   const [perCustomer, customerNames] = await Promise.all([
     Promise.all(
       access.customerCodes.map(async (code) => {
         const lines = (await getJSON<OrderLine[]>(`orders:${code}`)) ?? [];
-        return (sku ? lines.filter((l) => l.sku === sku) : lines).map((l) => ({ ...l, customerCode: code }));
+        return lines.map((l) => ({ ...l, customerCode: code }));
       })
     ),
     getJSON<Record<string, string>>('customerNames'),
   ]);
-  const orders = perCustomer
-    .flat()
-    .map((o) => ({ ...o, branchName: customerNames?.[o.customerCode] ?? null }))
-    .slice(0, 20);
-  return { orders, truncated: orders.length === 20 };
+
+  let orders = perCustomer.flat().map((o) => ({ ...o, branchName: customerNames?.[o.customerCode] ?? null }));
+
+  // An exact order-number search (Hayward's own number OR the customer's
+  // own PO/reference number) takes priority and is never capped or
+  // filtered by SKU - finding the one order someone's asking about
+  // matters more than staying under a result limit.
+  if (orderNo) {
+    const trimmed = orderNo.trim();
+    orders = orders.filter((o) => o.orderNo === trimmed || o.customerOrderNo === trimmed);
+    return { orders, truncated: false };
+  }
+
+  if (sku) {
+    orders = orders.filter((o) => o.sku === sku);
+  }
+
+  orders = orders.sort((a, b) => new Date(b.orderDate).getTime() - new Date(a.orderDate).getTime());
+  const truncated = orders.length > 20;
+  return { orders: orders.slice(0, 20), truncated };
 }
 
 const tools: Anthropic.Tool[] = [
   {
     name: 'search_products',
-    description: 'Search the product catalog by SKU or product name. Returns matching products with current stock levels.',
+    description:
+      'Search the product catalog by product description, type, partial SKU, or full SKU. Words can appear in any order and don\'t need to be a full SKU - "sand filter", "av250", and "1A-AV250LI" are all valid. Use this any time someone describes what they\'re after rather than giving an exact SKU - e.g. "what sand filters do you have" should search "sand filter", not be treated as a question you answer from general knowledge. Returns matching products with current stock levels.',
     input_schema: {
       type: 'object',
-      properties: { query: { type: 'string', description: 'SKU or product name to search for' } },
+      properties: { query: { type: 'string', description: 'Product description, partial SKU, or full SKU' } },
       required: ['query'],
     },
   },
@@ -103,10 +130,17 @@ const tools: Anthropic.Tool[] = [
   },
   {
     name: 'get_order_history',
-    description: "Get this customer's past orders (last ~90 days), optionally filtered to one SKU.",
+    description:
+      "Get this customer's past orders (last ~90 days). Can search by SKU, or look up one specific order by its order number - this accepts EITHER Hayward's own order number OR the customer's own order/PO reference number (both are searched), so always use this when someone gives you any order number, regardless of which kind it is.",
     input_schema: {
       type: 'object',
-      properties: { sku: { type: 'string', description: 'Optional - filter to orders containing this SKU' } },
+      properties: {
+        sku: { type: 'string', description: 'Optional - filter to orders containing this SKU' },
+        orderNo: {
+          type: 'string',
+          description: "Optional - find one specific order by number. Matches either Hayward's order number or the customer's own order/PO number.",
+        },
+      },
     },
   },
 ];
@@ -165,9 +199,11 @@ export async function POST(req: NextRequest) {
 
   const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-  const systemPrompt = `You are a helpful assistant inside Hayward Pool Products' customer portal, currently helping someone from ${access.groupName}.
+  const systemPrompt = `You're a friendly, helpful assistant inside Hayward Pool Products' customer portal, currently helping someone from ${access.groupName}. Talk like a knowledgeable trade colleague, not a formal support bot - warm and direct, no corporate filler.
 
 You have tools to check live stock, pricing, and order history - always use them for any question about a specific product's price, stock level, or this customer's orders. Never guess or estimate a price or stock level from general knowledge; if a tool returns an error or no result, say so plainly rather than making something up.
+
+People will often describe what they want rather than give an exact SKU - "what sand filters do you have", "got any robotic cleaners in stock", a partial code like "av250" - search_products handles all of these naturally, so just search with whatever they said rather than asking them to look up the exact code first. If a search returns several matches, briefly list them (name + stock status is usually enough) rather than dumping every field for every result - the UI shows clickable cards for full details, so you don't need to explain pricing or order history for every single item unless asked.
 
 If manual content is attached to the conversation, use it to answer technical or installation questions, including describing diagrams or labelled photos if the manual is a PDF. If no relevant manual is attached and the question clearly needs one, say you don't have that manual rather than guessing at the answer.
 
@@ -179,6 +215,7 @@ Keep answers concise and practical - this is a trade/B2B audience, not a general
   ];
 
   let finalText = '';
+  const surfacedProducts = new Map<string, { sku: string; name: string | null | undefined; totalOnHand: number }>();
 
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
     const response = await anthropic.messages.create({
@@ -208,10 +245,17 @@ Keep answers concise and practical - this is a trade/B2B audience, not a general
           const input = tu.input as Record<string, unknown>;
           if (tu.name === 'search_products') {
             result = await toolSearchProducts(String(input.query ?? ''));
+            for (const m of (result as { matches: { sku: string; name: string | null | undefined; totalOnHand: number }[] }).matches) {
+              surfacedProducts.set(m.sku, m);
+            }
           } else if (tu.name === 'get_price') {
             result = await toolGetPrice(access, String(input.sku ?? ''), Number(input.qty ?? 1));
           } else if (tu.name === 'get_order_history') {
-            result = await toolGetOrderHistory(access, input.sku ? String(input.sku) : undefined);
+            result = await toolGetOrderHistory(
+              access,
+              input.sku ? String(input.sku) : undefined,
+              input.orderNo ? String(input.orderNo) : undefined
+            );
           } else {
             result = { error: 'Unknown tool' };
           }
@@ -232,5 +276,6 @@ Keep answers concise and practical - this is a trade/B2B audience, not a general
   return NextResponse.json({
     reply: finalText || "I couldn't generate a response - try rephrasing your question.",
     manualsUsed: relevantManuals.map((m) => m.title),
+    products: [...surfacedProducts.values()].slice(0, 12),
   });
 }
