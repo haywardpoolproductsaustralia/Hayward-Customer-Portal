@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
-import { Search, Plus, Trash2, Loader2, Printer, FileText, User, X } from 'lucide-react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
+import { Search, Plus, Trash2, Loader2, Printer, FileText, User, X, TrendingUp } from 'lucide-react';
 
 interface StockEntry {
   sku: string;
@@ -43,6 +43,30 @@ function resolvePrice(tiers: PriceTier[], qty: number): number | null {
     if (qty >= t.qty) best = t.price;
   }
   return best;
+}
+
+interface TierSuggestion {
+  extraUnits: number;
+  newQty: number;
+  newUnitPrice: number;
+  savingsPerUnit: number;
+  newLineTotal: number;
+}
+
+// The next break above the current qty, if one exists and is actually
+// cheaper - the "order a few more, pay less per unit" nudge.
+function getNextTierSuggestion(tiers: PriceTier[], qty: number, currentUnitPrice: number | null): TierSuggestion | null {
+  if (currentUnitPrice == null) return null;
+  const sorted = [...tiers].sort((a, b) => a.qty - b.qty);
+  const next = sorted.find((t) => t.qty > qty && t.price != null && t.price < currentUnitPrice);
+  if (!next || next.price == null) return null;
+  return {
+    extraUnits: next.qty - qty,
+    newQty: next.qty,
+    newUnitPrice: next.price,
+    savingsPerUnit: currentUnitPrice - next.price,
+    newLineTotal: next.price * next.qty,
+  };
 }
 
 export default function PricingPage() {
@@ -293,39 +317,86 @@ export default function PricingPage() {
             <tbody>
               {lines.map((l) => {
                 const unitPrice = resolvePrice(l.tiers, l.qty);
+                const discountPercent =
+                  l.listPrice && unitPrice != null
+                    ? Math.round((1 - unitPrice / l.listPrice) * 1000) / 10
+                    : null;
+                const suggestion = getNextTierSuggestion(l.tiers, l.qty, unitPrice);
+                const sortedTiers = [...l.tiers].sort((a, b) => a.qty - b.qty);
+
                 return (
-                  <tr key={l.sku} className="border-b border-ink/5 last:border-0">
-                    <td className="px-5 py-3.5">
-                      <p className="font-medium text-ink">{l.name}</p>
-                      <p className="text-xs text-ink/40 font-mono">{l.sku}</p>
-                    </td>
-                    <td className="px-5 py-3.5 text-right">
-                      <input
-                        type="number"
-                        min="1"
-                        value={l.qty}
-                        onChange={(e) => updateQty(l.sku, Number(e.target.value) || 1)}
-                        className="w-20 rounded-lg border border-ink/10 px-2 py-1 text-right text-sm focus:border-wave outline-none print:border-none"
-                      />
-                    </td>
-                    <td className="px-5 py-3.5 text-right">
-                      {l.loading ? (
-                        <Loader2 className="h-4 w-4 animate-spin inline text-ink/30" />
-                      ) : l.error ? (
-                        <span className="text-xs text-amber">{l.error}</span>
-                      ) : (
-                        formatMoney(unitPrice)
-                      )}
-                    </td>
-                    <td className="px-5 py-3.5 text-right font-semibold text-deep">
-                      {!l.loading && !l.error ? formatMoney((unitPrice ?? 0) * l.qty) : '-'}
-                    </td>
-                    <td className="px-5 py-3.5 text-right print:hidden">
-                      <button onClick={() => removeLine(l.sku)} className="p-1.5 rounded-full hover:bg-coral/10">
-                        <Trash2 className="h-4 w-4 text-ink/30 hover:text-coral" />
-                      </button>
-                    </td>
-                  </tr>
+                  <Fragment key={l.sku}>
+                    <tr className="border-b border-ink/5">
+                      <td className="px-5 py-3.5">
+                        <p className="font-medium text-ink">{l.name}</p>
+                        <p className="text-xs text-ink/40 font-mono">{l.sku}</p>
+                      </td>
+                      <td className="px-5 py-3.5 text-right">
+                        <input
+                          type="number"
+                          min="1"
+                          value={l.qty}
+                          onChange={(e) => updateQty(l.sku, Number(e.target.value) || 1)}
+                          className="w-20 rounded-lg border border-ink/10 px-2 py-1 text-right text-sm focus:border-wave outline-none print:border-none"
+                        />
+                      </td>
+                      <td className="px-5 py-3.5 text-right">
+                        {l.loading ? (
+                          <Loader2 className="h-4 w-4 animate-spin inline text-ink/30" />
+                        ) : l.error ? (
+                          <span className="text-xs text-amber">{l.error}</span>
+                        ) : (
+                          <div>
+                            <div>{formatMoney(unitPrice)}</div>
+                            {discountPercent ? (
+                              <div className="text-xs font-semibold text-sunset">-{discountPercent}% off list</div>
+                            ) : null}
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-5 py-3.5 text-right font-semibold text-deep">
+                        {!l.loading && !l.error ? formatMoney((unitPrice ?? 0) * l.qty) : '-'}
+                      </td>
+                      <td className="px-5 py-3.5 text-right print:hidden">
+                        <button onClick={() => removeLine(l.sku)} className="p-1.5 rounded-full hover:bg-coral/10">
+                          <Trash2 className="h-4 w-4 text-ink/30 hover:text-coral" />
+                        </button>
+                      </td>
+                    </tr>
+                    {!l.loading && !l.error && sortedTiers.length > 0 && (
+                      <tr className="border-b border-ink/5 last:border-0 print:hidden">
+                        <td colSpan={5} className="px-5 pb-3.5 pt-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-xs text-ink/40">Quantity breaks:</span>
+                            {sortedTiers.map((t) => {
+                              const isActive = t.qty <= l.qty && (sortedTiers.filter((x) => x.qty <= l.qty).slice(-1)[0]?.qty === t.qty);
+                              return (
+                                <span
+                                  key={t.qty}
+                                  className={`text-xs rounded-full px-2.5 py-1 font-medium ${
+                                    isActive ? 'bg-wave text-white' : 'bg-foam text-ink/50'
+                                  }`}
+                                >
+                                  {t.qty}+: {formatMoney(t.price)}
+                                </span>
+                              );
+                            })}
+                            {suggestion && (
+                              <button
+                                onClick={() => updateQty(l.sku, suggestion.newQty)}
+                                className="flex items-center gap-1.5 text-xs rounded-full bg-splash/10 text-splash px-2.5 py-1 font-medium hover:bg-splash/20 transition-colors"
+                              >
+                                <TrendingUp className="h-3 w-3" />
+                                Add {suggestion.extraUnits} more ({suggestion.newQty} total) to drop to{' '}
+                                {formatMoney(suggestion.newUnitPrice)}/unit - save {formatMoney(suggestion.savingsPerUnit)}
+                                /unit
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
                 );
               })}
             </tbody>
