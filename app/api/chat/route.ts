@@ -15,6 +15,7 @@ interface StockEntry {
 
 interface OrderLine {
   orderNo: string;
+  customerOrderNo: string | null;
   orderDate: string;
   statusFlag: string;
   sku: string;
@@ -62,13 +63,19 @@ async function toolGetPrice(access: CustomerAccess, sku: string, qty = 1) {
 }
 
 async function toolGetOrderHistory(access: CustomerAccess, sku?: string) {
-  const perCustomer = await Promise.all(
-    access.customerCodes.map(async (code) => {
-      const lines = (await getJSON<OrderLine[]>(`orders:${code}`)) ?? [];
-      return (sku ? lines.filter((l) => l.sku === sku) : lines).map((l) => ({ ...l, customerCode: code }));
-    })
-  );
-  const orders = perCustomer.flat().slice(0, 20);
+  const [perCustomer, customerNames] = await Promise.all([
+    Promise.all(
+      access.customerCodes.map(async (code) => {
+        const lines = (await getJSON<OrderLine[]>(`orders:${code}`)) ?? [];
+        return (sku ? lines.filter((l) => l.sku === sku) : lines).map((l) => ({ ...l, customerCode: code }));
+      })
+    ),
+    getJSON<Record<string, string>>('customerNames'),
+  ]);
+  const orders = perCustomer
+    .flat()
+    .map((o) => ({ ...o, branchName: customerNames?.[o.customerCode] ?? null }))
+    .slice(0, 20);
   return { orders, truncated: orders.length === 20 };
 }
 
