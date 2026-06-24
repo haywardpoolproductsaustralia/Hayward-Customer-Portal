@@ -7,6 +7,7 @@ interface OrderLine {
   customerOrderNo: string | null;
   orderDate: string;
   expectedDate: string;
+  invoiceDate: string | null;
   statusFlag: string;
   sku: string;
   qtyOrdered: number;
