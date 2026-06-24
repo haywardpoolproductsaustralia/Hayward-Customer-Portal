@@ -19,6 +19,7 @@ interface PriceInfo {
 
 interface OrderLine {
   orderNo: string;
+  customerOrderNo: string | null;
   orderDate: string;
   statusFlag: string;
   qtyOrdered: number;
@@ -226,6 +227,9 @@ function ProductDetail({ item, onClose }: { item: StockEntry; onClose: () => voi
                   >
                     <div>
                       <p className="font-medium text-ink">Order {o.orderNo}</p>
+                      {o.customerOrderNo && (
+                        <p className="text-xs text-ink/50">Your order #{o.customerOrderNo}</p>
+                      )}
                       <p className="text-xs text-ink/40">{formatDate(o.orderDate)}</p>
                     </div>
                     <div className="text-right">
