@@ -47,6 +47,12 @@ export async function GET(req: NextRequest) {
   const listPrice = stockEntry?.listPrice ?? null;
   const price = computePrice(rule, qty, listPrice);
 
+  // Full quantity-break ladder, so the UI can show "buy 3+, buy 11+, ..."
+  // instead of just one number for the requested qty.
+  const breaks = [...rule.breaks]
+    .sort((a, b) => a.qty - b.qty)
+    .map((b) => ({ qty: b.qty, price: computePrice(rule, b.qty, listPrice) }));
+
   return NextResponse.json({
     sku,
     qty,
@@ -55,5 +61,6 @@ export async function GET(req: NextRequest) {
     price,
     discountPercent:
       listPrice && price != null ? Math.round((1 - price / listPrice) * 1000) / 10 : null,
+    breaks,
   });
 }

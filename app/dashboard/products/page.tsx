@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { Search, MapPin, PackageX, Loader2, X, Receipt } from 'lucide-react';
+import { Search, MapPin, PackageX, Loader2, X, Receipt, AlertCircle } from 'lucide-react';
 
 interface StockEntry {
   sku: string;
@@ -56,23 +56,68 @@ function totalOnHand(byLocation?: StockEntry['byLocation']) {
   return Object.values(byLocation).reduce((sum, loc) => sum + (loc.onHand || 0), 0);
 }
 
-function ProductDetail({ item, price, onClose }: { item: StockEntry; price?: PriceInfo; onClose: () => void }) {
+interface FullPricing {
+  listPrice: number | null;
+  price: number | null;
+  discountPercent: number | null;
+  breaks: { qty: number; price: number | null }[];
+}
+
+function ProductDetail({ item, onClose }: { item: StockEntry; onClose: () => void }) {
   const [orders, setOrders] = useState<OrderLine[] | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [ordersError, setOrdersError] = useState<string | null>(null);
+  const [ordersLoading, setOrdersLoading] = useState(true);
+
+  const [pricing, setPricing] = useState<FullPricing | null>(null);
+  const [pricingError, setPricingError] = useState<string | null>(null);
+  const [pricingLoading, setPricingLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
+    setOrdersLoading(true);
+    setOrdersError(null);
     fetch(`/api/orders/by-sku?sku=${encodeURIComponent(item.sku)}`)
-      .then((r) => r.json())
-      .then((data) => {
-        if (!cancelled) setOrders(data.orders ?? []);
+      .then(async (r) => {
+        const data = await r.json();
+        if (cancelled) return;
+        if (!r.ok) {
+          setOrdersError(data.error ?? 'Could not load your order history.');
+          setOrders(null);
+        } else {
+          setOrders(data.orders ?? []);
+        }
       })
       .catch(() => {
-        if (!cancelled) setOrders([]);
+        if (!cancelled) setOrdersError('Could not reach the server. Try refreshing the page.');
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) setOrdersLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [item.sku]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setPricingLoading(true);
+    setPricingError(null);
+    fetch(`/api/pricing?sku=${encodeURIComponent(item.sku)}&qty=1`)
+      .then(async (r) => {
+        const data = await r.json();
+        if (cancelled) return;
+        if (!r.ok) {
+          setPricingError(data.error ?? 'Could not load pricing for this product.');
+          setPricing(null);
+        } else {
+          setPricing(data);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setPricingError('Could not reach the server. Try refreshing the page.');
+      })
+      .finally(() => {
+        if (!cancelled) setPricingLoading(false);
       });
     return () => {
       cancelled = true;
@@ -96,17 +141,48 @@ function ProductDetail({ item, price, onClose }: { item: StockEntry; price?: Pri
         </div>
 
         <div className="p-5 space-y-5">
-          <div className="flex items-baseline gap-3">
-            {price?.price != null ? (
-              <>
-                <span className="font-display text-2xl text-deep font-bold">{formatMoney(price.price)}</span>
-                {price.listPrice != null && price.price !== price.listPrice && (
-                  <span className="text-sm text-ink/40 line-through">{formatMoney(price.listPrice)}</span>
+          <div>
+            <p className="text-xs font-semibold text-ink/40 uppercase tracking-wide mb-2">Pricing</p>
+            {pricingLoading ? (
+              <div className="flex items-center gap-2 text-sm text-ink/40 py-2">
+                <Loader2 className="h-4 w-4 animate-spin" /> Loading pricing...
+              </div>
+            ) : pricingError ? (
+              <div className="flex items-start gap-2 rounded-xl bg-amber/10 px-3.5 py-2.5 text-sm text-amber">
+                <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+                <span>{pricingError}</span>
+              </div>
+            ) : pricing ? (
+              <div className="space-y-2">
+                {pricing.listPrice != null && (
+                  <div className="flex items-baseline justify-between text-sm">
+                    <span className="text-ink/50">List price</span>
+                    <span className="text-ink/70 font-medium">{formatMoney(pricing.listPrice)}</span>
+                  </div>
                 )}
-                {price.discountPercent ? (
-                  <span className="text-sm font-semibold text-sunset">-{price.discountPercent}%</span>
-                ) : null}
-              </>
+                <div className="flex items-baseline justify-between">
+                  <span className="text-sm text-ink/50">Your price (qty 1)</span>
+                  <div className="flex items-baseline gap-2">
+                    <span className="font-display text-xl text-deep font-bold">
+                      {formatMoney(pricing.price) ?? 'On request'}
+                    </span>
+                    {pricing.discountPercent ? (
+                      <span className="text-xs font-semibold text-sunset">-{pricing.discountPercent}%</span>
+                    ) : null}
+                  </div>
+                </div>
+                {pricing.breaks.length > 0 && (
+                  <div className="pt-2 border-t border-ink/5 space-y-1.5">
+                    <p className="text-xs text-ink/40 mb-1">Buy more, pay less</p>
+                    {pricing.breaks.map((b) => (
+                      <div key={b.qty} className="flex items-baseline justify-between text-sm">
+                        <span className="text-ink/60">Qty {b.qty}+</span>
+                        <span className="font-medium text-ink">{formatMoney(b.price) ?? 'On request'} each</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             ) : (
               <span className="text-sm text-ink/30">Price on request</span>
             )}
@@ -132,9 +208,14 @@ function ProductDetail({ item, price, onClose }: { item: StockEntry; price?: Pri
 
           <div>
             <p className="text-xs font-semibold text-ink/40 uppercase tracking-wide mb-2">Your orders for this product</p>
-            {loading ? (
+            {ordersLoading ? (
               <div className="flex items-center gap-2 text-sm text-ink/40 py-4">
                 <Loader2 className="h-4 w-4 animate-spin" /> Loading order history...
+              </div>
+            ) : ordersError ? (
+              <div className="flex items-start gap-2 rounded-xl bg-amber/10 px-3.5 py-2.5 text-sm text-amber">
+                <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+                <span>{ordersError}</span>
               </div>
             ) : orders && orders.length > 0 ? (
               <div className="space-y-2">
@@ -168,6 +249,7 @@ function ProductDetail({ item, price, onClose }: { item: StockEntry; price?: Pri
   );
 }
 
+
 export default function ProductsPage() {
   const [query, setQuery] = useState('');
   const [allStock, setAllStock] = useState<StockEntry[]>([]);
@@ -176,6 +258,7 @@ export default function ProductsPage() {
   const [page, setPage] = useState(0);
   const [prices, setPrices] = useState<Record<string, PriceInfo>>({});
   const [pricesLoading, setPricesLoading] = useState(false);
+  const [pricingAccessError, setPricingAccessError] = useState<string | null>(null);
   const [selected, setSelected] = useState<StockEntry | null>(null);
 
   useEffect(() => {
@@ -234,15 +317,19 @@ export default function ProductsPage() {
           }),
         });
         const data = await res.json();
-        if (!cancelled && res.ok) {
-          const next: Record<string, PriceInfo> = {};
-          for (const r of data.results ?? []) {
-            next[r.sku] = { listPrice: r.listPrice, price: r.price, discountPercent: r.discountPercent };
-          }
-          setPrices((prev) => ({ ...prev, ...next }));
+        if (cancelled) return;
+        if (!res.ok) {
+          setPricingAccessError(data.error ?? 'Could not load pricing right now.');
+          return;
         }
+        setPricingAccessError(null);
+        const next: Record<string, PriceInfo> = {};
+        for (const r of data.results ?? []) {
+          next[r.sku] = { listPrice: r.listPrice, price: r.price, discountPercent: r.discountPercent };
+        }
+        setPrices((prev) => ({ ...prev, ...next }));
       } catch {
-        // Stock is still useful even if pricing fails - don't block the page on it.
+        if (!cancelled) setPricingAccessError('Could not reach pricing right now.');
       } finally {
         if (!cancelled) setPricesLoading(false);
       }
@@ -279,6 +366,13 @@ export default function ProductsPage() {
         </div>
       )}
       {error && <p className="text-sm text-coral">{error}</p>}
+
+      {pricingAccessError && (
+        <div className="flex items-start gap-2 rounded-2xl bg-amber/10 border border-amber/20 px-4 py-3 text-sm text-amber">
+          <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+          <span>{pricingAccessError} Stock is still shown below, but prices can&apos;t be calculated until this is resolved.</span>
+        </div>
+      )}
 
       {!loading && !error && (
         <>
@@ -369,7 +463,7 @@ export default function ProductsPage() {
       )}
 
       {selected && (
-        <ProductDetail item={selected} price={prices[selected.sku]} onClose={() => setSelected(null)} />
+        <ProductDetail item={selected} onClose={() => setSelected(null)} />
       )}
     </div>
   );

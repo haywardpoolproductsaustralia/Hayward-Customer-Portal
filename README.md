@@ -81,10 +81,44 @@ their organization and see every customer code in that group.
   group's branches ever turn out to have genuinely different negotiated
   rates, the pricing API will need to resolve price type per-branch
   rather than from one representative code.
-- **Manuals page is a placeholder.** Blob storage for tech manuals
-  hasn't been built yet.
 - **Order status labels are a best guess**, not confirmed against Arrow's
   actual documentation for `STATUS_FLAG` - see `portal-sync/README.md`.
+
+## Manuals knowledge base
+
+`config/manuals.json` is a small checked-in list (title, tags, Blob
+storage URL) - manuals don't change often, so a database felt like
+overkill. Files live in Vercel Blob storage; see the upload script
+shared separately for bulk-importing an existing folder of manuals.
+
+## Assistant (chatbot)
+
+`/dashboard/assistant` - a real chatbot, not just manual lookup. It has
+three tools (`search_products`, `get_price`, `get_order_history`) that
+call the exact same logic the rest of the app uses - it never guesses a
+price or stock level from general knowledge, only from these tools. The
+system prompt explicitly tells it to say so plainly if a tool comes back
+empty rather than making something up.
+
+For technical/install questions, it also pulls in relevant manuals
+automatically based on keyword overlap with the question (see
+`lib/manuals.ts`) - PDFs are sent to Claude as real documents (so it can
+read diagrams and labelled photos, not just searchable text), `.md`
+files are sent as plain text.
+
+Needs `ANTHROPIC_API_KEY` set (see `.env.example`) - this incurs real
+Anthropic API usage costs per conversation, worth keeping an eye on
+usage at console.anthropic.com once this is getting real traffic.
+
+**Not yet handled, worth knowing:**
+- No conversation persistence - history only lives in the browser tab,
+  lost on refresh.
+- No rate limiting - a heavy user (or someone hammering it) could run up
+  real API costs. Worth adding if this becomes a real concern.
+- The manual-matching is simple keyword overlap, not real semantic
+  search - fine for a modest, well-tagged manual library, but worth
+  upgrading to embeddings-based search if the library grows large or
+  tags get inconsistent.
 
 ## Deploying
 
