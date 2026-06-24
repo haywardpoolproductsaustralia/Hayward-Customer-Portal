@@ -14,7 +14,7 @@ import { getJSON } from './redis';
 // Update this if a group is renamed, recreated, or a new customer is
 // onboarded - it must stay in sync with both Clerk's Organizations list
 // and portal-sync/config/customer-groups.json.
-const ORG_ID_TO_GROUP: Record<string, { groupKey: string; displayName: string }> = {
+const ORG_ID_TO_GROUP: Record<string, { groupKey: string; displayName: string; isAggregate?: boolean }> = {
   org_3FWBvIWbOTuSElJBoHDld0Ot6ei: { groupKey: 'Reece', displayName: 'Reece' },
   org_3FWC4rJyCAWsAdyGXeoEMbG894C: { groupKey: 'Poolwerx', displayName: 'Poolwerx' },
   org_3FWC65qfMobPhnZBDTnKyDAbz7V: { groupKey: 'PoolSystems', displayName: 'Pool Systems' },
@@ -33,6 +33,8 @@ const ORG_ID_TO_GROUP: Record<string, { groupKey: string; displayName: string }>
   org_3FWCHT2hvn39unvzJioqotHa0N1: { groupKey: 'AZPools', displayName: 'A-Z Pools' },
   org_3FWG2xzxgqm35j6Y3C3419jpbZb: { groupKey: 'PoolSpaWarehouse', displayName: 'Pool & Spa Warehouse' },
   org_3FWG3cp9MADKgjC356dt2jSVcSn: { groupKey: 'Compass', displayName: 'Compass' },
+  // TODO: add the real Hayward org ID once it's created in Clerk, e.g.:
+  // org_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX: { groupKey: 'Hayward', displayName: 'Hayward', isAggregate: true },
   // Test Org intentionally excluded - not a real customer group.
 };
 
@@ -40,6 +42,7 @@ export interface CustomerAccess {
   groupName: string;
   groupKey: string;
   isHeadOffice: boolean;
+  isAggregate: boolean;
   branchCode: string | null;
   customerCodes: string[];
 }
@@ -74,6 +77,7 @@ export async function getCustomerAccess(): Promise<CustomerAccess | null> {
       groupName: group.displayName,
       groupKey: group.groupKey,
       isHeadOffice: false,
+      isAggregate: false,
       branchCode,
       customerCodes: [branchCode],
     };
@@ -87,6 +91,7 @@ export async function getCustomerAccess(): Promise<CustomerAccess | null> {
     groupName: group.displayName,
     groupKey: group.groupKey,
     isHeadOffice: true,
+    isAggregate: Boolean(group.isAggregate),
     branchCode: null,
     customerCodes,
   };
