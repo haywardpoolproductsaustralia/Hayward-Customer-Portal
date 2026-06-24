@@ -1,1 +1,726 @@
-[]
+[
+  {
+    "title": "AquaRite Master-Slave Installation & Setup Manual (Rev A)",
+    "url": "https://xa7kjhlynm4hvkyv.public.blob.vercel-storage.com/manuals/automation-and-chlorination/AQR-master-slave-installation-setup-manual-revA.pdf",
+    "tags": [
+      "AquaRite",
+      "salt chlorinator",
+      "installation",
+      "master-slave"
+    ]
+  },
+  {
+    "title": "AquaRite Owner's Manual",
+    "url": "https://xa7kjhlynm4hvkyv.public.blob.vercel-storage.com/manuals/automation-and-chlorination/AQR-owners-manual.pdf",
+    "tags": [
+      "AquaRite",
+      "salt chlorinator",
+      "owners manual"
+    ]
+  },
+  {
+    "title": "AquaRite Sell Sheet",
+    "url": "https://xa7kjhlynm4hvkyv.public.blob.vercel-storage.com/manuals/automation-and-chlorination/Aquarite%20Sellsheet%20d.1.pdf",
+    "tags": [
+      "AquaRite",
+      "salt chlorinator",
+      "sellsheet"
+    ]
+  },
+  {
+    "title": "AquaRite Sell Sheet with ClearCell (Small)",
+    "url": "https://xa7kjhlynm4hvkyv.public.blob.vercel-storage.com/manuals/automation-and-chlorination/Aquarite%20Sellsheet%20w%20Clearcell%20d.1%20SMALL.pdf",
+    "tags": [
+      "AquaRite",
+      "ClearCell",
+      "salt chlorinator",
+      "sellsheet"
+    ]
+  },
+  {
+    "title": "AquaRite Sell Sheet with ClearCell",
+    "url": "https://xa7kjhlynm4hvkyv.public.blob.vercel-storage.com/manuals/automation-and-chlorination/Aquarite%20Sellsheet%20w%20Clearcell%20d.1.pdf",
+    "tags": [
+      "AquaRite",
+      "ClearCell",
+      "salt chlorinator",
+      "sellsheet"
+    ]
+  },
+  {
+    "title": "OmniLogic Sell Sheet",
+    "url": "https://xa7kjhlynm4hvkyv.public.blob.vercel-storage.com/manuals/automation-and-chlorination/OmniLogic%20Sell%20Sheet%20d.1%2001-22%20(2).pdf",
+    "tags": [
+      "OmniLogic",
+      "automation",
+      "sellsheet"
+    ]
+  },
+  {
+    "title": "Plug-n-Clear Sell Sheet",
+    "url": "https://xa7kjhlynm4hvkyv.public.blob.vercel-storage.com/manuals/automation-and-chlorination/Plug-n-Clear_SELLSHEET_lower%20resV2.pdf",
+    "tags": [
+      "Plug-n-Clear",
+      "chlorination",
+      "sellsheet"
+    ]
+  },
+  {
+    "title": "Plug-n-Clear Owner's Manual (AU)",
+    "url": "https://xa7kjhlynm4hvkyv.public.blob.vercel-storage.com/manuals/automation-and-chlorination/PlugnClear-AU%20Owner's%20Manual-final%20(002).pdf",
+    "tags": [
+      "Plug-n-Clear",
+      "chlorination",
+      "owners manual"
+    ]
+  },
+  {
+    "title": "OmniLogic Installation Manual",
+    "url": "https://xa7kjhlynm4hvkyv.public.blob.vercel-storage.com/manuals/automation-and-chlorination/omnilogic_installation_manual_e656.pdf",
+    "tags": [
+      "OmniLogic",
+      "automation",
+      "installation"
+    ]
+  },
+  {
+    "title": "OmniLogic Operation Manual",
+    "url": "https://xa7kjhlynm4hvkyv.public.blob.vercel-storage.com/manuals/automation-and-chlorination/omnilogic_operation_manual_5427.pdf",
+    "tags": [
+      "OmniLogic",
+      "automation",
+      "operation manual"
+    ]
+  },
+  {
+    "title": "Aquanaut 250 Sell Sheet",
+    "url": "https://xa7kjhlynm4hvkyv.public.blob.vercel-storage.com/manuals/cleaners/Aquanaut%20250%20Sellsheet%20d.1.pdf",
+    "tags": [
+      "Aquanaut 250",
+      "pool cleaner",
+      "sellsheet"
+    ]
+  },
+  {
+    "title": "iPowerShark Manual",
+    "url": "https://xa7kjhlynm4hvkyv.public.blob.vercel-storage.com/manuals/cleaners/IPOWERSHARK_manual_7899.pdf",
+    "tags": [
+      "iPowerShark",
+      "pool cleaner",
+      "manual"
+    ]
+  },
+  {
+    "title": "TracVac Manual",
+    "url": "https://xa7kjhlynm4hvkyv.public.blob.vercel-storage.com/manuals/cleaners/Manual%20TracVac.pdf",
+    "tags": [
+      "TracVac",
+      "pool cleaner",
+      "manual"
+    ]
+  },
+  {
+    "title": "TigerShark Manual",
+    "url": "https://xa7kjhlynm4hvkyv.public.blob.vercel-storage.com/manuals/cleaners/TigerShark-Manual.pdf",
+    "tags": [
+      "TigerShark",
+      "pool cleaner",
+      "manual"
+    ]
+  },
+  {
+    "title": "TracVac Sell Sheet",
+    "url": "https://xa7kjhlynm4hvkyv.public.blob.vercel-storage.com/manuals/cleaners/TracVac%20Sell%20sheet_compressed.pdf",
+    "tags": [
+      "TracVac",
+      "pool cleaner",
+      "sellsheet"
+    ]
+  },
+  {
+    "title": "Aquanaut 250/450 Manual (ISSC100AU)",
+    "url": "https://xa7kjhlynm4hvkyv.public.blob.vercel-storage.com/manuals/cleaners/aquanaut-250-450-ISSC100AU.pdf",
+    "tags": [
+      "Aquanaut 250",
+      "Aquanaut 450",
+      "pool cleaner",
+      "manual"
+    ]
+  },
+  {
+    "title": "iPowerShark Sell Sheet",
+    "url": "https://xa7kjhlynm4hvkyv.public.blob.vercel-storage.com/manuals/cleaners/iPowerShark_SELLSHEET_no%20bleeds.pdf",
+    "tags": [
+      "iPowerShark",
+      "pool cleaner",
+      "sellsheet"
+    ]
+  },
+  {
+    "title": "Navigator Pro Owner's Manual",
+    "url": "https://xa7kjhlynm4hvkyv.public.blob.vercel-storage.com/manuals/cleaners/navigator-pro-owners-manual.pdf",
+    "tags": [
+      "Navigator Pro",
+      "pool cleaner",
+      "owners manual"
+    ]
+  },
+  {
+    "title": "Navigator V-Flex Manual",
+    "url": "https://xa7kjhlynm4hvkyv.public.blob.vercel-storage.com/manuals/cleaners/navigator-v-flex.pdf",
+    "tags": [
+      "Navigator V-Flex",
+      "pool cleaner",
+      "manual"
+    ]
+  },
+  {
+    "title": "Pro Series Top Mount Sand Filter Sell Sheet",
+    "url": "https://xa7kjhlynm4hvkyv.public.blob.vercel-storage.com/manuals/filters/Pro%20Series%20Top%20Mount%20Sand%20Filter%20Sellsheet%20d.1.pdf",
+    "tags": [
+      "Pro Series",
+      "sand filter",
+      "sellsheet"
+    ]
+  },
+  {
+    "title": "SwimClear Quad Cluster Sell Sheet",
+    "url": "https://xa7kjhlynm4hvkyv.public.blob.vercel-storage.com/manuals/filters/SwimClear%20Quad%20Cluster%20Sellsheet%20d.1%2006-22.pdf",
+    "tags": [
+      "SwimClear",
+      "cartridge filter",
+      "sellsheet"
+    ]
+  },
+  {
+    "title": "SwimClear Single Cartridge Sell Sheet",
+    "url": "https://xa7kjhlynm4hvkyv.public.blob.vercel-storage.com/manuals/filters/SwimClear%20Single%20Cartridge%20Sellsheet%20d.1.pdf",
+    "tags": [
+      "SwimClear",
+      "cartridge filter",
+      "sellsheet"
+    ]
+  },
+  {
+    "title": "SwimClear Cartridge Filters Manual",
+    "url": "https://xa7kjhlynm4hvkyv.public.blob.vercel-storage.com/manuals/filters/SwimClear%20cartridge%20filters%20manual.pdf",
+    "tags": [
+      "SwimClear",
+      "cartridge filter",
+      "manual"
+    ]
+  },
+  {
+    "title": "PowerLine Sand Filter Manual",
+    "url": "https://xa7kjhlynm4hvkyv.public.blob.vercel-storage.com/manuals/filters/powerline_sand_filter_3e45.pdf",
+    "tags": [
+      "PowerLine",
+      "sand filter",
+      "manual"
+    ]
+  },
+  {
+    "title": "EnergyLine Inverter Sell Sheet",
+    "url": "https://xa7kjhlynm4hvkyv.public.blob.vercel-storage.com/manuals/heaters/EnergyLine%20Inverter%20Sell%20Sheet-11.23.pdf",
+    "tags": [
+      "EnergyLine",
+      "heat pump",
+      "inverter",
+      "sellsheet"
+    ]
+  },
+  {
+    "title": "EnergyLine Pro Inverter Sell Sheet",
+    "url": "https://xa7kjhlynm4hvkyv.public.blob.vercel-storage.com/manuals/heaters/EnergyLine%20Pro%20Inverter%20Sell%20Sheet-d.1%2004-22.pdf",
+    "tags": [
+      "EnergyLine Pro",
+      "heat pump",
+      "inverter",
+      "sellsheet"
+    ]
+  },
+  {
+    "title": "HydraHeat Inverter Sell Sheet",
+    "url": "https://xa7kjhlynm4hvkyv.public.blob.vercel-storage.com/manuals/heaters/HydraHeat%20Inverter%20Sell%20Sheet-compressed.pdf",
+    "tags": [
+      "HydraHeat",
+      "heat pump",
+      "inverter",
+      "sellsheet"
+    ]
+  },
+  {
+    "title": "HydraHeat Manual (HPA BP12 Platform)",
+    "url": "https://xa7kjhlynm4hvkyv.public.blob.vercel-storage.com/manuals/heaters/HydraHeat%20m.anual%20for%20HPA%20BP12%20platform%20latest%2027052026%20_compressed.pdf",
+    "tags": [
+      "HydraHeat",
+      "heat pump",
+      "manual"
+    ]
+  },
+  {
+    "title": "S.Line Sell Sheet",
+    "url": "https://xa7kjhlynm4hvkyv.public.blob.vercel-storage.com/manuals/heaters/S.Line%20Sellsheet.pdf",
+    "tags": [
+      "S.Line",
+      "heat pump",
+      "sellsheet"
+    ]
+  },
+  {
+    "title": "S.Line Pro-Fi Range Heaters",
+    "url": "https://xa7kjhlynm4hvkyv.public.blob.vercel-storage.com/manuals/heaters/S.Line%20pro%20fi%20range%20heaters.pdf",
+    "tags": [
+      "S.Line Pro-Fi",
+      "heat pump",
+      "sellsheet"
+    ]
+  },
+  {
+    "title": "S.Line Heat Pump Manual",
+    "url": "https://xa7kjhlynm4hvkyv.public.blob.vercel-storage.com/manuals/heaters/S_Line_heat_pump_manual.pdf",
+    "tags": [
+      "S.Line",
+      "heat pump",
+      "manual"
+    ]
+  },
+  {
+    "title": "Sumheat Li Sell Sheet",
+    "url": "https://xa7kjhlynm4hvkyv.public.blob.vercel-storage.com/manuals/heaters/Sumheat%20Li%20Sell%20Sheet-d.3%2002-22%20(2).pdf",
+    "tags": [
+      "Sumheat Li",
+      "heat pump",
+      "sellsheet"
+    ]
+  },
+  {
+    "title": "Universal H-Series H3BD Connection Instructions",
+    "url": "https://xa7kjhlynm4hvkyv.public.blob.vercel-storage.com/manuals/heaters/universal-h-series-h3bd-connection-instructions.pdf",
+    "tags": [
+      "Universal H-Series",
+      "gas heater",
+      "installation"
+    ]
+  },
+  {
+    "title": "Universal H-Series H3BD Instructions",
+    "url": "https://xa7kjhlynm4hvkyv.public.blob.vercel-storage.com/manuals/heaters/universal-h-series-h3bd-instructions.pdf",
+    "tags": [
+      "Universal H-Series",
+      "gas heater",
+      "instructions"
+    ]
+  },
+  {
+    "title": "Universal H-Series Indoor Flue Installation",
+    "url": "https://xa7kjhlynm4hvkyv.public.blob.vercel-storage.com/manuals/heaters/universal-h-series-indoor-flue-install.pdf",
+    "tags": [
+      "Universal H-Series",
+      "gas heater",
+      "installation",
+      "flue"
+    ]
+  },
+  {
+    "title": "Universal H-Series Installation Manual (AUS)",
+    "url": "https://xa7kjhlynm4hvkyv.public.blob.vercel-storage.com/manuals/heaters/universal-h-series-installation-manual-aus.pdf",
+    "tags": [
+      "Universal H-Series",
+      "gas heater",
+      "installation manual"
+    ]
+  },
+  {
+    "title": "Universal H-Series Owner's Manual (AUS)",
+    "url": "https://xa7kjhlynm4hvkyv.public.blob.vercel-storage.com/manuals/heaters/universal-h-series-owners-manual-aus.pdf",
+    "tags": [
+      "Universal H-Series",
+      "gas heater",
+      "owners manual"
+    ]
+  },
+  {
+    "title": "EcoStar VS Manual",
+    "url": "https://xa7kjhlynm4hvkyv.public.blob.vercel-storage.com/manuals/pumps/EcoStar%20Vs%20Manual_d.3.pdf",
+    "tags": [
+      "EcoStar VS",
+      "pump",
+      "manual"
+    ]
+  },
+  {
+    "title": "MaxFlo VS - 1HP",
+    "url": "https://xa7kjhlynm4hvkyv.public.blob.vercel-storage.com/manuals/pumps/MaxFlo%20VS%201hp.pdf",
+    "tags": [
+      "MaxFlo VS",
+      "pump",
+      "1hp"
+    ]
+  },
+  {
+    "title": "MaxFlo VS Sell Sheet",
+    "url": "https://xa7kjhlynm4hvkyv.public.blob.vercel-storage.com/manuals/pumps/MaxFlo%20VS%20d.1.pdf",
+    "tags": [
+      "MaxFlo VS",
+      "pump",
+      "sellsheet"
+    ]
+  },
+  {
+    "title": "MaxFlo Manual",
+    "url": "https://xa7kjhlynm4hvkyv.public.blob.vercel-storage.com/manuals/pumps/MaxFlo%20manual.pdf",
+    "tags": [
+      "MaxFlo",
+      "pump",
+      "manual"
+    ]
+  },
+  {
+    "title": "PowerFlo II DI Manual (SP8105DI81AU, Rev A)",
+    "url": "https://xa7kjhlynm4hvkyv.public.blob.vercel-storage.com/manuals/pumps/Power%20Flo%20II%20DI%20Manual%20SP8105DI81AU-Rev%20A.pdf",
+    "tags": [
+      "PowerFlo II",
+      "pump",
+      "manual"
+    ]
+  },
+  {
+    "title": "PowerFlo II - 0.5HP",
+    "url": "https://xa7kjhlynm4hvkyv.public.blob.vercel-storage.com/manuals/pumps/PowerFlo%20II%200.5hp.pdf",
+    "tags": [
+      "PowerFlo II",
+      "pump",
+      "0.5hp"
+    ]
+  },
+  {
+    "title": "PowerFlo II - 0.75HP",
+    "url": "https://xa7kjhlynm4hvkyv.public.blob.vercel-storage.com/manuals/pumps/PowerFlo%20II%200.75hp.pdf",
+    "tags": [
+      "PowerFlo II",
+      "pump",
+      "0.75hp"
+    ]
+  },
+  {
+    "title": "PowerFlo II - 1.5HP",
+    "url": "https://xa7kjhlynm4hvkyv.public.blob.vercel-storage.com/manuals/pumps/PowerFlo%20II%201.5hp.pdf",
+    "tags": [
+      "PowerFlo II",
+      "pump",
+      "1.5hp"
+    ]
+  },
+  {
+    "title": "PowerFlo II - 1HP",
+    "url": "https://xa7kjhlynm4hvkyv.public.blob.vercel-storage.com/manuals/pumps/PowerFlo%20II%201hp.pdf",
+    "tags": [
+      "PowerFlo II",
+      "pump",
+      "1hp"
+    ]
+  },
+  {
+    "title": "PowerLine - 0.75HP",
+    "url": "https://xa7kjhlynm4hvkyv.public.blob.vercel-storage.com/manuals/pumps/PowerLine%200.75hp.pdf",
+    "tags": [
+      "PowerLine",
+      "pump",
+      "0.75hp"
+    ]
+  },
+  {
+    "title": "PowerLine - 1.5HP",
+    "url": "https://xa7kjhlynm4hvkyv.public.blob.vercel-storage.com/manuals/pumps/PowerLine%201.5hp.pdf",
+    "tags": [
+      "PowerLine",
+      "pump",
+      "1.5hp"
+    ]
+  },
+  {
+    "title": "PowerLine - 1HP",
+    "url": "https://xa7kjhlynm4hvkyv.public.blob.vercel-storage.com/manuals/pumps/PowerLine%201hp.pdf",
+    "tags": [
+      "PowerLine",
+      "pump",
+      "1hp"
+    ]
+  },
+  {
+    "title": "PowerLine II - 1.25HP",
+    "url": "https://xa7kjhlynm4hvkyv.public.blob.vercel-storage.com/manuals/pumps/PowerLine%20II%201.25hp.pdf",
+    "tags": [
+      "PowerLine II",
+      "pump",
+      "1.25hp"
+    ]
+  },
+  {
+    "title": "PowerLine II - 1.5HP",
+    "url": "https://xa7kjhlynm4hvkyv.public.blob.vercel-storage.com/manuals/pumps/PowerLine%20II%201.5hp.pdf",
+    "tags": [
+      "PowerLine II",
+      "pump",
+      "1.5hp"
+    ]
+  },
+  {
+    "title": "PowerLine II - 1HP",
+    "url": "https://xa7kjhlynm4hvkyv.public.blob.vercel-storage.com/manuals/pumps/PowerLine%20II%201hp.pdf",
+    "tags": [
+      "PowerLine II",
+      "pump",
+      "1hp"
+    ]
+  },
+  {
+    "title": "PowerLine II - 2HP",
+    "url": "https://xa7kjhlynm4hvkyv.public.blob.vercel-storage.com/manuals/pumps/PowerLine%20II%202hp.pdf",
+    "tags": [
+      "PowerLine II",
+      "pump",
+      "2hp"
+    ]
+  },
+  {
+    "title": "Super Pump VS Manual",
+    "url": "https://xa7kjhlynm4hvkyv.public.blob.vercel-storage.com/manuals/pumps/SUPER_PUMP_VS%20MANUAL_R0%202.pdf",
+    "tags": [
+      "Super Pump VS",
+      "pump",
+      "manual"
+    ]
+  },
+  {
+    "title": "SuperFit II VS Sell Sheet",
+    "url": "https://xa7kjhlynm4hvkyv.public.blob.vercel-storage.com/manuals/pumps/Super%20Fit%20II%20VS%20Sellsheet.pdf",
+    "tags": [
+      "SuperFit II VS",
+      "pump",
+      "sellsheet"
+    ]
+  },
+  {
+    "title": "Super II ECO - 0.75HP",
+    "url": "https://xa7kjhlynm4hvkyv.public.blob.vercel-storage.com/manuals/pumps/Super%20II%20ECO%200.75hp.pdf",
+    "tags": [
+      "Super II ECO",
+      "pump",
+      "0.75hp"
+    ]
+  },
+  {
+    "title": "Super II ECO - 1.25HP",
+    "url": "https://xa7kjhlynm4hvkyv.public.blob.vercel-storage.com/manuals/pumps/Super%20II%20ECO%201.25hp.pdf",
+    "tags": [
+      "Super II ECO",
+      "pump",
+      "1.25hp"
+    ]
+  },
+  {
+    "title": "Super II ECO - 1.5HP",
+    "url": "https://xa7kjhlynm4hvkyv.public.blob.vercel-storage.com/manuals/pumps/Super%20II%20ECO%201.5hp.pdf",
+    "tags": [
+      "Super II ECO",
+      "pump",
+      "1.5hp"
+    ]
+  },
+  {
+    "title": "Super II ECO - 1HP",
+    "url": "https://xa7kjhlynm4hvkyv.public.blob.vercel-storage.com/manuals/pumps/Super%20II%20ECO%201hp.pdf",
+    "tags": [
+      "Super II ECO",
+      "pump",
+      "1hp"
+    ]
+  },
+  {
+    "title": "Super II ECO - 2HP",
+    "url": "https://xa7kjhlynm4hvkyv.public.blob.vercel-storage.com/manuals/pumps/Super%20II%20ECO%202hp.pdf",
+    "tags": [
+      "Super II ECO",
+      "pump",
+      "2hp"
+    ]
+  },
+  {
+    "title": "Super II ECO Sell Sheet - 0.75HP",
+    "url": "https://xa7kjhlynm4hvkyv.public.blob.vercel-storage.com/manuals/pumps/Super%20II%20ECO%20Sellsheet%200.75.pdf",
+    "tags": [
+      "Super II ECO",
+      "pump",
+      "sellsheet",
+      "0.75hp"
+    ]
+  },
+  {
+    "title": "Super II ECO Sell Sheet - 1.25HP",
+    "url": "https://xa7kjhlynm4hvkyv.public.blob.vercel-storage.com/manuals/pumps/Super%20II%20ECO%20Sellsheet%201.25'hp.pdf",
+    "tags": [
+      "Super II ECO",
+      "pump",
+      "sellsheet",
+      "1.25hp"
+    ]
+  },
+  {
+    "title": "Super II ECO Sell Sheet - 1.5HP",
+    "url": "https://xa7kjhlynm4hvkyv.public.blob.vercel-storage.com/manuals/pumps/Super%20II%20ECO%20Sellsheet%201.5hp.pdf",
+    "tags": [
+      "Super II ECO",
+      "pump",
+      "sellsheet",
+      "1.5hp"
+    ]
+  },
+  {
+    "title": "Super II ECO Sell Sheet - 1HP",
+    "url": "https://xa7kjhlynm4hvkyv.public.blob.vercel-storage.com/manuals/pumps/Super%20II%20ECO%20Sellsheet%201hp.pdf",
+    "tags": [
+      "Super II ECO",
+      "pump",
+      "sellsheet",
+      "1hp"
+    ]
+  },
+  {
+    "title": "Super II ECO Sell Sheet - 2HP",
+    "url": "https://xa7kjhlynm4hvkyv.public.blob.vercel-storage.com/manuals/pumps/Super%20II%20ECO%20Sellsheet%202hp.pdf",
+    "tags": [
+      "Super II ECO",
+      "pump",
+      "sellsheet",
+      "2hp"
+    ]
+  },
+  {
+    "title": "Super II ECO VS - 1.5HP",
+    "url": "https://xa7kjhlynm4hvkyv.public.blob.vercel-storage.com/manuals/pumps/Super%20II%20ECO%20VS%201.5hp.pdf",
+    "tags": [
+      "Super II ECO VS",
+      "pump",
+      "1.5hp"
+    ]
+  },
+  {
+    "title": "Super II ECO VS - 1HP",
+    "url": "https://xa7kjhlynm4hvkyv.public.blob.vercel-storage.com/manuals/pumps/Super%20II%20ECO%20VS%201hp.pdf",
+    "tags": [
+      "Super II ECO VS",
+      "pump",
+      "1hp"
+    ]
+  },
+  {
+    "title": "Super II ECO VS Pump Manual",
+    "url": "https://xa7kjhlynm4hvkyv.public.blob.vercel-storage.com/manuals/pumps/Super%20II%20ECO%20VS%20pump%20manual.pdf",
+    "tags": [
+      "Super II ECO VS",
+      "pump",
+      "manual"
+    ]
+  },
+  {
+    "title": "SuperFit II Sell Sheet",
+    "url": "https://xa7kjhlynm4hvkyv.public.blob.vercel-storage.com/manuals/pumps/SuperFit%20II%20Sellsheet.pdf",
+    "tags": [
+      "SuperFit II",
+      "pump",
+      "sellsheet"
+    ]
+  },
+  {
+    "title": "SuperFit II VS Manual",
+    "url": "https://xa7kjhlynm4hvkyv.public.blob.vercel-storage.com/manuals/pumps/SuperFit_II_VS_manual_Final.pdf",
+    "tags": [
+      "SuperFit II VS",
+      "pump",
+      "manual"
+    ]
+  },
+  {
+    "title": "Super II ECO Single Speed Manual",
+    "url": "https://xa7kjhlynm4hvkyv.public.blob.vercel-storage.com/manuals/pumps/Super_II_ECO_Single_Speed_71ba.pdf",
+    "tags": [
+      "Super II ECO",
+      "pump",
+      "manual",
+      "single speed"
+    ]
+  },
+  {
+    "title": "TriStar Variable Speed Pump Manual",
+    "url": "https://xa7kjhlynm4hvkyv.public.blob.vercel-storage.com/manuals/pumps/TriStar%20Variable%20Speed%20Pump%20manual.pdf",
+    "tags": [
+      "TriStar VS",
+      "pump",
+      "manual"
+    ]
+  },
+  {
+    "title": "TriStar VS - 1.9HP",
+    "url": "https://xa7kjhlynm4hvkyv.public.blob.vercel-storage.com/manuals/pumps/Tristar%20VS%201.9hp.pdf",
+    "tags": [
+      "TriStar VS",
+      "pump",
+      "1.9hp"
+    ]
+  },
+  {
+    "title": "TriStar VS Sell Sheet - 1.98HP",
+    "url": "https://xa7kjhlynm4hvkyv.public.blob.vercel-storage.com/manuals/pumps/Tristar%20VS%20Sell%20Sheet%201.98hp.pdf",
+    "tags": [
+      "TriStar VS",
+      "pump",
+      "sellsheet",
+      "1.98hp"
+    ]
+  },
+  {
+    "title": "ESP2300HVS Sell Sheet",
+    "url": "https://xa7kjhlynm4hvkyv.public.blob.vercel-storage.com/manuals/pumps/sell%20sheet%20ESP2300HVS.pdf",
+    "tags": [
+      "ESP2300HVS",
+      "pump",
+      "sellsheet"
+    ]
+  },
+  {
+    "title": "Hayward Retail Guide (Chatbot Reference)",
+    "url": "https://xa7kjhlynm4hvkyv.public.blob.vercel-storage.com/manuals/tech-guides-simplified/Hayward_Retail_Guide_Chatbot_Readable.md",
+    "tags": [
+      "retail guide",
+      "chatbot reference"
+    ]
+  },
+  {
+    "title": "OmniLogic Chatbot Knowledge Base",
+    "url": "https://xa7kjhlynm4hvkyv.public.blob.vercel-storage.com/manuals/tech-guides-simplified/OmniLogic_Chatbot_Knowledge_Base.md",
+    "tags": [
+      "OmniLogic",
+      "automation",
+      "chatbot reference"
+    ]
+  },
+  {
+    "title": "AquaRite Chatbot Reference",
+    "url": "https://xa7kjhlynm4hvkyv.public.blob.vercel-storage.com/manuals/tech-guides-simplified/aquarite_chatbot_reference.md",
+    "tags": [
+      "AquaRite",
+      "salt chlorinator",
+      "chatbot reference"
+    ]
+  },
+  {
+    "title": "Full Product Catalogue",
+    "url": "https://xa7kjhlynm4hvkyv.public.blob.vercel-storage.com/manuals/full%20catalogue_comp.pdf",
+    "tags": [
+      "catalogue",
+      "all products"
+    ]
+  }
+]
