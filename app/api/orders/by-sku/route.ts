@@ -4,6 +4,7 @@ import { getJSON } from '@/lib/redis';
 
 interface OrderLine {
   orderNo: string;
+  customerOrderNo: string | null;
   orderDate: string;
   expectedDate: string;
   statusFlag: string;
