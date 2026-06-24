@@ -126,23 +126,33 @@ export async function POST(req: NextRequest) {
 
   // Pull in relevant manual content up front, rather than as a tool -
   // this is reference material, not something worth a round trip for.
+  // A timeout guard matters here: a broken or unreachable manual URL
+  // should never be able to hang the whole chat request.
   const relevantManuals = findRelevantManuals(userMessage, 2);
   const manualBlocks: Anthropic.ContentBlockParam[] = [];
   for (const m of relevantManuals) {
     try {
-      if (m.url.endsWith('.md')) {
-        const text = await (await fetch(m.url)).text();
-        manualBlocks.push({ type: 'text', text: `--- Manual: ${m.title} ---\n${text}` });
-      } else if (m.url.toLowerCase().endsWith('.pdf')) {
-        const buf = await (await fetch(m.url)).arrayBuffer();
-        manualBlocks.push({
-          type: 'document',
-          source: { type: 'base64', media_type: 'application/pdf', data: Buffer.from(buf).toString('base64') },
-          title: m.title,
-        });
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 8000);
+      try {
+        if (m.url.endsWith('.md')) {
+          const res = await fetch(m.url, { signal: controller.signal });
+          const text = await res.text();
+          manualBlocks.push({ type: 'text', text: `--- Manual: ${m.title} ---\n${text}` });
+        } else if (m.url.toLowerCase().endsWith('.pdf')) {
+          const res = await fetch(m.url, { signal: controller.signal });
+          const buf = await res.arrayBuffer();
+          manualBlocks.push({
+            type: 'document',
+            source: { type: 'base64', media_type: 'application/pdf', data: Buffer.from(buf).toString('base64') },
+            title: m.title,
+          });
+        }
+      } finally {
+        clearTimeout(timeout);
       }
     } catch {
-      // A manual failing to fetch shouldn't fail the whole chat turn.
+      // A manual failing to fetch (or timing out) shouldn't fail the whole chat turn.
     }
   }
 
