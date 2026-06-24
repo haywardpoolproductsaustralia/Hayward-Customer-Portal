@@ -6,6 +6,18 @@ import { ProductDetailModal, StockEntry } from '@/components/ProductDetailModal'
 
 const PAGE_SIZE = 30;
 
+// Keyword-based, not tied to Arrow's STOCK_CATEGORY codes - those are
+// cryptic 2-character codes with no reliable name mapping we've found.
+// This matches product names instead, using the same category groupings
+// already established for the manuals library.
+const CATEGORIES: { label: string; keywords: string[] }[] = [
+  { label: 'Pumps', keywords: ['PUMP'] },
+  { label: 'Filters', keywords: ['FILTER'] },
+  { label: 'Heaters', keywords: ['HEAT'] },
+  { label: 'Cleaners', keywords: ['CLEANER', 'TIGERSHARK', 'AQUANAUT', 'TRACVAC', 'POWERSHARK', 'NAVIGATOR', 'POOLVAC', 'ROBOTIC'] },
+  { label: 'Automation', keywords: ['CHLORINAT', 'AQUARITE', 'OMNILOGIC', 'SALT', 'PLUG'] },
+];
+
 interface PriceInfo {
   listPrice: number | null;
   price: number | null;
@@ -24,6 +36,7 @@ function totalOnHand(byLocation?: StockEntry['byLocation']) {
 
 export default function ProductsPage() {
   const [query, setQuery] = useState('');
+  const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const [allStock, setAllStock] = useState<StockEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -59,11 +72,15 @@ export default function ProductsPage() {
 
   const filtered = useMemo(() => {
     const trimmed = query.trim().toUpperCase();
-    if (!trimmed) return allStock;
-    return allStock.filter(
-      (r) => r.sku.includes(trimmed) || (r.name ?? '').toUpperCase().includes(trimmed)
-    );
-  }, [query, allStock]);
+    const category = CATEGORIES.find((c) => c.label === activeCategory);
+
+    return allStock.filter((r) => {
+      const haystack = `${r.sku} ${r.name ?? ''}`.toUpperCase();
+      if (trimmed && !haystack.includes(trimmed)) return false;
+      if (category && !category.keywords.some((kw) => haystack.includes(kw))) return false;
+      return true;
+    });
+  }, [query, activeCategory, allStock]);
 
   const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const currentPage = Math.min(page, pageCount - 1);
@@ -71,7 +88,7 @@ export default function ProductsPage() {
 
   useEffect(() => {
     setPage(0);
-  }, [query]);
+  }, [query, activeCategory]);
 
   useEffect(() => {
     if (visible.length === 0) return;
@@ -112,13 +129,37 @@ export default function ProductsPage() {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPage, query, allStock.length]);
+  }, [currentPage, query, activeCategory, allStock.length]);
 
   return (
     <div className="space-y-5">
       <div>
         <h1 className="font-display text-3xl text-deep font-bold">Products</h1>
         <p className="text-ink/50 mt-1">Search stock and pricing across every location.</p>
+      </div>
+
+      <div className="flex flex-wrap gap-1.5">
+        <button
+          onClick={() => setActiveCategory(null)}
+          className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+            activeCategory === null ? 'bg-wave text-white' : 'bg-white border border-ink/10 text-ink/60 hover:border-wave/30'
+          }`}
+        >
+          All
+        </button>
+        {CATEGORIES.map((c) => (
+          <button
+            key={c.label}
+            onClick={() => setActiveCategory((prev) => (prev === c.label ? null : c.label))}
+            className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+              activeCategory === c.label
+                ? 'bg-wave text-white'
+                : 'bg-white border border-ink/10 text-ink/60 hover:border-wave/30'
+            }`}
+          >
+            {c.label}
+          </button>
+        ))}
       </div>
 
       <div className="relative max-w-lg">
@@ -150,6 +191,7 @@ export default function ProductsPage() {
         <>
           <p className="text-xs text-ink/40">
             {filtered.length} {filtered.length === 1 ? 'product' : 'products'}
+            {activeCategory && ` in ${activeCategory}`}
             {query && ` matching "${query}"`}
           </p>
 
