@@ -15,6 +15,8 @@ interface OrderLine {
   orderNo: string;
   customerOrderNo: string | null;
   orderDate: string;
+  expectedDate: string;
+  invoiceDate: string | null;
   statusFlag: string;
   qtyOrdered: number;
   qtyShipped: number;
@@ -223,7 +225,11 @@ export function ProductDetailModal({ item, onClose }: { item: StockEntry; onClos
                       {o.customerOrderNo && (
                         <p className="text-xs text-ink/50">Your order #{o.customerOrderNo}</p>
                       )}
-                      <p className="text-xs text-ink/40">{formatDate(o.orderDate)}</p>
+                      <p className="text-xs text-ink/40">Ordered {formatDate(o.orderDate)}</p>
+                      <p className="text-xs text-ink/40">Est. delivery {formatDate(o.expectedDate)}</p>
+                      <p className="text-xs text-ink/40">
+                        {o.invoiceDate ? `Invoiced ${formatDate(o.invoiceDate)}` : 'Not yet invoiced'}
+                      </p>
                     </div>
                     <div className="text-right">
                       <p className="text-ink/70">
