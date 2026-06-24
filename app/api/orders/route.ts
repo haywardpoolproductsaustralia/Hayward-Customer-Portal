@@ -7,6 +7,7 @@ interface OrderLine {
   customerOrderNo: string | null;
   orderDate: string;
   expectedDate: string;
+  invoiceDate: string | null;
   statusFlag: string;
   sku: string;
   qtyOrdered: number;
@@ -33,17 +34,28 @@ export async function GET() {
     return NextResponse.json({ error: 'No organization selected' }, { status: 403 });
   }
 
-  const perCustomer = await Promise.all(
-    access.customerCodes.map(async (code) => {
-      const lines = (await getJSON<OrderLine[]>(`orders:${code}`)) ?? [];
-      return lines.map((line) => ({
-        ...line,
-        customerCode: code,
-        statusLabel: STATUS_LABELS[line.statusFlag] ?? line.statusFlag,
-      }));
-    })
-  );
+  const [perCustomer, customerNames] = await Promise.all([
+    Promise.all(
+      access.customerCodes.map(async (code) => {
+        const lines = (await getJSON<OrderLine[]>(`orders:${code}`)) ?? [];
+        return lines.map((line) => ({
+          ...line,
+          customerCode: code,
+          statusLabel: STATUS_LABELS[line.statusFlag] ?? line.statusFlag,
+        }));
+      })
+    ),
+    getJSON<Record<string, string>>('customerNames'),
+  ]);
 
-  const orders = perCustomer.flat();
-  return NextResponse.json({ orders, customerCodeCount: access.customerCodes.length });
+  const orders = perCustomer.flat().map((o) => ({
+    ...o,
+    branchName: customerNames?.[o.customerCode] ?? o.customerCode,
+  }));
+
+  return NextResponse.json({
+    orders,
+    isHeadOffice: access.isHeadOffice,
+    customerCodeCount: access.customerCodes.length,
+  });
 }
