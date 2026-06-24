@@ -21,6 +21,7 @@ export default async function DashboardLayout({
     ? new Date(meta.lastRunAt).toLocaleString('en-AU', {
         dateStyle: 'short',
         timeStyle: 'short',
+        timeZone: 'Australia/Melbourne',
       })
     : 'unknown';
 
