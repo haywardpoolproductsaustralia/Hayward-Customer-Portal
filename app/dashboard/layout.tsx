@@ -20,7 +20,7 @@ export default async function DashboardLayout({
   const meta = await getJSON<SyncMeta>('sync:meta');
 
   const lastUpdated = meta?.lastRunAt
-    ? new Date(meta.lastRunAt).toLocaleString('en-AU', {
+    ? new Date(meta.lastRunAt).toLocaleString('en-AU', { timeZone: 'Australia/Sydney',
         dateStyle: 'short',
         timeStyle: 'short',
       })
