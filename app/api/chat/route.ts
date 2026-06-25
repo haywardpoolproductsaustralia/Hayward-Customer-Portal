@@ -58,8 +58,11 @@ async function toolSearchProducts(query: string) {
   return { matches, truncated: filtered.length > 12 };
 }
 
-async function toolGetPrice(access: CustomerAccess, sku: string, qty = 1) {
-  const representativeCode = access.branchCode ?? access.customerCodes[0];
+async function toolGetPrice(access: CustomerAccess, sku: string, qty = 1, overrideCode?: string) {
+  const representativeCode =
+    overrideCode && access.customerCodes.includes(overrideCode)
+      ? overrideCode
+      : access.branchCode ?? access.customerCodes[0];
   if (!representativeCode) return { error: 'No customer code resolved for this account.' };
 
   const priceType = await redis.get<string>(`customerPriceType:${representativeCode}`);
@@ -163,6 +166,7 @@ export async function POST(req: NextRequest) {
 
   const body = await req.json().catch(() => null);
   const userMessage = body?.message?.trim();
+  const customerCodeOverride = typeof body?.customerCode === 'string' ? body.customerCode.trim() : undefined;
   const history: { role: 'user' | 'assistant'; content: string }[] = Array.isArray(body?.history)
     ? body.history
     : [];
@@ -205,7 +209,12 @@ export async function POST(req: NextRequest) {
 
   const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-  const systemPrompt = `You're a friendly, helpful assistant inside Hayward Pool Products' customer portal, currently helping someone from ${access.groupName}. Talk like a knowledgeable trade colleague, not a formal support bot - warm and direct, no corporate filler.
+  const customerContextNote =
+    customerCodeOverride && access.customerCodes.includes(customerCodeOverride)
+      ? `\n\nThe person has selected a specific customer to view pricing as (via the picker in the top bar) - any price you give will be that customer's actual rate, not a generic one. Mention which customer you're quoting for if it's not obvious from context.`
+      : '';
+
+  const systemPrompt = `You're a friendly, helpful assistant inside Hayward Pool Products' customer portal, currently helping someone from ${access.groupName}. Talk like a knowledgeable trade colleague, not a formal support bot - warm and direct, no corporate filler.${customerContextNote}
 
 You have tools to check live stock, pricing, and order history - always use them for any question about a specific product's price, stock level, or this customer's orders. Never guess or estimate a price or stock level from general knowledge; if a tool returns an error or no result, say so plainly rather than making something up.
 
@@ -255,7 +264,7 @@ Keep answers concise and practical - this is a trade/B2B audience, not a general
               surfacedProducts.set(m.sku, m);
             }
           } else if (tu.name === 'get_price') {
-            result = await toolGetPrice(access, String(input.sku ?? ''), Number(input.qty ?? 1));
+            result = await toolGetPrice(access, String(input.sku ?? ''), Number(input.qty ?? 1), customerCodeOverride);
           } else if (tu.name === 'get_order_history') {
             result = await toolGetOrderHistory(
               access,
