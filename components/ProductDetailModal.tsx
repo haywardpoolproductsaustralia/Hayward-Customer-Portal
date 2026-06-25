@@ -8,6 +8,7 @@ export interface StockEntry {
   name?: string | null;
   stockCategory?: string | null;
   listPrice?: number | null;
+  supplierStock?: string | null;
   byLocation?: Record<string, { onHand: number; allocated: number; backordered: number }>;
 }
 
@@ -130,6 +131,9 @@ export function ProductDetailModal({ item, onClose }: { item: StockEntry; onClos
           <div>
             <p className="font-semibold text-ink leading-snug">{item.name || item.sku}</p>
             <p className="text-xs text-ink/40 font-mono mt-0.5">{item.sku}</p>
+            {item.supplierStock && (
+              <p className="text-xs text-ink/30 font-mono">Supplier code: {item.supplierStock}</p>
+            )}
           </div>
           <button onClick={onClose} className="p-1.5 rounded-full hover:bg-ink/5 flex-shrink-0">
             <X className="h-4 w-4 text-ink/50" />
