@@ -39,9 +39,15 @@ function NavLinks({ pathname, onNavigate }: { pathname: string; onNavigate?: () 
   );
 }
 
-export function SidebarNav() {
+// isAggregate isn't used for nav items right now (no staff-only pages
+// exist), but the prop stays - app/dashboard/layout.tsx passes it
+// through, and other components (CustomerPicker) key off it too. Kept
+// here so this component's signature doesn't need to change again the
+// next time something genuinely is staff-only.
+export function SidebarNav({ isAggregate = false }: { isAggregate?: boolean }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
+  void isAggregate;
 
   return (
     <>
