@@ -14,12 +14,20 @@ export function CustomerPicker() {
   const [open, setOpen] = useState(false);
   const [customers, setCustomers] = useState<SelectedCustomer[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [viewingDetail, setViewingDetail] = useState<SelectedCustomer | null>(null);
 
   useEffect(() => {
     fetch('/api/customers')
-      .then((r) => r.json())
-      .then((data) => setCustomers(data.customers ?? []))
+      .then(async (r) => {
+        const data = await r.json();
+        if (!r.ok) {
+          setLoadError(data.error ?? 'Could not load customers.');
+          return;
+        }
+        setCustomers(data.customers ?? []);
+      })
+      .catch(() => setLoadError('Could not reach the server.'))
       .finally(() => setLoading(false));
   }, []);
 
@@ -112,6 +120,12 @@ export function CustomerPicker() {
             <div className="max-h-80 overflow-y-auto">
               {loading ? (
                 <p className="px-4 py-6 text-sm text-ink/40 text-center">Loading...</p>
+              ) : loadError ? (
+                <p className="px-4 py-6 text-sm text-coral text-center">{loadError}</p>
+              ) : customers.length === 0 ? (
+                <p className="px-4 py-6 text-sm text-ink/40 text-center">
+                  No customers found - the sync job may need to run again.
+                </p>
               ) : (
                 customers.map((c) => (
                   <button
