@@ -1,18 +1,14 @@
 'use client';
 
 import { Fragment, useEffect, useMemo, useState } from 'react';
-import { Search, Plus, Trash2, Loader2, Printer, FileText, User, X, TrendingUp } from 'lucide-react';
+import { Search, Plus, Trash2, Loader2, Printer, FileText, TrendingUp } from 'lucide-react';
+import { useSelectedCustomer } from '@/components/SelectedCustomerContext';
 
 interface StockEntry {
   sku: string;
   name?: string | null;
   stockCategory?: string | null;
   supplierStock?: string | null;
-}
-
-interface Customer {
-  code: string;
-  name: string;
 }
 
 interface PriceTier {
@@ -75,12 +71,7 @@ export default function PricingPage() {
   const [allStock, setAllStock] = useState<StockEntry[]>([]);
   const [stockLoading, setStockLoading] = useState(true);
   const [lines, setLines] = useState<QuoteLine[]>([]);
-
-  const [customers, setCustomers] = useState<Customer[]>([]);
-  const [isAggregate, setIsAggregate] = useState(false);
-  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
-  const [customerQuery, setCustomerQuery] = useState('');
-  const [customerPickerOpen, setCustomerPickerOpen] = useState(false);
+  const { selectedCustomer } = useSelectedCustomer();
 
   useEffect(() => {
     let cancelled = false;
@@ -92,36 +83,21 @@ export default function PricingPage() {
       .finally(() => {
         if (!cancelled) setStockLoading(false);
       });
-    fetch('/api/customers')
-      .then((r) => r.json())
-      .then((data) => {
-        if (!cancelled) {
-          setCustomers(data.customers ?? []);
-          setIsAggregate(Boolean(data.isAggregate));
-        }
-      });
     return () => {
       cancelled = true;
     };
   }, []);
 
   // Re-price every line already on the quote whenever the selected
-  // customer changes - prices shown before the switch are for a
-  // different customer and would otherwise look right while being wrong.
+  // customer changes (picked from the header, not a page-local control) -
+  // prices shown before the switch are for a different customer and
+  // would otherwise look right while being wrong.
   useEffect(() => {
     if (lines.length === 0) return;
     setLines((prev) => prev.map((l) => ({ ...l, loading: true, error: null })));
     lines.forEach((l) => refetchLine(l.sku, l.name));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCustomer?.code]);
-
-  const customerResults = useMemo(() => {
-    const trimmed = customerQuery.trim().toUpperCase();
-    if (!trimmed) return customers.slice(0, 8);
-    return customers
-      .filter((c) => c.name.toUpperCase().includes(trimmed) || c.code.includes(trimmed))
-      .slice(0, 8);
-  }, [customerQuery, customers]);
 
   const searchResults = useMemo(() => {
     const trimmed = query.trim().toUpperCase();
@@ -216,61 +192,10 @@ export default function PricingPage() {
         )}
       </div>
 
-      {isAggregate && customers.length > 1 && (
-        <div className="relative max-w-lg">
-          <label className="block text-xs font-medium text-ink/40 mb-1.5">Pricing for</label>
-          {selectedCustomer ? (
-            <div className="flex items-center justify-between gap-3 rounded-xl border border-wave/30 bg-wave/5 px-4 py-3">
-              <div className="flex items-center gap-2 min-w-0">
-                <User className="h-4 w-4 text-wave flex-shrink-0" />
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-deep truncate">{selectedCustomer.name}</p>
-                  <p className="text-xs text-ink/40 font-mono">{selectedCustomer.code}</p>
-                </div>
-              </div>
-              <button
-                onClick={() => setSelectedCustomer(null)}
-                className="p-1.5 rounded-full hover:bg-ink/5 flex-shrink-0"
-              >
-                <X className="h-4 w-4 text-ink/40" />
-              </button>
-            </div>
-          ) : (
-            <div className="relative">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-ink/30" />
-              <input
-                value={customerQuery}
-                onChange={(e) => setCustomerQuery(e.target.value)}
-                onFocus={() => setCustomerPickerOpen(true)}
-                onBlur={() => setTimeout(() => setCustomerPickerOpen(false), 150)}
-                placeholder="Search for a customer to price as..."
-                className="w-full rounded-full border border-ink/10 bg-white pl-11 pr-4 py-3 text-sm shadow-soft focus:border-wave focus:ring-2 focus:ring-wave/20 outline-none"
-              />
-              {customerPickerOpen && customerResults.length > 0 && (
-                <div className="absolute z-10 mt-2 w-full rounded-2xl border border-ink/10 bg-white shadow-soft overflow-hidden max-h-72 overflow-y-auto">
-                  {customerResults.map((c) => (
-                    <button
-                      key={c.code}
-                      onClick={() => {
-                        setSelectedCustomer(c);
-                        setCustomerQuery('');
-                        setCustomerPickerOpen(false);
-                      }}
-                      className="w-full flex items-center justify-between gap-3 px-4 py-3 text-left hover:bg-foam border-b border-ink/5 last:border-0"
-                    >
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium text-ink truncate">{c.name}</p>
-                        <p className="text-xs text-ink/40 font-mono">{c.code}</p>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              )}
-              <p className="text-xs text-ink/40 mt-1.5">
-                Leave unselected to use your account's default pricing.
-              </p>
-            </div>
-          )}
+      {selectedCustomer && (
+        <div className="rounded-xl bg-wave/5 border border-wave/20 px-4 py-2.5 text-sm text-deep">
+          Showing pricing for <span className="font-semibold">{selectedCustomer.name}</span> - change this from the
+          picker in the top bar.
         </div>
       )}
 
