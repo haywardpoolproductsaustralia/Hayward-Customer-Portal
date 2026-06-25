@@ -84,7 +84,16 @@ export async function getCustomerAccess(): Promise<CustomerAccess | null> {
 
   // Head office (or a single-site customer with no branch split at all):
   // every code in the group, resolved live from what the sync job cached.
-  const customerCodes = (await getJSON<string[]>(`group:${group.groupKey}:codes`)) ?? [];
+  let customerCodes = (await getJSON<string[]>(`group:${group.groupKey}:codes`)) ?? [];
+
+  // Aggregate orgs (Hayward) fall back to reading all codes from codeToGroup
+  // when group:Hayward:codes hasn't been populated yet (e.g. customer-groups.json
+  // on AZ-Grey hasn't been updated, or sync hasn't run since the Hayward group
+  // was added). codeToGroup has every real code already, so this is equivalent.
+  if (customerCodes.length === 0 && group.isAggregate) {
+    const codeToGroup = await getJSON<Record<string, string>>('codeToGroup');
+    if (codeToGroup) customerCodes = Object.keys(codeToGroup);
+  }
 
   return {
     groupName: group.displayName,
