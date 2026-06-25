@@ -12,6 +12,7 @@ import {
   Download,
   Loader2,
 } from 'lucide-react';
+import { useSelectedCustomer } from '@/components/SelectedCustomerContext';
 
 interface OrderLine {
   orderNo: string;
@@ -51,6 +52,7 @@ export default function OrdersPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
+  const { selectedCustomer } = useSelectedCustomer();
 
   const [orderNoSearch, setOrderNoSearch] = useState('');
   const [customerOrderNoSearch, setCustomerOrderNoSearch] = useState('');
@@ -61,7 +63,12 @@ export default function OrdersPage() {
 
   useEffect(() => {
     let cancelled = false;
-    fetch('/api/orders')
+    setLoading(true);
+    setOrders([]);
+    const url = selectedCustomer?.code
+      ? `/api/orders?customerCode=${encodeURIComponent(selectedCustomer.code)}`
+      : '/api/orders';
+    fetch(url)
       .then(async (r) => {
         const data = await r.json();
         if (cancelled) return;
@@ -81,7 +88,7 @@ export default function OrdersPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [selectedCustomer?.code]);
 
   const branchOptions = useMemo(() => {
     const seen = new Map<string, string>();
@@ -165,7 +172,13 @@ export default function OrdersPage() {
       <div className="flex items-end justify-between flex-wrap gap-3">
         <div>
           <h1 className="font-display text-3xl text-deep font-bold">Orders</h1>
-          <p className="text-ink/50 mt-1">{isHeadOffice ? 'Across all your locations.' : 'For your location.'}</p>
+          <p className="text-ink/50 mt-1">
+            {selectedCustomer
+              ? `Showing orders for ${selectedCustomer.name}.`
+              : isHeadOffice
+              ? 'Across all your locations.'
+              : 'For your location.'}
+          </p>
         </div>
         <button
           onClick={exportToExcel}
