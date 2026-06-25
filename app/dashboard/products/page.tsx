@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Search, PackageX, Loader2, AlertCircle } from 'lucide-react';
 import { ProductDetailModal, StockEntry } from '@/components/ProductDetailModal';
+import { useSelectedCustomer } from '@/components/SelectedCustomerContext';
 
 const PAGE_SIZE = 30;
 
@@ -45,6 +46,7 @@ export default function ProductsPage() {
   const [pricesLoading, setPricesLoading] = useState(false);
   const [pricingAccessError, setPricingAccessError] = useState<string | null>(null);
   const [selected, setSelected] = useState<StockEntry | null>(null);
+  const { selectedCustomer } = useSelectedCustomer();
 
   useEffect(() => {
     let cancelled = false;
@@ -96,6 +98,7 @@ export default function ProductsPage() {
 
     async function loadPrices() {
       setPricesLoading(true);
+      setPrices({});
       try {
         const res = await fetch('/api/pricing/batch', {
           method: 'POST',
@@ -103,6 +106,7 @@ export default function ProductsPage() {
           body: JSON.stringify({
             items: visible.map((v) => ({ sku: v.sku, stockCategory: v.stockCategory, listPrice: v.listPrice })),
             qty: 1,
+            customerCode: selectedCustomer?.code,
           }),
         });
         const data = await res.json();
@@ -129,7 +133,7 @@ export default function ProductsPage() {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPage, query, activeCategory, allStock.length]);
+  }, [currentPage, query, activeCategory, allStock.length, selectedCustomer?.code]);
 
   return (
     <div className="space-y-5">
