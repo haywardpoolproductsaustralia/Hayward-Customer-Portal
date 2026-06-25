@@ -1,21 +1,32 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { getCustomerAccess } from '@/lib/access';
 import { getJSON } from '@/lib/redis';
 
-// Lists the customers a "pricing for" picker should offer.
+export interface CustomerProfile {
+  name: string;
+  contactName: string | null;
+  phone: string | null;
+  street: string | null;
+  suburb: string | null;
+  city: string | null;
+  state: string | null;
+  postcode: string | null;
+  priceType: string | null;
+}
+
+// Lists customers for a picker. Two modes:
 //
-// Only meaningful for an aggregate org (Hayward, currently the only one) -
-// every branch within a real customer group shares the exact same price
-// type as its head office, so letting someone pick between 479 individual
-// branch codes would be pure noise with zero actual effect on the price
-// shown. Instead, this groups codes back to their real customer (via the
-// codeToGroup map the sync job builds) and returns one representative
-// code per group - 18 real choices instead of 479 meaningless ones.
+// - level=group (default) - one entry per real customer (18, not 479),
+//   deduped via the codeToGroup map, with full profile details attached
+//   (phone, address, AUTO_PRICE_TYPE) - used for the "pricing for"
+//   picker, since every branch within a group shares one price type.
+// - level=branch - every individual code this login can see, with its
+//   real name only (no profile). Used for things like customer notes,
+//   where per-branch granularity genuinely matters.
 //
-// For an ordinary single-group head office, there's nothing useful to
-// pick between at all (every branch already matches), so this returns
-// an empty list and the picker UI simply doesn't render.
-export async function GET() {
+// Both only return anything for an aggregate org (Hayward) - an ordinary
+// single-group head office has nothing useful to pick between either way.
+export async function GET(req: NextRequest) {
   const access = await getCustomerAccess();
   if (!access) {
     return NextResponse.json({ error: 'No organization selected' }, { status: 403 });
@@ -25,19 +36,30 @@ export async function GET() {
     return NextResponse.json({ customers: [], isAggregate: false });
   }
 
-  const [customerNames, codeToGroup] = await Promise.all([
-    getJSON<Record<string, string>>('customerNames'),
+  const level = req.nextUrl.searchParams.get('level') === 'branch' ? 'branch' : 'group';
+  const customerNames = await getJSON<Record<string, string>>('customerNames');
+
+  if (level === 'branch') {
+    const customers = access.customerCodes
+      .map((code) => ({ code, name: customerNames?.[code] ?? code }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    return NextResponse.json({ customers, isAggregate: true });
+  }
+
+  const [codeToGroup, customerProfiles] = await Promise.all([
     getJSON<Record<string, string>>('codeToGroup'),
+    getJSON<Record<string, CustomerProfile>>('customerProfiles'),
   ]);
 
   const seenGroups = new Set<string>();
-  const customers: { code: string; name: string }[] = [];
+  const customers: ({ code: string; name: string } & Partial<CustomerProfile>)[] = [];
 
   for (const code of access.customerCodes) {
     const groupName = codeToGroup?.[code];
     if (!groupName || seenGroups.has(groupName)) continue;
     seenGroups.add(groupName);
-    customers.push({ code, name: groupName });
+    const profile = customerProfiles?.[code];
+    customers.push({ code, name: groupName, ...profile });
   }
 
   customers.sort((a, b) => a.name.localeCompare(b.name));
