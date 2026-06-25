@@ -7,6 +7,7 @@ interface StockEntry {
   sku: string;
   name?: string | null;
   stockCategory?: string | null;
+  supplierStock?: string | null;
 }
 
 interface Customer {
@@ -128,7 +129,12 @@ export default function PricingPage() {
     const already = new Set(lines.map((l) => l.sku));
     return allStock
       .filter((r) => !already.has(r.sku))
-      .filter((r) => r.sku.includes(trimmed) || (r.name ?? '').toUpperCase().includes(trimmed))
+      .filter(
+        (r) =>
+          r.sku.includes(trimmed) ||
+          (r.name ?? '').toUpperCase().includes(trimmed) ||
+          (r.supplierStock ?? '').toUpperCase().includes(trimmed)
+      )
       .slice(0, 8);
   }, [query, allStock, lines]);
 
