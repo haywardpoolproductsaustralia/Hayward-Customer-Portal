@@ -51,12 +51,24 @@ export async function GET(req: NextRequest) {
     getJSON<Record<string, CustomerProfile>>('customerProfiles'),
   ]);
 
+  if (!codeToGroup || Object.keys(codeToGroup).length === 0) {
+    return NextResponse.json({
+      customers: [],
+      isAggregate: true,
+      error: 'codeToGroup not yet populated - run the sync job on AZ-Grey',
+    });
+  }
+
+  // For aggregate orgs, read codeToGroup directly rather than going
+  // through access.customerCodes (which requires group:Hayward:codes to
+  // be populated). codeToGroup already has every real customer code and
+  // their group name, so we can build the deduplicated group list from
+  // it without any other dependency.
   const seenGroups = new Set<string>();
   const customers: ({ code: string; name: string } & Partial<CustomerProfile>)[] = [];
 
-  for (const code of access.customerCodes) {
-    const groupName = codeToGroup?.[code];
-    if (!groupName || seenGroups.has(groupName)) continue;
+  for (const [code, groupName] of Object.entries(codeToGroup)) {
+    if (seenGroups.has(groupName)) continue;
     seenGroups.add(groupName);
     const profile = customerProfiles?.[code];
     customers.push({ code, name: groupName, ...profile });
