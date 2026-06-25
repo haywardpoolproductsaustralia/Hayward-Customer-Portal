@@ -75,7 +75,7 @@ export default function ProductsPage() {
     const category = CATEGORIES.find((c) => c.label === activeCategory);
 
     return allStock.filter((r) => {
-      const haystack = `${r.sku} ${r.name ?? ''}`.toUpperCase();
+      const haystack = `${r.sku} ${r.name ?? ''} ${r.supplierStock ?? ''}`.toUpperCase();
       if (trimmed && !haystack.includes(trimmed)) return false;
       if (category && !category.keywords.some((kw) => haystack.includes(kw))) return false;
       return true;
