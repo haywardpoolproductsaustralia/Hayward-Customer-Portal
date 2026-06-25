@@ -10,6 +10,7 @@ interface StockEntry {
   name?: string | null;
   stockCategory?: string | null;
   listPrice?: number | null;
+  supplierStock?: string | null;
   byLocation?: Record<string, { onHand: number; allocated: number; backordered: number }>;
 }
 
@@ -24,6 +25,7 @@ interface OrderLine {
   qtyOrdered: number;
   qtyShipped: number;
   qtyBackordered: number;
+  customerCode?: string;
 }
 
 const MAX_TOOL_ROUNDS = 5;
@@ -43,7 +45,7 @@ async function toolSearchProducts(query: string) {
   if (words.length === 0) return { matches: [], truncated: false };
 
   const filtered = all.filter((r) => {
-    const haystack = `${r.sku} ${r.name ?? ''}`.toUpperCase();
+    const haystack = `${r.sku} ${r.name ?? ''} ${r.supplierStock ?? ''}`.toUpperCase();
     return words.every((w) => haystack.includes(w));
   });
 
@@ -76,17 +78,19 @@ async function toolGetPrice(access: CustomerAccess, sku: string, qty = 1) {
 }
 
 async function toolGetOrderHistory(access: CustomerAccess, sku?: string, orderNo?: string) {
-  const [perCustomer, customerNames] = await Promise.all([
-    Promise.all(
-      access.customerCodes.map(async (code) => {
-        const lines = (await getJSON<OrderLine[]>(`orders:${code}`)) ?? [];
-        return lines.map((l) => ({ ...l, customerCode: code }));
-      })
-    ),
+  const [rawLines, customerNames] = await Promise.all([
+    access.isHeadOffice
+      ? getJSON<OrderLine[]>(`orders:group:${access.groupKey}`)
+      : getJSON<OrderLine[]>(`orders:${access.branchCode}`),
     getJSON<Record<string, string>>('customerNames'),
   ]);
 
-  let orders = perCustomer.flat().map((o) => ({ ...o, branchName: customerNames?.[o.customerCode] ?? null }));
+  const withCode = (rawLines ?? []).map((l) => ({
+    ...l,
+    customerCode: l.customerCode ?? access.branchCode ?? '',
+  }));
+
+  let orders = withCode.map((o) => ({ ...o, branchName: customerNames?.[o.customerCode] ?? null }));
 
   // An exact order-number search (Hayward's own number OR the customer's
   // own PO/reference number) takes priority and is never capped or
@@ -111,7 +115,7 @@ const tools: Anthropic.Tool[] = [
   {
     name: 'search_products',
     description:
-      'Search the product catalog by product description, type, partial SKU, or full SKU. Words can appear in any order and don\'t need to be a full SKU - "sand filter", "av250", and "1A-AV250LI" are all valid. Use this any time someone describes what they\'re after rather than giving an exact SKU - e.g. "what sand filters do you have" should search "sand filter", not be treated as a question you answer from general knowledge. Returns matching products with current stock levels.',
+      'Search the product catalog by product description, type, partial SKU, full SKU, or supplier\'s own part number. Words can appear in any order and don\'t need to be a full SKU - "sand filter", "av250", and "1A-AV250LI" are all valid, and so is a supplier part number if that\'s what someone gives you. Use this any time someone describes what they\'re after rather than giving an exact SKU - e.g. "what sand filters do you have" should search "sand filter", not be treated as a question you answer from general knowledge. Returns matching products with current stock levels.',
     input_schema: {
       type: 'object',
       properties: { query: { type: 'string', description: 'Product description, partial SKU, or full SKU' } },
