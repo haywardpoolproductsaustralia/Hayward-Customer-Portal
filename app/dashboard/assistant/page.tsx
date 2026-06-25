@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Send, Sparkles, Loader2, User, AlertCircle } from 'lucide-react';
 import { ProductDetailModal, StockEntry } from '@/components/ProductDetailModal';
+import { useSelectedCustomer } from '@/components/SelectedCustomerContext';
 
 interface ChatProduct {
   sku: string;
@@ -24,6 +25,7 @@ const SUGGESTIONS = [
 
 export default function AssistantPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const { selectedCustomer } = useSelectedCustomer();
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -52,6 +54,7 @@ export default function AssistantPage() {
         body: JSON.stringify({
           message: trimmed,
           history: messages.map((m) => ({ role: m.role, content: m.content })),
+          customerCode: selectedCustomer?.code,
         }),
       });
       const data = await res.json();
