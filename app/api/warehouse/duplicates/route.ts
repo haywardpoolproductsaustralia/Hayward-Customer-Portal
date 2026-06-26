@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getCustomerAccess } from '@/lib/access';
-import { getJSON } from '@/lib/redis';
+import { redis, getJSON } from '@/lib/redis';
+import { computePrice, findRuleForSku, PricingRule } from '@/lib/pricing';
 
 interface OrderLine {
   orderNo: string;
@@ -38,6 +39,7 @@ export interface DuplicateOrder {
   orderDate: string;
   orderDescn1: string | null;
   statusFlag: string;
+  orderValue: number | null;
   duplicateLines: DuplicateLine[];
 }
 
@@ -71,15 +73,48 @@ export async function GET() {
   const [rawLines, customerNames, allStock] = await Promise.all([
     getJSON<OrderLine[]>(`orders:group:${access.groupKey}`),
     getJSON<Record<string, string>>('customerNames'),
-    getJSON<{ sku: string; name?: string | null }[]>('stock:all'),
+    getJSON<{ sku: string; name?: string | null; stockCategory?: string | null; listPrice?: number | null }[]>('stock:all'),
   ]);
 
   const productNames = new Map<string, string>();
+  const stockBySkuMap = new Map<string, { stockCategory?: string | null; listPrice?: number | null }>();
   for (const s of allStock ?? []) {
     if (s.name) productNames.set(s.sku, s.name);
+    stockBySkuMap.set(s.sku, { stockCategory: s.stockCategory, listPrice: s.listPrice });
   }
 
   const lines = rawLines ?? [];
+
+  // Batch-fetch price types for every unique customer code in the flagged set
+  const uniqueCodes = [...new Set(lines.map((l) => l.customerCode))];
+  const priceTypeValues = await Promise.all(
+    uniqueCodes.map((code) => redis.get<string>(`customerPriceType:${code}`))
+  );
+  const priceTypeByCode = new Map<string, string>();
+  uniqueCodes.forEach((code, i) => {
+    const pt = priceTypeValues[i];
+    if (pt) priceTypeByCode.set(code, pt.trim());
+  });
+
+  const uniquePriceTypes = [...new Set(priceTypeByCode.values())];
+  const pricingRulesValues = await Promise.all(
+    uniquePriceTypes.map((pt) => getJSON<PricingRule[]>(`pricing:${pt}`))
+  );
+  const rulesByPriceType = new Map<string, PricingRule[]>();
+  uniquePriceTypes.forEach((pt, i) => {
+    rulesByPriceType.set(pt, pricingRulesValues[i] ?? []);
+  });
+
+  function getLineValue(customerCode: string, sku: string, qty: number): number | null {
+    const priceType = priceTypeByCode.get(customerCode);
+    if (!priceType) return null;
+    const rules = rulesByPriceType.get(priceType) ?? [];
+    const stock = stockBySkuMap.get(sku);
+    const rule = findRuleForSku(rules, sku, stock?.stockCategory);
+    if (!rule) return null;
+    const price = computePrice(rule, qty, stock?.listPrice ?? null);
+    return price != null ? price * qty : null;
+  }
 
   // Build a map: (customerCode + sku + qtyOrdered) → list of
   // { orderNo, orderDate (AEST), customerOrderNo, statusFlag }
@@ -98,6 +133,7 @@ export async function GET() {
   for (const line of lines) {
     // Cancelled orders intentionally excluded - they've been dealt with
     if (line.statusFlag === 'X') continue;
+    if (line.qtyOrdered === 0) continue; // zero-qty lines are noise, not real orders
 
     const key: GroupKey = `${line.customerCode}||${line.sku}||${line.qtyOrdered}`;
     if (!groups.has(key)) groups.set(key, []);
@@ -194,6 +230,18 @@ export async function GET() {
 
   const duplicateOrders: DuplicateOrder[] = [];
   for (const [orderNo, meta] of orderMeta) {
+    const dupLines = duplicateLinesByOrder.get(orderNo) ?? [];
+
+    // Compute total order value using the same pricing engine as everywhere
+    // else in the portal — price × qtyOrdered per line, summed.
+    let orderValue: number | null = null;
+    for (const dl of dupLines) {
+      const lineVal = getLineValue(meta.customerCode, dl.sku, dl.qtyOrdered);
+      if (lineVal != null) {
+        orderValue = (orderValue ?? 0) + lineVal;
+      }
+    }
+
     duplicateOrders.push({
       orderNo,
       customerOrderNo: meta.customerOrderNo,
@@ -202,14 +250,19 @@ export async function GET() {
       orderDate: meta.orderDate,
       orderDescn1: meta.orderDescn1,
       statusFlag: STATUS_LABELS[meta.statusFlag] ?? meta.statusFlag,
-      duplicateLines: duplicateLinesByOrder.get(orderNo) ?? [],
+      orderValue,
+      duplicateLines: dupLines,
     });
   }
 
-  // Sort: most recent orders first
-  duplicateOrders.sort(
-    (a, b) => new Date(b.orderDate).getTime() - new Date(a.orderDate).getTime()
-  );
+  // Sort: highest total order value first (nulls last), then most recent date
+  duplicateOrders.sort((a, b) => {
+    if (a.orderValue != null && b.orderValue != null) {
+      if (b.orderValue !== a.orderValue) return b.orderValue - a.orderValue;
+    } else if (a.orderValue != null) return -1;
+    else if (b.orderValue != null) return 1;
+    return new Date(b.orderDate).getTime() - new Date(a.orderDate).getTime();
+  });
 
   return NextResponse.json({
     duplicateOrders,
