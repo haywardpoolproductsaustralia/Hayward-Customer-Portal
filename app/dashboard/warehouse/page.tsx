@@ -4,9 +4,11 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   Loader2, CheckCircle2, AlertCircle, PackageCheck,
   Package, Download, ChevronDown, ChevronUp,
-  TrendingUp, AlertTriangle, Container, SlidersHorizontal
+  TrendingUp, AlertTriangle, Container, SlidersHorizontal,
+  Copy, X
 } from 'lucide-react';
 import type { FulfillableOrder, FulfillableLine } from '@/app/api/warehouse/fulfillment/route';
+import type { DuplicateOrder } from '@/app/api/warehouse/duplicates/route';
 import { SearchableSelect } from '@/components/SearchableSelect';
 
 interface Summary {
@@ -32,6 +34,66 @@ const DATE = (v: string) => {
         timeZone: 'Australia/Sydney',
       });
 };
+
+function DuplicateCard({ order }: { order: DuplicateOrder }) {
+  const [expanded, setExpanded] = useState(true);
+  return (
+    <div className="rounded-2xl bg-white border border-coral/30 shadow-soft overflow-hidden">
+      <div
+        className="px-5 py-4 flex items-center justify-between gap-3 cursor-pointer hover:bg-coral/5"
+        onClick={() => setExpanded((v) => !v)}
+      >
+        <div className="flex items-center gap-3 min-w-0">
+          <Copy className="h-5 w-5 text-coral flex-shrink-0" />
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <p className="font-semibold text-deep">{order.customerName}</p>
+              <span className="text-[11px] font-semibold rounded-full px-2 py-0.5 bg-coral/10 text-coral">
+                Possible duplicate
+              </span>
+              <span className="text-[11px] text-ink/40">{order.statusFlag}</span>
+            </div>
+            <p className="text-xs text-ink/50 mt-0.5">
+              Order {order.orderNo}
+              {order.customerOrderNo && ` · Ref: ${order.customerOrderNo}`}
+              {' · '}{DATE(order.orderDate)}
+              {order.orderDescn1 && ` · ${order.orderDescn1}`}
+            </p>
+          </div>
+        </div>
+        {expanded
+          ? <ChevronUp className="h-4 w-4 text-ink/40 flex-shrink-0" />
+          : <ChevronDown className="h-4 w-4 text-ink/40 flex-shrink-0" />}
+      </div>
+
+      {expanded && (
+        <div className="border-t border-ink/10 divide-y divide-ink/5">
+          {order.duplicateLines.map((line) => (
+            <div key={line.sku} className="px-5 py-3">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium text-ink">{line.productName || line.sku}</p>
+                  <p className="text-xs text-ink/40 font-mono">{line.sku} · Qty {line.qtyOrdered}</p>
+                </div>
+              </div>
+              <div className="mt-2 space-y-1">
+                {line.matchedOrders.map((m) => (
+                  <p key={m.orderNo} className="text-xs text-ink/60">
+                    ↳ Also on order{' '}
+                    <span className="font-semibold text-coral">{m.orderNo}</span>
+                    {m.customerOrderNo && ` (ref: ${m.customerOrderNo})`}
+                    {' · '}{DATE(m.orderDate)}
+                    {' · '}<span className="text-ink/40">{m.statusFlag}</span>
+                  </p>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function LineRow({ line }: { line: FulfillableLine }) {
   const shortage = line.qtyBackordered - line.onHandTotal;
@@ -161,6 +223,12 @@ export default function WarehousePage() {
   const [branchFilter, setBranchFilter] = useState('');
   const [exporting, setExporting] = useState(false);
 
+  // Duplicate detection - loaded lazily on first button click
+  const [showDuplicates, setShowDuplicates] = useState(false);
+  const [duplicates, setDuplicates] = useState<DuplicateOrder[] | null>(null);
+  const [duplicatesLoading, setDuplicatesLoading] = useState(false);
+  const [duplicateCount, setDuplicateCount] = useState<number | null>(null);
+
   useEffect(() => {
     fetch('/api/warehouse/fulfillment')
       .then(async (r) => {
@@ -171,6 +239,24 @@ export default function WarehousePage() {
       .catch(() => setError('Could not reach the server.'))
       .finally(() => setLoading(false));
   }, []);
+
+  async function toggleDuplicates() {
+    if (showDuplicates) {
+      setShowDuplicates(false);
+      return;
+    }
+    setShowDuplicates(true);
+    if (duplicates !== null) return; // already loaded
+    setDuplicatesLoading(true);
+    try {
+      const r = await fetch('/api/warehouse/duplicates');
+      const data = await r.json();
+      setDuplicates(data.duplicateOrders ?? []);
+      setDuplicateCount(data.totalFlagged ?? 0);
+    } finally {
+      setDuplicatesLoading(false);
+    }
+  }
 
   const branchOptions = useMemo(
     () => [...new Set(orders.map((o) => o.customerName))].sort(),
@@ -292,14 +378,33 @@ export default function WarehousePage() {
           <h1 className="font-display text-3xl text-deep font-bold">Warehouse fulfillment</h1>
           <p className="text-ink/50 mt-1">Backordered lines that can be dispatched from current stock.</p>
         </div>
-        <button
-          onClick={exportExcel}
-          disabled={exporting || displayed.length === 0}
-          className="rounded-xl border border-ink/10 bg-white px-4 py-2.5 text-sm font-medium shadow-soft hover:border-wave/30 flex items-center gap-2 disabled:opacity-50"
-        >
-          {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-          Export to Excel
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={toggleDuplicates}
+            className={`rounded-xl border px-4 py-2.5 text-sm font-medium shadow-soft flex items-center gap-2 transition-colors ${
+              showDuplicates
+                ? 'bg-coral/10 border-coral/30 text-coral'
+                : 'bg-white border-ink/10 hover:border-coral/30 text-ink/70'
+            }`}
+          >
+            <Copy className="h-4 w-4" />
+            Duplicate orders
+            {duplicateCount != null && duplicateCount > 0 && (
+              <span className="rounded-full bg-coral text-white text-[11px] font-bold px-1.5 py-0.5">
+                {duplicateCount}
+              </span>
+            )}
+            {showDuplicates && <X className="h-3.5 w-3.5 ml-1" />}
+          </button>
+          <button
+            onClick={exportExcel}
+            disabled={exporting || displayed.length === 0}
+            className="rounded-xl border border-ink/10 bg-white px-4 py-2.5 text-sm font-medium shadow-soft hover:border-wave/30 flex items-center gap-2 disabled:opacity-50"
+          >
+            {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+            Export to Excel
+          </button>
+        </div>
       </div>
 
       {/* Summary cards */}
@@ -351,7 +456,44 @@ export default function WarehousePage() {
         </div>
       )}
 
-      {/* Filters row */}
+      {/* Duplicate detection panel */}
+      {showDuplicates && (
+        <div className="rounded-2xl bg-white border border-coral/20 shadow-soft overflow-hidden">
+          <div className="px-5 py-4 bg-coral/5 border-b border-coral/10 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Copy className="h-4 w-4 text-coral" />
+              <p className="text-sm font-semibold text-coral">
+                Potential duplicate orders — same customer, same SKU, same quantity, same day
+              </p>
+            </div>
+            <button onClick={() => setShowDuplicates(false)} className="p-1 rounded-full hover:bg-coral/10">
+              <X className="h-4 w-4 text-coral/60" />
+            </button>
+          </div>
+          <div className="p-4 space-y-3">
+            {duplicatesLoading ? (
+              <div className="flex items-center gap-2 text-ink/40 py-6 justify-center">
+                <Loader2 className="h-4 w-4 animate-spin" /> Scanning 90 days of orders...
+              </div>
+            ) : !duplicates || duplicates.length === 0 ? (
+              <div className="flex items-center gap-2 text-ink/40 py-6 justify-center">
+                <CheckCircle2 className="h-5 w-5 text-splash" />
+                <span>No potential duplicates found in the last 90 days.</span>
+              </div>
+            ) : (
+              <>
+                <p className="text-xs text-ink/40">
+                  {duplicates.length} order{duplicates.length > 1 ? 's' : ''} flagged for review.
+                  These are potential duplicates — verify with the customer before cancelling.
+                </p>
+                {duplicates.map((d) => <DuplicateCard key={d.orderNo} order={d} />)}
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Filter row */}
       <div className="flex flex-wrap items-end gap-3">
         {/* Filter tabs */}
         <div className="flex gap-1 border border-ink/10 rounded-xl p-1 bg-white shadow-soft">
