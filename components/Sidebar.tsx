@@ -4,7 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname } from 'next/navigation';
-import { Boxes, Receipt, Tag, BookOpen, Menu, X, Home, Sparkles } from 'lucide-react';
+import { Boxes, Receipt, Tag, BookOpen, Menu, X, Home, Sparkles, Warehouse } from 'lucide-react';
 
 const NAV_ITEMS = [
   { href: '/dashboard', label: 'Home', icon: Home },
@@ -15,10 +15,23 @@ const NAV_ITEMS = [
   { href: '/dashboard/assistant', label: 'Assistant', icon: Sparkles },
 ];
 
-function NavLinks({ pathname, onNavigate }: { pathname: string; onNavigate?: () => void }) {
+const STAFF_ONLY_NAV_ITEMS = [
+  { href: '/dashboard/warehouse', label: 'Warehouse', icon: Warehouse },
+];
+
+function NavLinks({
+  pathname,
+  isAggregate,
+  onNavigate,
+}: {
+  pathname: string;
+  isAggregate: boolean;
+  onNavigate?: () => void;
+}) {
+  const items = isAggregate ? [...NAV_ITEMS, ...STAFF_ONLY_NAV_ITEMS] : NAV_ITEMS;
   return (
     <nav className="flex flex-col gap-1">
-      {NAV_ITEMS.map((item) => {
+      {items.map((item) => {
         const Icon = item.icon;
         const active = pathname === item.href;
         return (
@@ -47,7 +60,6 @@ function NavLinks({ pathname, onNavigate }: { pathname: string; onNavigate?: () 
 export function SidebarNav({ isAggregate = false }: { isAggregate?: boolean }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
-  void isAggregate;
 
   return (
     <>
@@ -69,7 +81,7 @@ export function SidebarNav({ isAggregate = false }: { isAggregate?: boolean }) {
                 <X className="h-5 w-5 text-ink/60" />
               </button>
             </div>
-            <NavLinks pathname={pathname} onNavigate={() => setOpen(false)} />
+            <NavLinks pathname={pathname} isAggregate={isAggregate} onNavigate={() => setOpen(false)} />
           </div>
           <div className="flex-1 bg-ink/40" onClick={() => setOpen(false)} />
         </div>
@@ -80,7 +92,7 @@ export function SidebarNav({ isAggregate = false }: { isAggregate?: boolean }) {
         <div className="px-2 mb-8">
           <Image src="/hayward-logo.png" alt="Hayward" width={140} height={32} className="h-8 w-auto" priority />
         </div>
-        <NavLinks pathname={pathname} />
+        <NavLinks pathname={pathname} isAggregate={isAggregate} />
       </aside>
     </>
   );
