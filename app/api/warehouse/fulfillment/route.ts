@@ -9,6 +9,7 @@ interface OrderLine {
   orderDate: string;
   expectedDate: string;
   invoiceDate: string | null;
+  orderDescn1: string | null;
   statusFlag: string;
   sku: string;
   qtyOrdered: number;
@@ -22,7 +23,6 @@ interface StockEntry {
   name?: string | null;
   stockCategory?: string | null;
   listPrice?: number | null;
-  supplierStock?: string | null;
   byLocation?: Record<string, { onHand: number; allocated: number; backordered: number }>;
 }
 
@@ -40,8 +40,8 @@ export interface FulfillableLine {
   onHandTotal: number;
   fulfillableQty: number;
   unitPrice: number | null;
-  lineBackorderValue: number | null;   // revenue being held up (price × backorder qty)
-  lineFulfillableValue: number | null; // revenue we can unlock now (price × fulfillable qty)
+  lineBackorderValue: number | null;
+  lineFulfillableValue: number | null;
   canFullyFulfil: boolean;
 }
 
@@ -53,11 +53,21 @@ export interface FulfillableOrder {
   orderDate: string;
   expectedDate: string;
   statusFlag: string;
+  orderDescn1: string | null;
+  isContainer: boolean;
   lines: FulfillableLine[];
-  fullyFulfillable: boolean;    // every backordered line can ship
-  partiallyFulfillable: boolean; // at least one line can ship
-  orderBackorderValue: number;   // total $ being held up
-  orderFulfillableValue: number; // total $ that can ship now
+  fullyFulfillable: boolean;
+  partiallyFulfillable: boolean;
+  orderBackorderValue: number;
+  orderFulfillableValue: number;
+}
+
+// Container detection: CONTAINER or FCL in ORDER_DESCN1.
+// Bare MAINFREIGHT excluded until confirmed as always-container.
+function detectContainer(descn: string | null): boolean {
+  if (!descn) return false;
+  const u = descn.toUpperCase();
+  return u.includes('CONTAINER') || u.includes(' FCL') || u.startsWith('FCL');
 }
 
 export async function GET() {
@@ -72,7 +82,6 @@ export async function GET() {
     );
   }
 
-  // Load all the data we need in parallel
   const [rawLines, allStock, customerNames, customerProfiles] = await Promise.all([
     getJSON<OrderLine[]>(`orders:group:${access.groupKey}`),
     getJSON<StockEntry[]>('stock:all'),
@@ -80,19 +89,16 @@ export async function GET() {
     getJSON<Record<string, CustomerProfile>>('customerProfiles'),
   ]);
 
-  // Build a stock index and on-hand total by SKU
   const stockBySkuMap = new Map<string, StockEntry>();
   const onHandBySku = new Map<string, number>();
   for (const entry of allStock ?? []) {
     stockBySkuMap.set(entry.sku, entry);
     const total = Object.values(entry.byLocation ?? {}).reduce(
-      (sum, l) => sum + (l.onHand || 0),
-      0
+      (sum, l) => sum + (l.onHand || 0), 0
     );
     onHandBySku.set(entry.sku, total);
   }
 
-  // Only look at open orders with backordered lines
   const openLines = (rawLines ?? []).filter(
     (l) =>
       (l.statusFlag === 'B' || l.statusFlag === 'A' || l.statusFlag === 'H') &&
@@ -106,13 +112,13 @@ export async function GET() {
         totalOrders: 0,
         fullyFulfillable: 0,
         partiallyFulfillable: 0,
+        containerOrders: 0,
         totalBackorderValue: 0,
         totalFulfillableValue: 0,
       },
     });
   }
 
-  // Batch-fetch price types for every unique customer code
   const uniqueCodes = [...new Set(openLines.map((l) => l.customerCode))];
   const priceTypeValues = await Promise.all(
     uniqueCodes.map((code) => redis.get<string>(`customerPriceType:${code}`))
@@ -123,7 +129,6 @@ export async function GET() {
     if (pt) priceTypeByCode.set(code, pt.trim());
   });
 
-  // Batch-fetch pricing rules for every unique price type
   const uniquePriceTypes = [...new Set(priceTypeByCode.values())];
   const pricingRulesValues = await Promise.all(
     uniquePriceTypes.map((pt) => getJSON<PricingRule[]>(`pricing:${pt}`))
@@ -133,14 +138,12 @@ export async function GET() {
     rulesByPriceType.set(pt, pricingRulesValues[i] ?? []);
   });
 
-  // Group lines by order number
   const orderMap = new Map<string, OrderLine[]>();
   for (const line of openLines) {
     if (!orderMap.has(line.orderNo)) orderMap.set(line.orderNo, []);
     orderMap.get(line.orderNo)!.push(line);
   }
 
-  // Build the enriched fulfillable order list
   const fulfillableOrders: FulfillableOrder[] = [];
 
   for (const [orderNo, lines] of orderMap) {
@@ -148,20 +151,19 @@ export async function GET() {
     const customerCode = sampleLine.customerCode;
     const priceType = priceTypeByCode.get(customerCode);
     const rules = priceType ? (rulesByPriceType.get(priceType) ?? []) : [];
+    const orderDescn1 = sampleLine.orderDescn1 ?? null;
+    const isContainer = detectContainer(orderDescn1);
 
     const enrichedLines: FulfillableLine[] = lines.map((l) => {
       const stock = stockBySkuMap.get(l.sku);
       const onHandTotal = onHandBySku.get(l.sku) ?? 0;
       const fulfillableQty = Math.min(l.qtyBackordered, onHandTotal);
       const canFullyFulfil = onHandTotal >= l.qtyBackordered;
-
       const rule = findRuleForSku(rules, l.sku, stock?.stockCategory);
       const listPrice = stock?.listPrice ?? null;
       const unitPrice = rule ? computePrice(rule, l.qtyOrdered, listPrice) : null;
-
       const lineBackorderValue = unitPrice != null ? unitPrice * l.qtyBackordered : null;
-      const lineFulfillableValue =
-        unitPrice != null ? unitPrice * fulfillableQty : null;
+      const lineFulfillableValue = unitPrice != null ? unitPrice * fulfillableQty : null;
 
       return {
         sku: l.sku,
@@ -179,17 +181,15 @@ export async function GET() {
     });
 
     const partiallyFulfillable = enrichedLines.some((l) => l.fulfillableQty > 0);
+    if (!partiallyFulfillable) continue;
+
     const fullyFulfillable = enrichedLines.every((l) => l.canFullyFulfil);
     const orderBackorderValue = enrichedLines.reduce(
-      (sum, l) => sum + (l.lineBackorderValue ?? 0),
-      0
+      (sum, l) => sum + (l.lineBackorderValue ?? 0), 0
     );
     const orderFulfillableValue = enrichedLines.reduce(
-      (sum, l) => sum + (l.lineFulfillableValue ?? 0),
-      0
+      (sum, l) => sum + (l.lineFulfillableValue ?? 0), 0
     );
-
-    if (!partiallyFulfillable) continue; // skip orders where nothing can ship yet
 
     fulfillableOrders.push({
       orderNo,
@@ -202,6 +202,8 @@ export async function GET() {
       orderDate: sampleLine.orderDate,
       expectedDate: sampleLine.expectedDate,
       statusFlag: sampleLine.statusFlag,
+      orderDescn1,
+      isContainer,
       lines: enrichedLines,
       fullyFulfillable,
       partiallyFulfillable,
@@ -210,20 +212,11 @@ export async function GET() {
     });
   }
 
-  // Sort: fully fulfillable first (highest priority), then by expected date
-  fulfillableOrders.sort((a, b) => {
-    if (a.fullyFulfillable !== b.fullyFulfillable)
-      return a.fullyFulfillable ? -1 : 1;
-    return new Date(a.expectedDate).getTime() - new Date(b.expectedDate).getTime();
-  });
-
   const totalBackorderValue = fulfillableOrders.reduce(
-    (sum, o) => sum + o.orderBackorderValue,
-    0
+    (sum, o) => sum + o.orderBackorderValue, 0
   );
   const totalFulfillableValue = fulfillableOrders.reduce(
-    (sum, o) => sum + o.orderFulfillableValue,
-    0
+    (sum, o) => sum + o.orderFulfillableValue, 0
   );
 
   return NextResponse.json({
@@ -234,6 +227,7 @@ export async function GET() {
       partiallyFulfillable: fulfillableOrders.filter(
         (o) => o.partiallyFulfillable && !o.fullyFulfillable
       ).length,
+      containerOrders: fulfillableOrders.filter((o) => o.isContainer).length,
       totalBackorderValue,
       totalFulfillableValue,
     },
