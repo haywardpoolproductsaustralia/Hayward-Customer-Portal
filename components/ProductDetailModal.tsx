@@ -23,6 +23,7 @@ interface OrderLine {
   qtyShipped: number;
   qtyBackordered: number;
   customerCode: string;
+  branchName: string | null;
 }
 
 interface FullPricing {
@@ -222,9 +223,12 @@ export function ProductDetailModal({ item, onClose }: { item: StockEntry; onClos
                 {orders.map((o, i) => (
                   <div
                     key={`${o.orderNo}-${i}`}
-                    className="flex items-center justify-between rounded-xl bg-foam px-3.5 py-2.5 text-sm"
+                    className="flex items-start justify-between rounded-xl bg-foam px-3.5 py-2.5 text-sm"
                   >
                     <div>
+                      {o.branchName && (
+                        <p className="text-xs font-semibold text-wave mb-0.5">{o.branchName}</p>
+                      )}
                       <p className="font-medium text-ink">Order {o.orderNo}</p>
                       {o.customerOrderNo && (
                         <p className="text-xs text-ink/50">Your order #{o.customerOrderNo}</p>
