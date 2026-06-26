@@ -13,6 +13,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import { useSelectedCustomer } from '@/components/SelectedCustomerContext';
+import { SearchableSelect } from '@/components/SearchableSelect';
 
 interface OrderLine {
   orderNo: string;
@@ -95,6 +96,14 @@ export default function OrdersPage() {
     for (const o of orders) seen.set(o.customerCode, o.branchName);
     return [...seen.entries()].sort((a, b) => a[1].localeCompare(b[1]));
   }, [orders]);
+
+  // Unique sorted option lists for the searchable dropdowns
+  const orderNoOptions = useMemo(() =>
+    [...new Set(orders.map((o) => o.orderNo))].sort(), [orders]);
+  const customerOrderNoOptions = useMemo(() =>
+    [...new Set(orders.map((o) => o.customerOrderNo).filter((v): v is string => Boolean(v)))].sort(), [orders]);
+  const skuOptions = useMemo(() =>
+    [...new Set(orders.map((o) => o.sku))].sort(), [orders]);
 
   const filtered = useMemo(() => {
     const orderNoTrim = orderNoSearch.trim();
@@ -191,42 +200,27 @@ export default function OrdersPage() {
       </div>
 
       <div className="rounded-2xl bg-white border border-ink/10 shadow-soft p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-        <div>
-          <label className="block text-xs font-medium text-ink/40 mb-1">Hayward order #</label>
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-ink/30" />
-            <input
-              value={orderNoSearch}
-              onChange={(e) => setOrderNoSearch(e.target.value)}
-              placeholder="e.g. 445822"
-              className="w-full rounded-lg border border-ink/10 pl-8 pr-3 py-2 text-sm focus:border-wave outline-none"
-            />
-          </div>
-        </div>
-        <div>
-          <label className="block text-xs font-medium text-ink/40 mb-1">Your order #</label>
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-ink/30" />
-            <input
-              value={customerOrderNoSearch}
-              onChange={(e) => setCustomerOrderNoSearch(e.target.value)}
-              placeholder="e.g. 228031499"
-              className="w-full rounded-lg border border-ink/10 pl-8 pr-3 py-2 text-sm focus:border-wave outline-none"
-            />
-          </div>
-        </div>
-        <div>
-          <label className="block text-xs font-medium text-ink/40 mb-1">SKU</label>
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-ink/30" />
-            <input
-              value={skuSearch}
-              onChange={(e) => setSkuSearch(e.target.value)}
-              placeholder="e.g. 1A-AV250LI"
-              className="w-full rounded-lg border border-ink/10 pl-8 pr-3 py-2 text-sm focus:border-wave outline-none"
-            />
-          </div>
-        </div>
+        <SearchableSelect
+          label="Hayward order #"
+          placeholder="e.g. 445822"
+          options={orderNoOptions}
+          value={orderNoSearch}
+          onChange={setOrderNoSearch}
+        />
+        <SearchableSelect
+          label="Your order #"
+          placeholder="e.g. 228031499"
+          options={customerOrderNoOptions}
+          value={customerOrderNoSearch}
+          onChange={setCustomerOrderNoSearch}
+        />
+        <SearchableSelect
+          label="SKU"
+          placeholder="e.g. 1A-AV250LI"
+          options={skuOptions}
+          value={skuSearch}
+          onChange={setSkuSearch}
+        />
 
         {isHeadOffice && (
           <div>
