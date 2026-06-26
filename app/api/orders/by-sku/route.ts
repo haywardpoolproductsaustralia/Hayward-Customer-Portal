@@ -13,6 +13,7 @@ interface OrderLine {
   qtyOrdered: number;
   qtyShipped: number;
   qtyBackordered: number;
+  customerCode?: string;
 }
 
 export async function GET(req: NextRequest) {
@@ -27,17 +28,25 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Provide a sku query parameter' }, { status: 400 });
   }
 
-  const perCustomer = await Promise.all(
-    access.customerCodes.map(async (code) => {
-      const lines = (await getJSON<OrderLine[]>(`orders:${code}`)) ?? [];
-      return lines
-        .filter((line) => line.sku === sku)
-        .map((line) => ({ ...line, customerCode: code }));
-    })
-  );
+  // One pre-aggregated read for head office / Hayward-everything, instead
+  // of fanning out across every individual customer code.
+  const [rawLines, customerNames] = await Promise.all([
+    access.isHeadOffice
+      ? getJSON<OrderLine[]>(`orders:group:${access.groupKey}`)
+      : getJSON<OrderLine[]>(`orders:${access.branchCode}`),
+    getJSON<Record<string, string>>('customerNames'),
+  ]);
 
-  const orders = perCustomer
-    .flat()
+  const orders = (rawLines ?? [])
+    .filter((line) => line.sku === sku)
+    .map((line) => {
+      const code = line.customerCode ?? access.branchCode ?? '';
+      return {
+        ...line,
+        customerCode: code,
+        branchName: customerNames?.[code] ?? null,
+      };
+    })
     .sort((a, b) => new Date(b.orderDate).getTime() - new Date(a.orderDate).getTime());
 
   return NextResponse.json({ sku, orders });
