@@ -61,9 +61,17 @@ function DuplicateCard({ order }: { order: DuplicateOrder }) {
             </p>
           </div>
         </div>
-        {expanded
-          ? <ChevronUp className="h-4 w-4 text-ink/40 flex-shrink-0" />
-          : <ChevronDown className="h-4 w-4 text-ink/40 flex-shrink-0" />}
+        <div className="flex items-center gap-4 flex-shrink-0">
+          {order.orderValue != null && (
+            <div className="text-right hidden sm:block">
+              <p className="text-xs text-ink/40">Order value</p>
+              <p className="font-semibold text-ink text-sm">{AUD(order.orderValue)}</p>
+            </div>
+          )}
+          {expanded
+            ? <ChevronUp className="h-4 w-4 text-ink/40 flex-shrink-0" />
+            : <ChevronDown className="h-4 w-4 text-ink/40 flex-shrink-0" />}
+        </div>
       </div>
 
       {expanded && (
