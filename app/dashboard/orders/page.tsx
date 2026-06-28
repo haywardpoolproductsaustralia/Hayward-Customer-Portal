@@ -283,17 +283,17 @@ export default function OrdersPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-ink/10 text-left text-ink/40">
-                <th className="px-5 py-3.5 font-medium">Order #</th>
-                <th className="px-5 py-3.5 font-medium">Your order #</th>
-                {isHeadOffice && <th className="px-5 py-3.5 font-medium">Branch</th>}
-                <th className="px-5 py-3.5 font-medium">Order date</th>
-                <th className="px-5 py-3.5 font-medium">Est. delivery</th>
-                <th className="px-5 py-3.5 font-medium">Invoice date</th>
-                <th className="px-5 py-3.5 font-medium">SKU</th>
-                <th className="px-5 py-3.5 font-medium text-right">Ordered</th>
-                <th className="px-5 py-3.5 font-medium text-right">Shipped</th>
-                <th className="px-5 py-3.5 font-medium text-right">Backordered</th>
-                <th className="px-5 py-3.5 font-medium">Status</th>
+                <th className="px-3 py-3 font-medium">Order #</th>
+                <th className="px-3 py-3 font-medium">Your order #</th>
+                {isHeadOffice && <th className="px-3 py-3 font-medium">Branch</th>}
+                <th className="px-3 py-3 font-medium">Order date</th>
+                <th className="px-3 py-3 font-medium">Est. delivery</th>
+                <th className="px-3 py-3 font-medium">Invoice date</th>
+                <th className="px-3 py-3 font-medium">SKU</th>
+                <th className="px-3 py-3 font-medium text-right">Ordered</th>
+                <th className="px-3 py-3 font-medium text-right">Shipped</th>
+                <th className="px-3 py-3 font-medium text-right whitespace-nowrap">B/Order</th>
+                <th className="px-3 py-3 font-medium">Status</th>
               </tr>
             </thead>
             <tbody>
@@ -306,19 +306,19 @@ export default function OrdersPage() {
                 const StatusIcon = status.icon;
                 return (
                   <tr key={`${o.orderNo}-${o.sku}-${i}`} className="border-b border-ink/5 last:border-0">
-                    <td className="px-5 py-3.5 font-medium">{o.orderNo}</td>
-                    <td className="px-5 py-3.5 text-ink/60">{o.customerOrderNo || '-'}</td>
-                    {isHeadOffice && <td className="px-5 py-3.5 text-ink/50">{o.branchName}</td>}
-                    <td className="px-5 py-3.5 text-ink/50">{formatDate(o.orderDate)}</td>
-                    <td className="px-5 py-3.5 text-ink/50">{formatDate(o.expectedDate)}</td>
-                    <td className="px-5 py-3.5 text-ink/50">
-                      {o.invoiceDate ? formatDate(o.invoiceDate) : <span className="text-ink/30">Not yet invoiced</span>}
+                    <td className="px-3 py-3 font-medium">{o.orderNo}</td>
+                    <td className="px-3 py-3 text-ink/60">{o.customerOrderNo || '-'}</td>
+                    {isHeadOffice && <td className="px-3 py-3 text-ink/50">{o.branchName}</td>}
+                    <td className="px-3 py-3 text-ink/50 whitespace-nowrap">{formatDate(o.orderDate)}</td>
+                    <td className="px-3 py-3 text-ink/50 whitespace-nowrap">{formatDate(o.expectedDate)}</td>
+                    <td className="px-3 py-3 text-ink/50 whitespace-nowrap">
+                      {o.invoiceDate ? formatDate(o.invoiceDate) : <span className="text-ink/30">Pending</span>}
                     </td>
-                    <td className="px-5 py-3.5 font-mono text-xs">{o.sku}</td>
-                    <td className="px-5 py-3.5 text-right">{o.qtyOrdered}</td>
-                    <td className="px-5 py-3.5 text-right">{o.qtyShipped}</td>
-                    <td className="px-5 py-3.5 text-right">{o.qtyBackordered || '-'}</td>
-                    <td className="px-5 py-3.5">
+                    <td className="px-3 py-3 font-mono text-xs whitespace-nowrap">{o.sku}</td>
+                    <td className="px-3 py-3 text-right">{o.qtyOrdered}</td>
+                    <td className="px-3 py-3 text-right">{o.qtyShipped}</td>
+                    <td className="px-3 py-3 text-right">{o.qtyBackordered || '-'}</td>
+                    <td className="px-3 py-3 whitespace-nowrap">
                       <span
                         className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold ${status.className}`}
                       >
