@@ -47,6 +47,14 @@ function formatDate(value: string | null | undefined) {
   return d.toLocaleDateString('en-AU', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Australia/Sydney' });
 }
 
+// Compact date for the table cells: "26 Jun 26" - fits one line in a narrow column.
+function shortDate(value: string | null | undefined) {
+  if (!value) return '-';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '-';
+  return d.toLocaleDateString('en-AU', { day: '2-digit', month: 'short', year: '2-digit', timeZone: 'Australia/Sydney' });
+}
+
 export default function OrdersPage() {
   const [orders, setOrders] = useState<OrderLine[]>([]);
   const [isHeadOffice, setIsHeadOffice] = useState(false);
@@ -279,21 +287,21 @@ export default function OrdersPage() {
           <p className="text-ink/40">No orders matched those filters.</p>
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-2xl border border-ink/10 bg-white shadow-soft">
-          <table className="w-full text-sm">
+        <div className="rounded-2xl border border-ink/10 bg-white shadow-soft overflow-hidden">
+          <table className="w-full table-fixed text-sm">
             <thead>
-              <tr className="border-b border-ink/10 text-left text-ink/40">
-                <th className="px-3 py-3 font-medium">Order #</th>
-                <th className="px-3 py-3 font-medium">Your order #</th>
-                {isHeadOffice && <th className="px-3 py-3 font-medium">Branch</th>}
-                <th className="px-3 py-3 font-medium">Order date</th>
-                <th className="px-3 py-3 font-medium">Est. delivery</th>
-                <th className="px-3 py-3 font-medium">Invoice date</th>
-                <th className="px-3 py-3 font-medium">SKU</th>
-                <th className="px-3 py-3 font-medium text-right">Ordered</th>
-                <th className="px-3 py-3 font-medium text-right">Shipped</th>
-                <th className="px-3 py-3 font-medium text-right whitespace-nowrap">B/Order</th>
-                <th className="px-3 py-3 font-medium">Status</th>
+              <tr className="border-b border-ink/10 text-left text-ink/40 align-bottom">
+                <th className="px-3 py-3 font-medium w-[8%]">Order #</th>
+                <th className="px-3 py-3 font-medium w-[9%]">Your order #</th>
+                {isHeadOffice && <th className="px-3 py-3 font-medium w-[16%]">Branch</th>}
+                <th className="px-3 py-3 font-medium w-[8%]">Order date</th>
+                <th className="px-3 py-3 font-medium w-[8%]">Est. delivery</th>
+                <th className="px-3 py-3 font-medium w-[8%]">Invoice date</th>
+                <th className="px-3 py-3 font-medium w-[11%]">SKU</th>
+                <th className="px-3 py-3 font-medium text-right w-[7%]">Ordered</th>
+                <th className="px-3 py-3 font-medium text-right w-[7%]">Shipped</th>
+                <th className="px-3 py-3 font-medium text-right w-[7%]">B/Order</th>
+                <th className="px-3 py-3 font-medium w-[11%]">Status</th>
               </tr>
             </thead>
             <tbody>
@@ -305,24 +313,24 @@ export default function OrdersPage() {
                 };
                 const StatusIcon = status.icon;
                 return (
-                  <tr key={`${o.orderNo}-${o.sku}-${i}`} className="border-b border-ink/5 last:border-0">
-                    <td className="px-3 py-3 font-medium">{o.orderNo}</td>
-                    <td className="px-3 py-3 text-ink/60">{o.customerOrderNo || '-'}</td>
-                    {isHeadOffice && <td className="px-3 py-3 text-ink/50">{o.branchName}</td>}
-                    <td className="px-3 py-3 text-ink/50 whitespace-nowrap">{formatDate(o.orderDate)}</td>
-                    <td className="px-3 py-3 text-ink/50 whitespace-nowrap">{formatDate(o.expectedDate)}</td>
-                    <td className="px-3 py-3 text-ink/50 whitespace-nowrap">
-                      {o.invoiceDate ? formatDate(o.invoiceDate) : <span className="text-ink/30">Pending</span>}
+                  <tr key={`${o.orderNo}-${o.sku}-${i}`} className="border-b border-ink/5 last:border-0 align-top">
+                    <td className="px-3 py-3 font-medium break-words">{o.orderNo}</td>
+                    <td className="px-3 py-3 text-ink/60 break-words">{o.customerOrderNo || '-'}</td>
+                    {isHeadOffice && <td className="px-3 py-3 text-ink/50 break-words">{o.branchName}</td>}
+                    <td className="px-3 py-3 text-ink/50">{shortDate(o.orderDate)}</td>
+                    <td className="px-3 py-3 text-ink/50">{shortDate(o.expectedDate)}</td>
+                    <td className="px-3 py-3 text-ink/50">
+                      {o.invoiceDate ? shortDate(o.invoiceDate) : <span className="text-ink/30">Pending</span>}
                     </td>
-                    <td className="px-3 py-3 font-mono text-xs whitespace-nowrap">{o.sku}</td>
-                    <td className="px-3 py-3 text-right">{o.qtyOrdered}</td>
-                    <td className="px-3 py-3 text-right">{o.qtyShipped}</td>
-                    <td className="px-3 py-3 text-right">{o.qtyBackordered || '-'}</td>
-                    <td className="px-3 py-3 whitespace-nowrap">
+                    <td className="px-3 py-3 font-mono text-xs break-all">{o.sku}</td>
+                    <td className="px-3 py-3 text-right tabular-nums">{o.qtyOrdered}</td>
+                    <td className="px-3 py-3 text-right tabular-nums">{o.qtyShipped}</td>
+                    <td className="px-3 py-3 text-right tabular-nums">{o.qtyBackordered || '-'}</td>
+                    <td className="px-3 py-3">
                       <span
-                        className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold ${status.className}`}
+                        className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${status.className}`}
                       >
-                        <StatusIcon className="h-3 w-3" />
+                        <StatusIcon className="h-3 w-3 shrink-0" />
                         {status.label}
                       </span>
                     </td>
