@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { MapPin, Loader2, X, Receipt, AlertCircle } from 'lucide-react';
+import { MapPin, Loader2, X, Receipt, AlertCircle, Truck } from 'lucide-react';
 
 export interface StockEntry {
   sku: string;
@@ -10,6 +10,13 @@ export interface StockEntry {
   listPrice?: number | null;
   supplierStock?: string | null;
   byLocation?: Record<string, { onHand: number; allocated: number; backordered: number }>;
+  // Incoming supply from Hayward's suppliers. Quantity + expected dates ONLY -
+  // deliberately no supplier name, cost, or PO number (commercially sensitive).
+  incoming?: {
+    onOrderQty: number;
+    nextEta: string | null;
+    deliveries: { eta: string | null; qty: number }[];
+  };
 }
 
 interface OrderLine {
@@ -203,6 +210,36 @@ export function ProductDetailModal({ item, onClose }: { item: StockEntry; onClos
                     {qty.backordered ? <span className="text-amber"> · {qty.backordered} backordered</span> : null}
                   </span>
                 ))}
+              </div>
+            </div>
+          )}
+
+          {item.incoming && item.incoming.onOrderQty > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-ink/40 uppercase tracking-wide mb-2">Incoming stock</p>
+              <div className="rounded-xl bg-wave/5 border border-wave/15 px-3.5 py-3">
+                <div className="flex items-center gap-2">
+                  <Truck className="h-4 w-4 text-wave flex-shrink-0" />
+                  <p className="text-sm text-ink">
+                    <span className="font-semibold text-deep">{item.incoming.onOrderQty}</span> on order from Hayward&apos;s suppliers
+                  </p>
+                </div>
+                {item.incoming.nextEta ? (
+                  <p className="text-xs text-ink/50 mt-1 ml-6">Next arrival expected {formatDate(item.incoming.nextEta)}</p>
+                ) : (
+                  <p className="text-xs text-ink/50 mt-1 ml-6">Arrival date being confirmed</p>
+                )}
+                {item.incoming.deliveries.length > 1 && (
+                  <div className="mt-2 ml-6 space-y-1 border-t border-wave/10 pt-2">
+                    {item.incoming.deliveries.slice(0, 4).map((d, i) => (
+                      <div key={i} className="flex items-baseline justify-between text-xs">
+                        <span className="text-ink/50">{d.eta ? formatDate(d.eta) : 'Date TBC'}</span>
+                        <span className="text-ink/70 font-medium tabular-nums">{d.qty}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <p className="text-[11px] text-ink/35 mt-2 ml-6">Expected dates are indicative and may change.</p>
               </div>
             </div>
           )}
