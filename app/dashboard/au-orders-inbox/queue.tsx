@@ -205,6 +205,7 @@ function OrderRow({
             {order.poRef && <span className="text-xs text-slate-500">PO {order.poRef}</span>}
             {order.duplicateOf && <span className="rounded bg-rose-100 px-1.5 py-0.5 text-xs font-medium text-rose-700">Duplicate</span>}
             {order.extractionConfidence === "low" && <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-800">Check</span>}
+            {order.seenInArrow && <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-xs font-medium text-emerald-700">In Arrow</span>}
           </div>
           <p className="mt-0.5 text-xs text-slate-400">
             {order.lines.length} {order.lines.length === 1 ? "line" : "lines"} · {fmtTime(order.receivedAt)}
@@ -245,6 +246,15 @@ function OrderRow({
             {order.contact && <span><span className="text-slate-400">Contact:</span> {order.contact}</span>}
           </div>
           {order.deliverTo && <p className="mb-3 text-sm text-slate-600"><span className="text-slate-400">To:</span> {order.deliverTo}</p>}
+
+          {order.seenInArrow && (
+            <p className="mb-3 inline-flex items-center gap-1.5 rounded-md bg-emerald-50 px-2 py-1 text-sm text-emerald-700">
+              <Check className="h-4 w-4" />
+              In Arrow{order.arrowOrderNo ? ` as ${order.arrowOrderNo}` : ""}
+              {order.arrowEnteredBy ? ` · entered by ${order.arrowEnteredBy}` : ""}
+              {order.seenInArrowAt ? ` · ${fmtTime(order.seenInArrowAt)}` : ""}
+            </p>
+          )}
 
           <div className="mb-1 flex items-center justify-between">
             <span className="text-xs uppercase tracking-wide text-slate-400">Line items</span>
