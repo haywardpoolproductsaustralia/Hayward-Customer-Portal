@@ -53,6 +53,12 @@ export async function GET(req: NextRequest) {
     customerCode: line.customerCode ?? access.branchCode ?? '',
   }));
 
+  // Drop non-product lines. Comment / narrative lines in Arrow's SORTRAN carry a
+  // blank stock code, and the field we read as a quantity holds a non-quantity
+  // value for them - which is why they surfaced as nonsensical "ordered" numbers
+  // (e.g. 348,000). Customers only need real product lines.
+  lines = lines.filter((l) => (l.sku ?? '').trim() !== '');
+
   // If a representative code was requested and it's in the allowed set,
   // resolve its group name and filter to all codes in that group.
   if (requestedCode && access.customerCodes.includes(requestedCode) && codeToGroup) {
