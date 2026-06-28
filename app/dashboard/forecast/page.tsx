@@ -200,23 +200,19 @@ function Row({ r }: { r: ForecastRecord }) {
         </div>
 
         <div className="hidden sm:block text-right w-20">
-          <p className="text-[11px] text-ink/40">fcast/mo</p>
           <p className="text-sm tabular-nums text-ink">{NUM(r.monthlyForecast)}</p>
         </div>
         <div className="text-right w-20">
-          <p className="text-[11px] text-ink/40">cover</p>
           <p className={`text-sm tabular-nums ${coverStyle(r.coverMonths, r.belowReorder)}`}>
-            {r.coverMonths >= 900 ? '∞' : `${r.coverMonths}m`}
+            {r.coverMonths >= 900 ? 'no sales' : `${r.coverMonths}m`}
           </p>
         </div>
         <div className="text-right w-24">
-          <p className="text-[11px] text-ink/40">buy</p>
           <p className={`text-sm tabular-nums ${r.suggestedQty > 0 ? 'font-semibold text-deep' : 'text-ink/30'}`}>
             {r.suggestedQty > 0 ? NUM(r.suggestedQty) : '—'}
           </p>
         </div>
         <div className="hidden md:block text-right w-24">
-          <p className="text-[11px] text-ink/40">value</p>
           <p className="text-sm tabular-nums text-ink">{r.suggestedValue > 0 ? AUD(r.suggestedValue) : '—'}</p>
         </div>
         {open ? <ChevronUp className="h-4 w-4 text-ink/30" /> : <ChevronDown className="h-4 w-4 text-ink/30" />}
