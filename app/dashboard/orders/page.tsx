@@ -55,12 +55,18 @@ function formatDate(value: string | null | undefined) {
   return d.toLocaleDateString('en-AU', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Australia/Sydney' });
 }
 
-// Compact date for the table cells: "26 Jun 26" - fits one line in a narrow column.
+// Compact one-line date for table cells: "26 Jun 26".
+// (en-AU's "short" month is the full word, so we build the abbreviation ourselves.)
+const SHORT_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 function shortDate(value: string | null | undefined) {
   if (!value) return '-';
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return '-';
-  return d.toLocaleDateString('en-AU', { day: '2-digit', month: 'short', year: '2-digit', timeZone: 'Australia/Sydney' });
+  const parts = new Intl.DateTimeFormat('en-AU', {
+    day: '2-digit', month: 'numeric', year: '2-digit', timeZone: 'Australia/Sydney',
+  }).formatToParts(d);
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? '';
+  return `${get('day')} ${SHORT_MONTHS[Number(get('month')) - 1]} ${get('year')}`;
 }
 
 function totalOnHand(byLocation?: Record<string, { onHand: number }>) {
@@ -429,26 +435,26 @@ export default function OrdersPage() {
         </div>
       ) : (
         <div className="rounded-2xl border border-ink/10 bg-white shadow-soft overflow-x-auto">
-          <table className="w-full table-fixed text-sm min-w-[1100px]">
+          <table className="w-full text-sm min-w-[1180px] border-collapse">
             <thead>
-              <tr className="border-b border-ink/10 text-left text-ink/40 align-bottom">
-                <th className="px-3 py-3 font-medium w-[7%]">Order #</th>
-                <th className="px-3 py-3 font-medium w-[8%]">Your order #</th>
-                {isHeadOffice && <th className="px-3 py-3 font-medium w-[11%]">Branch</th>}
-                <th className="px-3 py-3 font-medium w-[6%]">Order date</th>
-                <th className="px-3 py-3 font-medium w-[6%]">Est. delivery</th>
-                <th className="px-3 py-3 font-medium w-[6%]">Invoice date</th>
-                <th className="px-3 py-3 font-medium w-[9%]">SKU</th>
-                <th className="px-3 py-3 font-medium text-right w-[5%]">Ordered</th>
-                <th className="px-3 py-3 font-medium text-right w-[5%]">Shipped</th>
-                <th className="px-3 py-3 font-medium text-right w-[5%]">B/Order</th>
-                <th className="px-3 py-3 font-medium w-[8%]">Status</th>
-                <th className="px-3 py-3 font-medium text-right w-[6%]">On hand</th>
-                <th className="px-3 py-3 font-medium text-right w-[6%]">On order</th>
-                <th className="px-3 py-3 font-medium w-[7%]">Next arrival</th>
+              <tr className="sticky top-0 z-10 bg-foam/90 backdrop-blur text-left text-[11px] uppercase tracking-wide text-ink/45 divide-x divide-ink/10 [&>th]:px-3 [&>th]:py-2.5 [&>th]:font-semibold border-b border-ink/10">
+                <th>Order #</th>
+                <th>Your order #</th>
+                {isHeadOffice && <th>Branch</th>}
+                <th>Order date</th>
+                <th>Est. delivery</th>
+                <th>Invoice date</th>
+                <th>SKU</th>
+                <th className="text-right">Ordered</th>
+                <th className="text-right">Shipped</th>
+                <th className="text-right">B/Order</th>
+                <th>Status</th>
+                <th className="text-right">On hand</th>
+                <th className="text-right">On order</th>
+                <th>Next arrival</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody className="divide-y divide-ink/5">
               {filtered.map((o, i) => {
                 const status = STATUS[o.statusFlag] ?? {
                   label: o.statusFlag || 'Unknown',
@@ -458,20 +464,27 @@ export default function OrdersPage() {
                 const StatusIcon = status.icon;
                 const stock = stockBySku[o.sku.toUpperCase()];
                 return (
-                  <tr key={`${o.orderNo}-${o.sku}-${i}`} className="border-b border-ink/5 last:border-0 align-top">
-                    <td className="px-3 py-3 font-medium break-words">{o.orderNo}</td>
-                    <td className="px-3 py-3 text-ink/60 break-words">{o.customerOrderNo || '-'}</td>
-                    {isHeadOffice && <td className="px-3 py-3 text-ink/50 break-words">{o.branchName}</td>}
-                    <td className="px-3 py-3 text-ink/50">{shortDate(o.orderDate)}</td>
-                    <td className="px-3 py-3 text-ink/50">{shortDate(o.expectedDate)}</td>
-                    <td className="px-3 py-3 text-ink/50">
+                  <tr
+                    key={`${o.orderNo}-${o.sku}-${i}`}
+                    className="divide-x divide-ink/5 even:bg-ink/[0.015] hover:bg-wave/[0.04] transition-colors [&>td]:px-3 [&>td]:py-2.5 align-middle"
+                  >
+                    <td className="font-semibold text-ink whitespace-nowrap">{o.orderNo}</td>
+                    <td className="text-ink/60 whitespace-nowrap">{o.customerOrderNo || '-'}</td>
+                    {isHeadOffice && (
+                      <td className="text-ink/60">
+                        <div className="max-w-[150px] truncate" title={o.branchName}>{o.branchName}</div>
+                      </td>
+                    )}
+                    <td className="text-ink/50 whitespace-nowrap">{shortDate(o.orderDate)}</td>
+                    <td className="text-ink/50 whitespace-nowrap">{shortDate(o.expectedDate)}</td>
+                    <td className="text-ink/50 whitespace-nowrap">
                       {o.invoiceDate ? shortDate(o.invoiceDate) : <span className="text-ink/30">Pending</span>}
                     </td>
-                    <td className="px-3 py-3 font-mono text-xs break-all">{o.sku}</td>
-                    <td className="px-3 py-3 text-right tabular-nums">{o.qtyOrdered}</td>
-                    <td className="px-3 py-3 text-right tabular-nums">{o.qtyShipped}</td>
-                    <td className="px-3 py-3 text-right tabular-nums">{o.qtyBackordered || '-'}</td>
-                    <td className="px-3 py-3">
+                    <td className="font-mono text-xs text-ink/70 whitespace-nowrap">{o.sku}</td>
+                    <td className="text-right tabular-nums">{o.qtyOrdered}</td>
+                    <td className="text-right tabular-nums">{o.qtyShipped}</td>
+                    <td className="text-right tabular-nums text-ink/60">{o.qtyBackordered || '-'}</td>
+                    <td className="whitespace-nowrap">
                       <span
                         className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${status.className}`}
                       >
@@ -479,11 +492,11 @@ export default function OrdersPage() {
                         {status.label}
                       </span>
                     </td>
-                    <td className="px-3 py-3 text-right tabular-nums text-ink/60">{stock ? stock.onHand : '-'}</td>
-                    <td className="px-3 py-3 text-right tabular-nums text-ink/60">
+                    <td className="text-right tabular-nums font-medium text-ink/70">{stock ? stock.onHand : '-'}</td>
+                    <td className="text-right tabular-nums text-ink/60">
                       {stock && stock.onOrderQty ? stock.onOrderQty : '-'}
                     </td>
-                    <td className="px-3 py-3 text-ink/50">{stock?.nextEta ? shortDate(stock.nextEta) : '-'}</td>
+                    <td className="text-ink/50 whitespace-nowrap">{stock?.nextEta ? shortDate(stock.nextEta) : '-'}</td>
                   </tr>
                 );
               })}
