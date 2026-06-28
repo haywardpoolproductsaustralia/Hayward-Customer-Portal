@@ -2,19 +2,31 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { IntakeRecord } from "@/lib/au-orders-inbox";
+import { Copy, Check, ChevronRight, ExternalLink, Lock } from "lucide-react";
 
 const POLL_MS = 7_000;
 const HEARTBEAT_MS = 5 * 60_000;
 
 type Toast = { text: string; tone: "info" | "warn" } | null;
 
+const fmtTime = (ms: number) =>
+  new Date(ms).toLocaleString("en-AU", {
+    timeZone: "Australia/Melbourne",
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
 export default function OrderInboxQueue({ meId, meName }: { meId: string; meName: string }) {
-  const [pos, setPos] = useState<IntakeRecord[]>([]);
+  const [orders, setOrders] = useState<IntakeRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showKeyed, setShowKeyed] = useState(false);
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   const [toast, setToast] = useState<Toast>(null);
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [copied, setCopied] = useState<string | null>(null);
   const showKeyedRef = useRef(showKeyed);
   showKeyedRef.current = showKeyed;
 
@@ -23,7 +35,7 @@ export default function OrderInboxQueue({ meId, meName }: { meId: string; meName
       const res = await fetch(`/api/au-orders-inbox${showKeyedRef.current ? "?includeKeyed=1" : ""}`, { cache: "no-store" });
       if (!res.ok) throw new Error("Couldn't load the queue. Refresh to try again.");
       const data = await res.json();
-      setPos(data.orders);
+      setOrders(data.orders);
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong loading the queue.");
@@ -40,9 +52,10 @@ export default function OrderInboxQueue({ meId, meName }: { meId: string; meName
 
   useEffect(() => { load(); }, [showKeyed, load]);
 
+  // Keep my own claims alive while I'm working them.
   useEffect(() => {
     const t = setInterval(() => {
-      pos
+      orders
         .filter((o) => o.status === "claimed" && o.claimedBy === meId)
         .forEach((o) => fetch(`/api/au-orders-inbox/${o.id}`, {
           method: "POST",
@@ -51,7 +64,7 @@ export default function OrderInboxQueue({ meId, meName }: { meId: string; meName
         }).catch(() => {}));
     }, HEARTBEAT_MS);
     return () => clearInterval(t);
-  }, [pos, meId]);
+  }, [orders, meId]);
 
   const act = useCallback(async (id: string, action: "claim" | "release" | "key") => {
     setBusy((b) => ({ ...b, [id]: true }));
@@ -67,6 +80,8 @@ export default function OrderInboxQueue({ meId, meName }: { meId: string; meName
         else if (data.reason === "already_keyed") setToast({ text: "That order was already keyed by someone else.", tone: "warn" });
         else if (data.reason === "closed") setToast({ text: "That order is already done.", tone: "warn" });
         else setToast({ text: "That order is no longer yours to change.", tone: "warn" });
+      } else if (action === "claim") {
+        setExpanded((e) => ({ ...e, [id]: true })); // open it as soon as you grab it
       }
     } catch {
       setToast({ text: "Network hiccup — nothing was changed. Try again.", tone: "warn" });
@@ -82,7 +97,17 @@ export default function OrderInboxQueue({ meId, meName }: { meId: string; meName
     return () => clearTimeout(t);
   }, [toast]);
 
-  const active = pos.filter((o) => o.status !== "keyed");
+  const copy = useCallback(async (text: string, key: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(key);
+      setTimeout(() => setCopied((c) => (c === key ? null : c)), 1200);
+    } catch {
+      setToast({ text: "Couldn't copy — your browser blocked clipboard access.", tone: "warn" });
+    }
+  }, []);
+
+  const active = orders.filter((o) => o.status !== "keyed");
   const mine = active.filter((o) => o.claimedBy === meId).length;
 
   return (
@@ -110,20 +135,29 @@ export default function OrderInboxQueue({ meId, meName }: { meId: string; meName
           {toast.text}
         </div>
       )}
-
       {error && <div className="mb-4 rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-800">{error}</div>}
 
       {loading ? (
         <p className="text-sm text-slate-500">Loading the queue…</p>
-      ) : pos.length === 0 ? (
+      ) : orders.length === 0 ? (
         <div className="rounded-lg border border-dashed border-slate-300 p-8 text-center">
           <p className="font-medium text-slate-700">Nothing in the queue.</p>
           <p className="mt-1 text-sm text-slate-500">Orders from the au-orders mailbox will appear here as they&apos;re processed.</p>
         </div>
       ) : (
-        <div className="space-y-3">
-          {pos.map((o) => (
-            <IntakeCard key={o.id} item={o} meId={meId} busy={!!busy[o.id]} onAct={act} />
+        <div className="overflow-hidden rounded-lg border border-slate-200 bg-white divide-y divide-slate-100">
+          {orders.map((o) => (
+            <OrderRow
+              key={o.id}
+              order={o}
+              meId={meId}
+              busy={!!busy[o.id]}
+              open={!!expanded[o.id]}
+              copiedKey={copied}
+              onToggle={() => setExpanded((e) => ({ ...e, [o.id]: !e[o.id] }))}
+              onAct={act}
+              onCopy={copy}
+            />
           ))}
         </div>
       )}
@@ -131,106 +165,185 @@ export default function OrderInboxQueue({ meId, meName }: { meId: string; meName
   );
 }
 
-function IntakeCard({
-  item, meId, busy, onAct,
+function OrderRow({
+  order, meId, busy, open, copiedKey, onToggle, onAct, onCopy,
 }: {
-  item: IntakeRecord;
+  order: IntakeRecord;
   meId: string;
   busy: boolean;
+  open: boolean;
+  copiedKey: string | null;
+  onToggle: () => void;
   onAct: (id: string, action: "claim" | "release" | "key") => void;
+  onCopy: (text: string, key: string) => void;
 }) {
-  const mineClaim = item.status === "claimed" && item.claimedBy === meId;
-  const otherClaim = item.status === "claimed" && item.claimedBy !== meId;
-  const keyed = item.status === "keyed";
+  const mineClaim = order.status === "claimed" && order.claimedBy === meId;
+  const otherClaim = order.status === "claimed" && order.claimedBy !== meId;
+  const keyed = order.status === "keyed";
+  const stop = (e: React.MouseEvent) => e.stopPropagation();
 
   return (
-    <article className={`rounded-lg border p-4 ${otherClaim ? "border-amber-200 bg-amber-50/40" : mineClaim ? "border-emerald-300 bg-emerald-50/40" : keyed ? "border-slate-200 bg-slate-50" : "border-slate-200 bg-white"}`}>
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="font-medium text-slate-900">{item.debtorName ?? item.fromName ?? item.fromEmail}</span>
-            {item.debtorCode ? (
-              <span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs font-medium text-slate-600">{item.debtorCode}</span>
+    <div className={mineClaim ? "bg-emerald-50/30" : keyed ? "bg-slate-50/60" : ""}>
+      {/* Compact row */}
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={onToggle}
+        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onToggle(); } }}
+        className="flex cursor-pointer items-center gap-3 px-3 py-2.5 hover:bg-slate-50"
+      >
+        <ChevronRight className={`h-4 w-4 shrink-0 text-slate-400 transition-transform ${open ? "rotate-90" : ""}`} />
+
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <span className="truncate font-medium text-slate-900">{order.debtorName ?? order.fromName ?? order.fromEmail}</span>
+            {order.debtorCode ? (
+              <span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs font-medium text-slate-600">{order.debtorCode}</span>
             ) : (
-              <span className="rounded bg-rose-100 px-1.5 py-0.5 text-xs font-medium text-rose-700">Unresolved customer</span>
+              <span className="rounded bg-rose-100 px-1.5 py-0.5 text-xs font-medium text-rose-700">Unresolved</span>
             )}
-            {item.duplicateOf && <span className="rounded bg-rose-100 px-1.5 py-0.5 text-xs font-medium text-rose-700">Possible duplicate</span>}
-            {item.extractionConfidence === "low" && <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-800">Needs checking</span>}
+            {order.poRef && <span className="text-xs text-slate-500">PO {order.poRef}</span>}
+            {order.duplicateOf && <span className="rounded bg-rose-100 px-1.5 py-0.5 text-xs font-medium text-rose-700">Duplicate</span>}
+            {order.extractionConfidence === "low" && <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-800">Check</span>}
           </div>
-          <p className="mt-0.5 text-xs text-slate-500">
-            {item.fromEmail}
-            {item.poRef ? ` · PO ${item.poRef}` : " · no PO ref"}
-            {` · ${new Date(item.receivedAt).toLocaleString("en-AU", { timeZone: "Australia/Melbourne", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}`}
+          <p className="mt-0.5 text-xs text-slate-400">
+            {order.lines.length} {order.lines.length === 1 ? "line" : "lines"} · {fmtTime(order.receivedAt)}
           </p>
         </div>
-        <StatusPill item={item} mine={mineClaim} />
-      </div>
 
-      <div className="mt-3 grid gap-1 text-sm text-slate-600 sm:grid-cols-2">
-        {item.deliverBy && <div><span className="text-slate-400">Deliver by:</span> {item.deliverBy}</div>}
-        {item.deliverTo && <div><span className="text-slate-400">To:</span> {item.deliverTo}</div>}
-        {item.contact && <div><span className="text-slate-400">Contact:</span> {item.contact}</div>}
-      </div>
-
-      <table className="mt-3 w-full text-sm">
-        <thead>
-          <tr className="text-left text-xs uppercase tracking-wide text-slate-400">
-            <th className="py-1 font-medium">Qty</th>
-            <th className="py-1 font-medium">Customer wrote</th>
-            <th className="py-1 font-medium">Matched SKU</th>
-          </tr>
-        </thead>
-        <tbody>
-          {item.lines.map((l, i) => (
-            <tr key={i} className="border-t border-slate-100 align-top">
-              <td className="py-1.5 pr-2 tabular-nums">{l.qty ?? "?"}{l.unit ? ` ${l.unit}` : ""}</td>
-              <td className="py-1.5 pr-2 text-slate-700">{l.raw}</td>
-              <td className="py-1.5">
-                {l.sku ? (
-                  <span><span className="font-medium text-slate-900">{l.sku}</span>{l.description ? <span className="text-slate-500"> — {l.description}</span> : null}</span>
-                ) : (
-                  <span className="font-medium text-rose-600">No match — check</span>
-                )}
-                {l.confidence === "low" && l.sku && <span className="ml-1 text-xs text-amber-700">(low confidence)</span>}
-                {l.claimedPrice != null && <span className="ml-1 text-xs text-slate-400">cust. quoted ${l.claimedPrice}</span>}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-
-      {item.notes && <p className="mt-2 rounded bg-slate-50 px-2 py-1.5 text-xs text-slate-600">{item.notes}</p>}
-
-      <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-        {item.emailWebUrl ? (
-          <a href={item.emailWebUrl} target="_blank" rel="noreferrer" className="text-xs font-medium text-sky-700 hover:underline">
-            Open original email ↗
-          </a>
-        ) : <span />}
-
-        <div className="flex gap-2">
-          {keyed ? (
-            <span className="text-xs text-slate-500">Keyed by {item.keyedByName}{item.keyedAt ? ` · ${new Date(item.keyedAt).toLocaleTimeString("en-AU", { timeZone: "Australia/Melbourne", hour: "2-digit", minute: "2-digit" })}` : ""}</span>
-          ) : otherClaim ? (
-            <span className="text-xs font-medium text-amber-700">🔒 {item.claimedByName} is keying this</span>
-          ) : mineClaim ? (
-            <>
-              <button disabled={busy} onClick={() => onAct(item.id, "release")} className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50">Release</button>
-              <button disabled={busy} onClick={() => onAct(item.id, "key")} className="rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50">Mark as keyed</button>
-            </>
-          ) : (
-            <button disabled={busy} onClick={() => onAct(item.id, "claim")} className="rounded-md bg-sky-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-sky-700 disabled:opacity-50">Claim</button>
+        <div className="flex shrink-0 items-center gap-2" onClick={stop}>
+          <StatusPill order={order} mine={mineClaim} />
+          {order.status === "new" && (
+            <button
+              disabled={busy}
+              onClick={() => onAct(order.id, "claim")}
+              className="rounded-md bg-sky-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-sky-700 disabled:opacity-50"
+            >
+              Claim
+            </button>
           )}
         </div>
       </div>
-    </article>
+
+      {/* Expanded detail */}
+      {open && (
+        <div className="border-t border-slate-100 bg-white px-4 pb-4 pt-3">
+          <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-slate-600">
+            {order.debtorCode && (
+              <span className="inline-flex items-center gap-1">
+                <span className="text-slate-400">Debtor:</span> {order.debtorCode}
+                <CopyBtn value={order.debtorCode} k={`${order.id}-deb`} copiedKey={copiedKey} onCopy={onCopy} />
+              </span>
+            )}
+            {order.poRef && (
+              <span className="inline-flex items-center gap-1">
+                <span className="text-slate-400">PO:</span> {order.poRef}
+                <CopyBtn value={order.poRef} k={`${order.id}-po`} copiedKey={copiedKey} onCopy={onCopy} />
+              </span>
+            )}
+            {order.deliverBy && <span><span className="text-slate-400">Deliver by:</span> {order.deliverBy}</span>}
+            {order.contact && <span><span className="text-slate-400">Contact:</span> {order.contact}</span>}
+          </div>
+          {order.deliverTo && <p className="mb-3 text-sm text-slate-600"><span className="text-slate-400">To:</span> {order.deliverTo}</p>}
+
+          <div className="mb-1 flex items-center justify-between">
+            <span className="text-xs uppercase tracking-wide text-slate-400">Line items</span>
+            <button
+              onClick={() => onCopy(order.lines.map((l) => `${l.sku ?? ""}\t${l.qty ?? ""}`).join("\n"), `${order.id}-all`)}
+              className="inline-flex items-center gap-1 rounded border border-slate-200 px-2 py-0.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+            >
+              {copiedKey === `${order.id}-all` ? <Check className="h-3 w-3 text-emerald-600" /> : <Copy className="h-3 w-3" />}
+              Copy all (SKU + qty)
+            </button>
+          </div>
+
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-xs uppercase tracking-wide text-slate-400">
+                <th className="py-1 font-medium">Qty</th>
+                <th className="py-1 font-medium">Customer wrote</th>
+                <th className="py-1 font-medium">Matched SKU</th>
+              </tr>
+            </thead>
+            <tbody>
+              {order.lines.map((l, i) => (
+                <tr key={i} className="border-t border-slate-100 align-top">
+                  <td className="py-1.5 pr-2 whitespace-nowrap tabular-nums">
+                    <span className="inline-flex items-center gap-1">
+                      {l.qty ?? "?"}
+                      {l.qty != null && <CopyBtn value={String(l.qty)} k={`${order.id}-q${i}`} copiedKey={copiedKey} onCopy={onCopy} />}
+                    </span>
+                  </td>
+                  <td className="py-1.5 pr-2 text-slate-700">{l.raw}</td>
+                  <td className="py-1.5">
+                    {l.sku ? (
+                      <span className="inline-flex items-center gap-1">
+                        <span className="font-medium text-slate-900">{l.sku}</span>
+                        <CopyBtn value={l.sku} k={`${order.id}-s${i}`} copiedKey={copiedKey} onCopy={onCopy} />
+                        {l.description && <span className="text-slate-500">— {l.description}</span>}
+                      </span>
+                    ) : (
+                      <span className="font-medium text-rose-600">No match — check</span>
+                    )}
+                    {l.confidence === "low" && l.sku && <span className="ml-1 text-xs text-amber-700">(low confidence)</span>}
+                    {l.claimedPrice != null && <span className="ml-1 text-xs text-slate-400">cust. quoted ${l.claimedPrice}</span>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+
+          {order.notes && <p className="mt-2 rounded bg-slate-50 px-2 py-1.5 text-xs text-slate-600">{order.notes}</p>}
+
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+            {order.emailWebUrl ? (
+              <a href={order.emailWebUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs font-medium text-sky-700 hover:underline">
+                Open original email <ExternalLink className="h-3 w-3" />
+              </a>
+            ) : <span />}
+
+            <div className="flex items-center gap-2">
+              {keyed ? (
+                <span className="text-xs text-slate-500">Keyed by {order.keyedByName}{order.keyedAt ? ` · ${fmtTime(order.keyedAt)}` : ""}</span>
+              ) : otherClaim ? (
+                <span className="inline-flex items-center gap-1 text-xs font-medium text-amber-700"><Lock className="h-3 w-3" /> {order.claimedByName} is keying this</span>
+              ) : mineClaim ? (
+                <>
+                  <button disabled={busy} onClick={() => onAct(order.id, "release")} className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50">Release</button>
+                  <button disabled={busy} onClick={() => onAct(order.id, "key")} className="rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50">Mark as keyed</button>
+                </>
+              ) : (
+                <button disabled={busy} onClick={() => onAct(order.id, "claim")} className="rounded-md bg-sky-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-sky-700 disabled:opacity-50">Claim</button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
-function StatusPill({ item, mine }: { item: IntakeRecord; mine: boolean }) {
-  if (item.status === "keyed") return <Pill className="bg-slate-200 text-slate-600">Keyed</Pill>;
+function CopyBtn({
+  value, k, copiedKey, onCopy,
+}: { value: string; k: string; copiedKey: string | null; onCopy: (text: string, key: string) => void }) {
+  const done = copiedKey === k;
+  return (
+    <button
+      type="button"
+      onClick={(e) => { e.stopPropagation(); onCopy(value, k); }}
+      aria-label="Copy"
+      title="Copy"
+      className="inline-flex items-center rounded p-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+    >
+      {done ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Copy className="h-3.5 w-3.5" />}
+    </button>
+  );
+}
+
+function StatusPill({ order, mine }: { order: IntakeRecord; mine: boolean }) {
+  if (order.status === "keyed") return <Pill className="bg-slate-200 text-slate-600">Keyed</Pill>;
   if (mine) return <Pill className="bg-emerald-100 text-emerald-700">Claimed by you</Pill>;
-  if (item.status === "claimed") return <Pill className="bg-amber-100 text-amber-800">Being keyed</Pill>;
+  if (order.status === "claimed") return <Pill className="bg-amber-100 text-amber-800">Being keyed</Pill>;
   return <Pill className="bg-sky-100 text-sky-700">New</Pill>;
 }
 
