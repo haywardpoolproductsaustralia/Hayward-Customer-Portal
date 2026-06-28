@@ -3,6 +3,11 @@ import { redis, getJSON } from '@/lib/redis';
 
 interface StockEntry {
   byLocation: Record<string, { onHand: number; allocated: number; backordered: number }>;
+  incoming?: {
+    onOrderQty: number;
+    nextEta: string | null;
+    deliveries: { eta: string | null; qty: number }[];
+  };
   updatedAt: string;
 }
 
