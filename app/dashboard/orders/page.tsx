@@ -445,9 +445,9 @@ export default function OrdersPage() {
                 <th className="w-[7%]">Est. delivery</th>
                 <th className="w-[7%]">Invoice date</th>
                 <th className="w-[11%]">SKU</th>
-                <th className="text-right w-[5%]">Ord.</th>
-                <th className="text-right w-[5%]">Shp.</th>
-                <th className="text-right w-[5%]">B/O</th>
+                <th className="text-right w-[5%]">Ordered</th>
+                <th className="text-right w-[5%]">Shipped</th>
+                <th className="text-right w-[5%]">B/Order</th>
                 <th className="w-[10%]">Status</th>
                 <th className="text-right w-[5%]">On hand</th>
                 <th className="text-right w-[5%]">On order</th>
@@ -469,17 +469,17 @@ export default function OrdersPage() {
                     className="divide-x divide-ink/5 even:bg-ink/[0.015] hover:bg-wave/[0.04] transition-colors [&>td]:px-2 [&>td]:py-2.5 align-top"
                   >
                     <td className="font-semibold text-ink text-xs break-words">{o.orderNo}</td>
-                    <td className="text-ink/60 text-xs break-words">{o.customerOrderNo || '-'}</td>
-                    {isHeadOffice && <td className="text-ink/60 break-words">{o.branchName}</td>}
+                    <td className="text-ink/60 text-[11px] break-words">{o.customerOrderNo || '-'}</td>
+                    {isHeadOffice && <td className="text-ink/60 text-xs break-words">{o.branchName}</td>}
                     <td className="text-ink/50 text-xs whitespace-nowrap">{shortDate(o.orderDate)}</td>
                     <td className="text-ink/50 text-xs whitespace-nowrap">{shortDate(o.expectedDate)}</td>
                     <td className="text-ink/50 text-xs whitespace-nowrap">
                       {o.invoiceDate ? shortDate(o.invoiceDate) : <span className="text-ink/30">Pending</span>}
                     </td>
                     <td className="font-mono text-xs text-ink/70 break-all">{o.sku}</td>
-                    <td className="text-right tabular-nums">{o.qtyOrdered}</td>
-                    <td className="text-right tabular-nums">{o.qtyShipped}</td>
-                    <td className="text-right tabular-nums text-ink/60">{o.qtyBackordered || '-'}</td>
+                    <td className="text-right tabular-nums text-xs">{o.qtyOrdered}</td>
+                    <td className="text-right tabular-nums text-xs">{o.qtyShipped}</td>
+                    <td className="text-right tabular-nums text-xs text-ink/60">{o.qtyBackordered || '-'}</td>
                     <td>
                       <span
                         className={`inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-semibold leading-tight ${status.className}`}
@@ -488,8 +488,8 @@ export default function OrdersPage() {
                         {status.label}
                       </span>
                     </td>
-                    <td className="text-right tabular-nums font-medium text-ink/70">{stock ? stock.onHand : '-'}</td>
-                    <td className="text-right tabular-nums text-ink/60">
+                    <td className="text-right tabular-nums text-xs font-medium text-ink/70">{stock ? stock.onHand : '-'}</td>
+                    <td className="text-right tabular-nums text-xs text-ink/60">
                       {stock && stock.onOrderQty ? stock.onOrderQty : '-'}
                     </td>
                     <td className="text-ink/50 text-xs whitespace-nowrap">{stock?.nextEta ? shortDate(stock.nextEta) : '-'}</td>
