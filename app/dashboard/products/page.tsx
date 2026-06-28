@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { Search, PackageX, Loader2, AlertCircle } from 'lucide-react';
+import { Search, PackageX, Loader2, AlertCircle, Truck } from 'lucide-react';
 import { ProductDetailModal, StockEntry } from '@/components/ProductDetailModal';
 import { useSelectedCustomer } from '@/components/SelectedCustomerContext';
 
@@ -28,6 +28,13 @@ interface PriceInfo {
 function formatMoney(value: number | null) {
   if (value == null) return null;
   return new Intl.NumberFormat('en-AU', { style: 'currency', currency: 'AUD' }).format(value);
+}
+
+function shortDate(value: string | null | undefined) {
+  if (!value) return '';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleDateString('en-AU', { day: 'numeric', month: 'short', timeZone: 'Australia/Sydney' });
 }
 
 function totalOnHand(byLocation?: StockEntry['byLocation']) {
@@ -229,6 +236,14 @@ export default function ProductsPage() {
                     ) : (
                       <span className="inline-flex items-center self-start gap-1 rounded-full bg-amber/10 text-amber px-2 py-0.5 text-[11px] font-semibold">
                         Out of stock
+                      </span>
+                    )}
+
+                    {item.incoming && item.incoming.onOrderQty > 0 && (
+                      <span className="inline-flex items-center self-start gap-1 text-[11px] font-medium text-wave -mt-1">
+                        <Truck className="h-3 w-3" />
+                        {item.incoming.onOrderQty} on the way
+                        {item.incoming.nextEta ? ` · ${shortDate(item.incoming.nextEta)}` : ''}
                       </span>
                     )}
 
