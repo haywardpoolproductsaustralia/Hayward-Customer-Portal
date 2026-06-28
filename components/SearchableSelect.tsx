@@ -9,12 +9,13 @@ interface Props {
   options: string[];
   value: string;
   onChange: (v: string) => void;
+  mono?: boolean;
 }
 
 // Combo-box: type to filter the list, click to select, clear to reset.
-// Used for the Orders page order-number / SKU filters where copy-pasting
-// is error-prone but free-text search is still needed for power users.
-export function SearchableSelect({ label, placeholder, options, value, onChange }: Props) {
+// Used for the Orders page order-number / SKU / branch filters where
+// copy-pasting is error-prone but free-text search is still needed.
+export function SearchableSelect({ label, placeholder, options, value, onChange, mono = true }: Props) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
@@ -80,7 +81,7 @@ export function SearchableSelect({ label, placeholder, options, value, onChange 
       {open && (
         <div className="absolute z-20 mt-1 w-full rounded-xl border border-ink/10 bg-white shadow-soft overflow-hidden max-h-56 overflow-y-auto">
           {filtered.length === 0 ? (
-            <p className="px-3 py-2.5 text-sm text-ink/40">No matches</p>
+            <p className="pl-9 pr-3 py-2.5 text-sm text-ink/40">No matches</p>
           ) : (
             filtered.map((opt) => (
               <button
@@ -88,7 +89,7 @@ export function SearchableSelect({ label, placeholder, options, value, onChange 
                 tabIndex={0}
                 onMouseDown={(e) => e.preventDefault()} // prevent blur before click
                 onClick={() => select(opt)}
-                className={`w-full text-left px-3 py-2 text-sm hover:bg-foam border-b border-ink/5 last:border-0 font-mono ${
+                className={`w-full text-left pl-9 pr-3 py-2 text-sm hover:bg-foam border-b border-ink/5 last:border-0 ${mono ? 'font-mono' : ''} ${
                   opt === value ? 'bg-wave/5 text-wave font-semibold' : 'text-ink'
                 }`}
               >
