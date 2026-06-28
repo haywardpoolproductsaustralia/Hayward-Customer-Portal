@@ -31,6 +31,13 @@ interface OrderLine {
   branchName: string;
 }
 
+// Per-SKU availability, same numbers the product detail modal shows.
+interface StockInfo {
+  onHand: number;
+  onOrderQty: number;
+  nextEta: string | null;
+}
+
 const STATUS: Record<string, { label: string; icon: typeof CheckCircle2; className: string }> = {
   C: { label: 'Completed', icon: CheckCircle2, className: 'bg-ink/5 text-ink/50' },
   A: { label: 'Active', icon: Clock, className: 'bg-wave/10 text-wave' },
@@ -54,6 +61,11 @@ function shortDate(value: string | null | undefined) {
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return '-';
   return d.toLocaleDateString('en-AU', { day: '2-digit', month: 'short', year: '2-digit', timeZone: 'Australia/Sydney' });
+}
+
+function totalOnHand(byLocation?: Record<string, { onHand: number }>) {
+  if (!byLocation) return 0;
+  return Object.values(byLocation).reduce((sum, loc) => sum + (loc.onHand || 0), 0);
 }
 
 // Small button + popup for filtering by order status.
@@ -123,6 +135,7 @@ export default function OrdersPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [stockBySku, setStockBySku] = useState<Record<string, StockInfo>>({});
   const { selectedCustomer } = useSelectedCustomer();
 
   const [orderNoSearch, setOrderNoSearch] = useState('');
@@ -161,6 +174,35 @@ export default function OrdersPage() {
       cancelled = true;
     };
   }, [selectedCustomer?.code]);
+
+  // Stock + incoming supply per SKU (same source the product detail modal uses).
+  // Loaded once; it's the global Hayward stock picture, not customer-specific.
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/stock')
+      .then((r) => r.json())
+      .then((data) => {
+        if (cancelled || !data?.results) return;
+        const map: Record<string, StockInfo> = {};
+        for (const e of data.results as Array<{
+          sku: string;
+          byLocation?: Record<string, { onHand: number }>;
+          incoming?: { onOrderQty: number; nextEta: string | null };
+        }>) {
+          if (!e?.sku) continue;
+          map[e.sku.toUpperCase()] = {
+            onHand: totalOnHand(e.byLocation),
+            onOrderQty: e.incoming?.onOrderQty ?? 0,
+            nextEta: e.incoming?.nextEta ?? null,
+          };
+        }
+        setStockBySku(map);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const branchOptions = useMemo(() => {
     const seen = new Map<string, string>();
@@ -239,19 +281,25 @@ export default function OrdersPage() {
     setExporting(true);
     try {
       const XLSX = await import('xlsx');
-      const rows = filtered.map((o) => ({
-        'Order #': o.orderNo,
-        'Your order #': o.customerOrderNo ?? '',
-        Branch: o.branchName,
-        'Order date': formatDate(o.orderDate),
-        'Est. delivery': formatDate(o.expectedDate),
-        'Invoice date': o.invoiceDate ? formatDate(o.invoiceDate) : 'Not yet invoiced',
-        SKU: o.sku,
-        Ordered: o.qtyOrdered,
-        Shipped: o.qtyShipped,
-        Backordered: o.qtyBackordered,
-        Status: STATUS[o.statusFlag]?.label ?? (o.statusFlag || 'Unknown'),
-      }));
+      const rows = filtered.map((o) => {
+        const stock = stockBySku[o.sku.toUpperCase()];
+        return {
+          'Order #': o.orderNo,
+          'Your order #': o.customerOrderNo ?? '',
+          Branch: o.branchName,
+          'Order date': formatDate(o.orderDate),
+          'Est. delivery': formatDate(o.expectedDate),
+          'Invoice date': o.invoiceDate ? formatDate(o.invoiceDate) : 'Not yet invoiced',
+          SKU: o.sku,
+          Ordered: o.qtyOrdered,
+          Shipped: o.qtyShipped,
+          Backordered: o.qtyBackordered,
+          Status: STATUS[o.statusFlag]?.label ?? (o.statusFlag || 'Unknown'),
+          'On hand': stock ? stock.onHand : '',
+          'On order': stock ? stock.onOrderQty : '',
+          'Next arrival': stock?.nextEta ? formatDate(stock.nextEta) : '',
+        };
+      });
       const sheet = XLSX.utils.json_to_sheet(rows);
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, sheet, 'Orders');
@@ -380,21 +428,24 @@ export default function OrdersPage() {
           <p className="text-ink/40">No orders matched those filters.</p>
         </div>
       ) : (
-        <div className="rounded-2xl border border-ink/10 bg-white shadow-soft overflow-hidden">
-          <table className="w-full table-fixed text-sm">
+        <div className="rounded-2xl border border-ink/10 bg-white shadow-soft overflow-x-auto">
+          <table className="w-full table-fixed text-sm min-w-[1100px]">
             <thead>
               <tr className="border-b border-ink/10 text-left text-ink/40 align-bottom">
-                <th className="px-3 py-3 font-medium w-[8%]">Order #</th>
-                <th className="px-3 py-3 font-medium w-[9%]">Your order #</th>
-                {isHeadOffice && <th className="px-3 py-3 font-medium w-[16%]">Branch</th>}
-                <th className="px-3 py-3 font-medium w-[8%]">Order date</th>
-                <th className="px-3 py-3 font-medium w-[8%]">Est. delivery</th>
-                <th className="px-3 py-3 font-medium w-[8%]">Invoice date</th>
-                <th className="px-3 py-3 font-medium w-[11%]">SKU</th>
-                <th className="px-3 py-3 font-medium text-right w-[7%]">Ordered</th>
-                <th className="px-3 py-3 font-medium text-right w-[7%]">Shipped</th>
-                <th className="px-3 py-3 font-medium text-right w-[7%]">B/Order</th>
-                <th className="px-3 py-3 font-medium w-[11%]">Status</th>
+                <th className="px-3 py-3 font-medium w-[7%]">Order #</th>
+                <th className="px-3 py-3 font-medium w-[8%]">Your order #</th>
+                {isHeadOffice && <th className="px-3 py-3 font-medium w-[11%]">Branch</th>}
+                <th className="px-3 py-3 font-medium w-[6%]">Order date</th>
+                <th className="px-3 py-3 font-medium w-[6%]">Est. delivery</th>
+                <th className="px-3 py-3 font-medium w-[6%]">Invoice date</th>
+                <th className="px-3 py-3 font-medium w-[9%]">SKU</th>
+                <th className="px-3 py-3 font-medium text-right w-[5%]">Ordered</th>
+                <th className="px-3 py-3 font-medium text-right w-[5%]">Shipped</th>
+                <th className="px-3 py-3 font-medium text-right w-[5%]">B/Order</th>
+                <th className="px-3 py-3 font-medium w-[8%]">Status</th>
+                <th className="px-3 py-3 font-medium text-right w-[6%]">On hand</th>
+                <th className="px-3 py-3 font-medium text-right w-[6%]">On order</th>
+                <th className="px-3 py-3 font-medium w-[7%]">Next arrival</th>
               </tr>
             </thead>
             <tbody>
@@ -405,6 +456,7 @@ export default function OrdersPage() {
                   className: 'bg-ink/5 text-ink/50',
                 };
                 const StatusIcon = status.icon;
+                const stock = stockBySku[o.sku.toUpperCase()];
                 return (
                   <tr key={`${o.orderNo}-${o.sku}-${i}`} className="border-b border-ink/5 last:border-0 align-top">
                     <td className="px-3 py-3 font-medium break-words">{o.orderNo}</td>
@@ -427,6 +479,11 @@ export default function OrdersPage() {
                         {status.label}
                       </span>
                     </td>
+                    <td className="px-3 py-3 text-right tabular-nums text-ink/60">{stock ? stock.onHand : '-'}</td>
+                    <td className="px-3 py-3 text-right tabular-nums text-ink/60">
+                      {stock && stock.onOrderQty ? stock.onOrderQty : '-'}
+                    </td>
+                    <td className="px-3 py-3 text-ink/50">{stock?.nextEta ? shortDate(stock.nextEta) : '-'}</td>
                   </tr>
                 );
               })}
