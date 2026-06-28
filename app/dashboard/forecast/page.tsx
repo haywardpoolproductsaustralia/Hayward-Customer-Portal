@@ -4,10 +4,19 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   Loader2, TrendingUp, AlertTriangle, PackageX, DollarSign,
   ChevronDown, ChevronUp, Download, Container, ListFilter,
-  Boxes, Clock, Truck, Info,
+  Boxes, Clock, Truck, Info, ArrowUpDown, Building2, X,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import type { ForecastRecord, ForecastResponse } from '@/app/api/forecast/route';
+
+// Hayward Flow Control is a sister company; its supplier name contains this.
+// Adjust the pattern if their creditor name in Arrow differs.
+const HFC_PATTERN = /FLOW\s*CONTROL/i;
+const isHFC = (r: ForecastRecord) => HFC_PATTERN.test(r.supplierName || '');
+
+type SortKey = 'name' | 'monthlyForecast' | 'coverMonths' | 'suggestedQty' | 'suggestedValue';
+type QuickFilter = null | 'reorder' | 'stockout' | 'dead' | 'buy';
+type HfcMode = 'all' | 'exclude' | 'only';
 
 const AUD = (v: number | null | undefined) =>
   v == null
@@ -58,19 +67,50 @@ function Sparkline({ history, forecast }: { history: number[]; forecast: number[
 }
 
 function StatCard({
-  icon: Icon, label, value, sub, tone,
+  icon: Icon, label, value, sub, tone, onClick, active,
 }: {
   icon: any; label: string; value: string; sub?: string; tone: string;
+  onClick?: () => void; active?: boolean;
 }) {
+  const clickable = !!onClick;
   return (
-    <div className="rounded-2xl bg-white border border-ink/10 shadow-soft px-5 py-4">
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={!clickable}
+      className={`text-left rounded-2xl border shadow-soft px-5 py-4 transition-colors ${
+        active ? 'bg-wave/5 border-wave/40 ring-1 ring-wave/30' : 'bg-white border-ink/10'
+      } ${clickable ? 'hover:border-wave/30 cursor-pointer' : 'cursor-default'}`}
+    >
       <div className="flex items-center gap-2 text-ink/50 text-xs font-medium">
         <Icon className={`h-4 w-4 ${tone}`} />
         {label}
+        {clickable && <span className={`ml-auto text-[10px] ${active ? 'text-wave' : 'text-ink/25'}`}>{active ? 'filtering' : 'click to filter'}</span>}
       </div>
       <p className="mt-1 text-2xl font-semibold text-deep tabular-nums">{value}</p>
       {sub && <p className="text-xs text-ink/40 mt-0.5">{sub}</p>}
-    </div>
+    </button>
+  );
+}
+
+function SortHeader({
+  label, col, sortKey, sortDir, onSort, className, align = 'right',
+}: {
+  label: string; col: SortKey; sortKey: SortKey; sortDir: 'asc' | 'desc';
+  onSort: (k: SortKey) => void; className?: string; align?: 'left' | 'right';
+}) {
+  const active = sortKey === col;
+  return (
+    <button
+      type="button"
+      onClick={() => onSort(col)}
+      className={`flex items-center gap-1 ${align === 'right' ? 'justify-end' : ''} ${active ? 'text-wave' : 'hover:text-ink'} ${className || ''}`}
+    >
+      <span>{label}</span>
+      {active
+        ? (sortDir === 'asc' ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />)
+        : <ArrowUpDown className="h-3 w-3 opacity-40" />}
+    </button>
   );
 }
 
@@ -266,6 +306,24 @@ export default function ForecastPage() {
   const [view, setView] = useState<'list' | 'suppliers'>('list');
   const [containerTarget, setContainerTarget] = useState(60000);
 
+  const [sortKey, setSortKey] = useState<SortKey>('coverMonths');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+  const [quickFilter, setQuickFilter] = useState<QuickFilter>(null);
+  const [hfcMode, setHfcMode] = useState<HfcMode>('all');
+
+  const toggleSort = (key: SortKey) => {
+    if (sortKey === key) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortKey(key);
+      // sensible default direction per column: text ascending, numbers descending,
+      // but cover ascending (most urgent first).
+      setSortDir(key === 'name' || key === 'coverMonths' ? 'asc' : 'desc');
+    }
+  };
+  const toggleQuick = (q: Exclude<QuickFilter, null>) =>
+    setQuickFilter((cur) => (cur === q ? null : q));
+
   useEffect(() => {
     const params = new URLSearchParams();
     if (supplier) params.set('supplier', supplier);
@@ -289,7 +347,7 @@ export default function ForecastPage() {
 
   const exportXlsx = () => {
     if (!data) return;
-    const rows = data.records.map((r) => ({
+    const rows = visibleRecords.map((r) => ({
       SKU: r.sku, Name: r.name, Category: r.stockCategory, Supplier: r.supplierName,
       'Supplier SKU': r.supplierStock, Pattern: r.bucket, Method: r.method,
       'Forecast/mo': r.monthlyForecast, 'On hand': r.onHand, 'On order': r.onOrder,
@@ -306,7 +364,40 @@ export default function ForecastPage() {
     XLSX.writeFile(wb, `hayward-forecast-${new Date().toISOString().slice(0, 10)}.xlsx`);
   };
 
-  const s = data?.summary;
+  // HFC-scoped set drives both the cards and the table, so the counts always
+  // match what's shown. Quick filters + sort layer on top for the table only.
+  const hfcScoped = useMemo(() => {
+    const all = data?.records ?? [];
+    if (hfcMode === 'exclude') return all.filter((r) => !isHFC(r));
+    if (hfcMode === 'only') return all.filter(isHFC);
+    return all;
+  }, [data, hfcMode]);
+
+  const s = useMemo(() => {
+    const recs = hfcScoped;
+    return {
+      totalSkus: recs.length,
+      needReorder: recs.filter((r) => r.belowReorder).length,
+      stockoutRisk: recs.filter((r) => r.belowReorder && r.coverMonths < 1).length,
+      totalSuggestedValue: recs.reduce((sum, r) => sum + (r.suggestedValue || 0), 0),
+      deadStock: recs.filter((r) => r.bucket === 'dead' && r.onHand > 0).length,
+      withBuy: recs.filter((r) => r.suggestedQty > 0).length,
+    };
+  }, [hfcScoped]);
+
+  const visibleRecords = useMemo(() => {
+    let recs = hfcScoped;
+    if (quickFilter === 'reorder') recs = recs.filter((r) => r.belowReorder);
+    else if (quickFilter === 'stockout') recs = recs.filter((r) => r.belowReorder && r.coverMonths < 1);
+    else if (quickFilter === 'dead') recs = recs.filter((r) => r.bucket === 'dead' && r.onHand > 0);
+    else if (quickFilter === 'buy') recs = recs.filter((r) => r.suggestedQty > 0);
+
+    const dir = sortDir === 'asc' ? 1 : -1;
+    return [...recs].sort((a, b) => {
+      if (sortKey === 'name') return dir * (a.name || a.sku).localeCompare(b.name || b.sku);
+      return dir * ((a[sortKey] as number) - (b[sortKey] as number));
+    });
+  }, [hfcScoped, quickFilter, sortKey, sortDir]);
 
   return (
     <div className="space-y-6">
@@ -333,12 +424,16 @@ export default function ForecastPage() {
         </button>
       </div>
 
-      {s && (
+      {data && (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <StatCard icon={AlertTriangle} tone="text-amber" label="Need reorder" value={NUM(s.needReorder)} sub={`of ${NUM(s.totalSkus)} SKUs`} />
-          <StatCard icon={Clock} tone="text-coral" label="Stockout risk" value={NUM(s.stockoutRisk)} sub="under 1 month cover" />
-          <StatCard icon={DollarSign} tone="text-wave" label="Suggested buy" value={AUD(s.totalSuggestedValue)} sub="at official cost" />
-          <StatCard icon={PackageX} tone="text-ink/40" label="Dead stock" value={NUM(s.deadStock)} sub="on hand, no demand" />
+          <StatCard icon={AlertTriangle} tone="text-amber" label="Need reorder" value={NUM(s.needReorder)} sub={`of ${NUM(s.totalSkus)} SKUs`}
+            onClick={() => toggleQuick('reorder')} active={quickFilter === 'reorder'} />
+          <StatCard icon={Clock} tone="text-coral" label="Stockout risk" value={NUM(s.stockoutRisk)} sub="under 1 month cover"
+            onClick={() => toggleQuick('stockout')} active={quickFilter === 'stockout'} />
+          <StatCard icon={DollarSign} tone="text-wave" label="Suggested buy" value={AUD(s.totalSuggestedValue)} sub={`${NUM(s.withBuy)} SKUs to order`}
+            onClick={() => toggleQuick('buy')} active={quickFilter === 'buy'} />
+          <StatCard icon={PackageX} tone="text-ink/40" label="Dead stock" value={NUM(s.deadStock)} sub="on hand, no demand"
+            onClick={() => toggleQuick('dead')} active={quickFilter === 'dead'} />
         </div>
       )}
 
@@ -366,6 +461,16 @@ export default function ForecastPage() {
           Below reorder only
         </label>
 
+        <div className="flex items-center rounded-lg border border-ink/15 overflow-hidden">
+          <span className="flex items-center gap-1 text-[11px] text-ink/40 pl-2 pr-1"><Building2 className="h-3.5 w-3.5" /> Flow Control</span>
+          {([['all', 'All'], ['exclude', 'Hide'], ['only', 'Only']] as [HfcMode, string][]).map(([m, lbl]) => (
+            <button key={m} onClick={() => setHfcMode(m)}
+              className={`text-xs px-2.5 py-1.5 ${hfcMode === m ? 'bg-wave/10 text-wave font-medium' : 'text-ink/50 hover:text-ink'}`}>
+              {lbl}
+            </button>
+          ))}
+        </div>
+
         <div className="ml-auto flex items-center rounded-lg border border-ink/15 overflow-hidden">
           <button onClick={() => setView('list')} className={`flex items-center gap-1.5 text-sm px-3 py-1.5 ${view === 'list' ? 'bg-wave/10 text-wave' : 'text-ink/50'}`}>
             <Boxes className="h-4 w-4" /> List
@@ -389,15 +494,42 @@ export default function ForecastPage() {
       )}
 
       {!loading && !error && data && view === 'list' && (
-        <div className="rounded-2xl bg-white border border-ink/10 shadow-soft overflow-hidden divide-y divide-ink/5">
-          {data.records.length === 0 ? (
-            <p className="text-sm text-ink/50 px-5 py-10 text-center">No SKUs match these filters.</p>
-          ) : (
-            data.records.slice(0, 300).map((r) => <Row key={r.sku} r={r} />)
+        <div className="rounded-2xl bg-white border border-ink/10 shadow-soft overflow-hidden">
+          {quickFilter && (
+            <div className="px-5 py-2 bg-wave/5 border-b border-wave/15 flex items-center gap-2 text-xs text-wave">
+              <span>
+                Showing only:{' '}
+                {quickFilter === 'reorder' && 'below reorder point'}
+                {quickFilter === 'stockout' && 'stockout risk (under 1 month cover)'}
+                {quickFilter === 'dead' && 'dead stock (on hand, no demand)'}
+                {quickFilter === 'buy' && 'SKUs with a suggested buy'}
+              </span>
+              <button onClick={() => setQuickFilter(null)} className="ml-auto flex items-center gap-1 hover:text-deep">
+                <X className="h-3 w-3" /> clear
+              </button>
+            </div>
           )}
-          {data.records.length > 300 && (
-            <p className="text-[11px] text-ink/40 px-5 py-3 text-center">
-              Showing the 300 most urgent of {NUM(data.records.length)} — narrow with filters or use Export for the full set.
+
+          {/* sortable header */}
+          <div className="px-5 py-2 flex items-center gap-4 text-[11px] font-medium text-ink/40 border-b border-ink/10 select-none">
+            <SortHeader className="flex-1" label="Product" col="name" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="left" />
+            <SortHeader className="hidden sm:block w-20" label="fcast/mo" col="monthlyForecast" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+            <SortHeader className="w-20" label="cover" col="coverMonths" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+            <SortHeader className="w-24" label="buy" col="suggestedQty" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+            <SortHeader className="hidden md:block w-24" label="value" col="suggestedValue" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+            <span className="w-4" />
+          </div>
+
+          <div className="divide-y divide-ink/5">
+            {visibleRecords.length === 0 ? (
+              <p className="text-sm text-ink/50 px-5 py-10 text-center">No SKUs match these filters.</p>
+            ) : (
+              visibleRecords.slice(0, 300).map((r) => <Row key={r.sku} r={r} />)
+            )}
+          </div>
+          {visibleRecords.length > 300 && (
+            <p className="text-[11px] text-ink/40 px-5 py-3 text-center border-t border-ink/5">
+              Showing 300 of {NUM(visibleRecords.length)} — narrow with filters or use Export for the full set.
             </p>
           )}
         </div>
@@ -414,7 +546,7 @@ export default function ForecastPage() {
             />
             <span className="text-ink/40">AUD at cost — bars fill as a supplier's suggested buys reach it.</span>
           </div>
-          <SupplierGroups records={data.records} target={containerTarget} />
+          <SupplierGroups records={hfcScoped} target={containerTarget} />
         </div>
       )}
     </div>
