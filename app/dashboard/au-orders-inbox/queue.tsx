@@ -290,6 +290,12 @@ function OrderRow({
                       <span className="inline-flex items-center gap-1">
                         <span className="font-medium text-slate-900">{l.sku}</span>
                         <CopyBtn value={l.sku} k={`${order.id}-s${i}`} copiedKey={copiedKey} onCopy={onCopy} />
+                        {l.qty != null && (
+                          <span className="ml-1 inline-flex items-center gap-1 rounded bg-sky-50 px-1.5 py-0.5 text-xs font-semibold text-sky-700">
+                            ×{l.qty}
+                            <CopyBtn value={String(l.qty)} k={`${order.id}-sq${i}`} copiedKey={copiedKey} onCopy={onCopy} />
+                          </span>
+                        )}
                         {l.description && <span className="text-slate-500">— {l.description}</span>}
                       </span>
                     ) : (
