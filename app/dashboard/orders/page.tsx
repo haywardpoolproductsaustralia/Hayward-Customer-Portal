@@ -437,7 +437,7 @@ export default function OrdersPage() {
         <div className="rounded-2xl border border-ink/10 bg-white shadow-soft overflow-hidden">
           <table className="w-full table-fixed text-sm border-collapse">
             <thead>
-              <tr className="sticky top-0 z-10 bg-foam/90 backdrop-blur text-left text-[11px] uppercase tracking-wide text-ink/45 divide-x divide-ink/10 [&>th]:px-3 [&>th]:py-2.5 [&>th]:font-semibold border-b border-ink/10">
+              <tr className="sticky top-0 z-10 bg-foam/90 backdrop-blur text-left text-[10px] uppercase tracking-tight text-ink/45 divide-x divide-ink/10 [&>th]:px-2 [&>th]:py-2.5 [&>th]:font-semibold [&>th]:break-words border-b border-ink/10">
                 <th className="w-[7%]">Order #</th>
                 <th className="w-[7%]">Your order #</th>
                 {isHeadOffice && <th className="w-[13%]">Branch</th>}
@@ -445,10 +445,10 @@ export default function OrdersPage() {
                 <th className="w-[7%]">Est. delivery</th>
                 <th className="w-[7%]">Invoice date</th>
                 <th className="w-[11%]">SKU</th>
-                <th className="text-right w-[5%]">Ordered</th>
-                <th className="text-right w-[5%]">Shipped</th>
-                <th className="text-right w-[5%]">B/Order</th>
-                <th className="w-[9%]">Status</th>
+                <th className="text-right w-[5%]">Ord.</th>
+                <th className="text-right w-[5%]">Shp.</th>
+                <th className="text-right w-[5%]">B/O</th>
+                <th className="w-[10%]">Status</th>
                 <th className="text-right w-[5%]">On hand</th>
                 <th className="text-right w-[5%]">On order</th>
                 <th className="w-[7%]">Next arrival</th>
@@ -466,10 +466,10 @@ export default function OrdersPage() {
                 return (
                   <tr
                     key={`${o.orderNo}-${o.sku}-${i}`}
-                    className="divide-x divide-ink/5 even:bg-ink/[0.015] hover:bg-wave/[0.04] transition-colors [&>td]:px-3 [&>td]:py-2.5 align-top"
+                    className="divide-x divide-ink/5 even:bg-ink/[0.015] hover:bg-wave/[0.04] transition-colors [&>td]:px-2 [&>td]:py-2.5 align-top"
                   >
-                    <td className="font-semibold text-ink break-words">{o.orderNo}</td>
-                    <td className="text-ink/60 break-words">{o.customerOrderNo || '-'}</td>
+                    <td className="font-semibold text-ink text-xs break-words">{o.orderNo}</td>
+                    <td className="text-ink/60 text-xs break-words">{o.customerOrderNo || '-'}</td>
                     {isHeadOffice && <td className="text-ink/60 break-words">{o.branchName}</td>}
                     <td className="text-ink/50 text-xs whitespace-nowrap">{shortDate(o.orderDate)}</td>
                     <td className="text-ink/50 text-xs whitespace-nowrap">{shortDate(o.expectedDate)}</td>
@@ -482,9 +482,9 @@ export default function OrdersPage() {
                     <td className="text-right tabular-nums text-ink/60">{o.qtyBackordered || '-'}</td>
                     <td>
                       <span
-                        className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${status.className}`}
+                        className={`inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-semibold leading-tight ${status.className}`}
                       >
-                        <StatusIcon className="h-3 w-3 shrink-0" />
+                        <StatusIcon className="h-2.5 w-2.5 shrink-0" />
                         {status.label}
                       </span>
                     </td>
