@@ -58,6 +58,11 @@ export interface IntakeRecord extends IntakeData {
   keyedBy: string | null;
   keyedByName: string | null;
   keyedAt: number | null;
+  // Set by portal-sync on AZ-Grey when a matching sales order appears in Arrow.
+  seenInArrow: boolean;
+  seenInArrowAt: number | null;
+  arrowOrderNo: string | null;     // Hayward's order number once it's in Arrow
+  arrowEnteredBy: string | null;   // Arrow operator who entered it (if SORMAST records it)
 }
 
 const itemKey = (id: string) => `soq:${id}`;
@@ -79,6 +84,10 @@ function rowToRecord(id: string, h: Record<string, unknown>): IntakeRecord {
     keyedBy: (h.keyedBy as string) || null,
     keyedByName: (h.keyedByName as string) || null,
     keyedAt: num(h.keyedAt),
+    seenInArrow: h.seenInArrow === "1" || h.seenInArrow === 1,
+    seenInArrowAt: num(h.seenInArrowAt),
+    arrowOrderNo: (h.arrowOrderNo as string) || null,
+    arrowEnteredBy: (h.arrowEnteredBy as string) || null,
   };
 }
 
@@ -135,6 +144,10 @@ export async function createIntake(data: IntakeData): Promise<string> {
     keyedBy: "",
     keyedByName: "",
     keyedAt: "0",
+    seenInArrow: "0",
+    seenInArrowAt: "0",
+    arrowOrderNo: "",
+    arrowEnteredBy: "",
   });
   await redis.zadd(INDEX, { score: data.receivedAt, member: id });
   await redis.set(msgKey(data.internetMessageId), id);
