@@ -4,7 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname } from 'next/navigation';
-import { Boxes, Receipt, Tag, BookOpen, Menu, X, Home, Sparkles, Warehouse } from 'lucide-react';
+import { Boxes, Receipt, Tag, BookOpen, Menu, X, Home, Sparkles, Warehouse, TrendingUp } from 'lucide-react';
 
 const NAV_ITEMS = [
   { href: '/dashboard', label: 'Home', icon: Home },
@@ -17,6 +17,7 @@ const NAV_ITEMS = [
 
 const STAFF_ONLY_NAV_ITEMS = [
   { href: '/dashboard/warehouse', label: 'Warehouse', icon: Warehouse },
+  { href: '/dashboard/forecast', label: 'Forecast', icon: TrendingUp },
 ];
 
 function NavLinks({
