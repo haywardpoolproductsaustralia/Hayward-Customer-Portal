@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   CheckCircle2,
   Clock,
@@ -11,6 +11,7 @@ import {
   Search,
   Download,
   Loader2,
+  ChevronDown,
 } from 'lucide-react';
 import { useSelectedCustomer } from '@/components/SelectedCustomerContext';
 import { SearchableSelect } from '@/components/SearchableSelect';
@@ -55,6 +56,67 @@ function shortDate(value: string | null | undefined) {
   return d.toLocaleDateString('en-AU', { day: '2-digit', month: 'short', year: '2-digit', timeZone: 'Australia/Sydney' });
 }
 
+// Small button + popup for filtering by order status.
+function StatusFilter({
+  value,
+  onChange,
+  options,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  options: { value: string; label: string }[];
+}) {
+  const [open, setOpen] = useState(false);
+  const current = value === 'all' ? null : options.find((o) => o.value === value);
+
+  function handleBlur(e: React.FocusEvent) {
+    if (!e.currentTarget.contains(e.relatedTarget as Node)) setOpen(false);
+  }
+
+  return (
+    <div onBlur={handleBlur} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className={`w-full flex items-center justify-between gap-2 rounded-lg border bg-white px-3 py-2 text-sm transition-colors ${
+          open ? 'border-wave ring-2 ring-wave/20' : 'border-ink/10 hover:border-ink/20'
+        }`}
+      >
+        <span className={current ? 'text-ink' : 'text-ink/30'}>{current ? current.label : 'All statuses'}</span>
+        <ChevronDown className="h-3.5 w-3.5 text-ink/30 flex-shrink-0" />
+      </button>
+
+      {open && (
+        <div className="absolute z-20 mt-1 w-full rounded-xl border border-ink/10 bg-white shadow-soft overflow-hidden max-h-56 overflow-y-auto">
+          <button
+            tabIndex={0}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => { onChange('all'); setOpen(false); }}
+            className={`w-full text-left px-3 py-2 text-sm hover:bg-foam border-b border-ink/5 ${
+              value === 'all' ? 'bg-wave/5 text-wave font-semibold' : 'text-ink'
+            }`}
+          >
+            All statuses
+          </button>
+          {options.map((o) => (
+            <button
+              key={o.value}
+              tabIndex={0}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => { onChange(o.value); setOpen(false); }}
+              className={`w-full text-left px-3 py-2 text-sm hover:bg-foam border-b border-ink/5 last:border-0 ${
+                o.value === value ? 'bg-wave/5 text-wave font-semibold' : 'text-ink'
+              }`}
+            >
+              {o.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function OrdersPage() {
   const [orders, setOrders] = useState<OrderLine[]>([]);
   const [isHeadOffice, setIsHeadOffice] = useState(false);
@@ -67,6 +129,7 @@ export default function OrdersPage() {
   const [customerOrderNoSearch, setCustomerOrderNoSearch] = useState('');
   const [skuSearch, setSkuSearch] = useState('');
   const [branchFilter, setBranchFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState('all');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
 
@@ -105,6 +168,31 @@ export default function OrdersPage() {
     return [...seen.entries()].sort((a, b) => a[1].localeCompare(b[1]));
   }, [orders]);
 
+  // Branch as a searchable select: display "name (code)", filter on code.
+  const branchLabel = (code: string, name: string) => `${name} (${code})`;
+  const branchStringOptions = useMemo(
+    () => branchOptions.map(([code, name]) => branchLabel(code, name)),
+    [branchOptions],
+  );
+  const branchCodeByLabel = useMemo(() => {
+    const m = new Map<string, string>();
+    branchOptions.forEach(([code, name]) => m.set(branchLabel(code, name), code));
+    return m;
+  }, [branchOptions]);
+  const branchLabelByCode = useMemo(() => {
+    const m = new Map<string, string>();
+    branchOptions.forEach(([code, name]) => m.set(code, branchLabel(code, name)));
+    return m;
+  }, [branchOptions]);
+
+  // Status options present in the current order set, in a sensible order.
+  const statusOptions = useMemo(() => {
+    const present = new Set(orders.map((o) => o.statusFlag));
+    return Object.keys(STATUS)
+      .filter((k) => present.has(k))
+      .map((k) => ({ value: k, label: STATUS[k].label }));
+  }, [orders]);
+
   // Unique sorted option lists for the searchable dropdowns
   const orderNoOptions = useMemo(() =>
     [...new Set(orders.map((o) => o.orderNo))].sort(), [orders]);
@@ -125,6 +213,7 @@ export default function OrdersPage() {
       .filter((o) => !customerOrderNoTrim || (o.customerOrderNo ?? '').includes(customerOrderNoTrim))
       .filter((o) => !skuTrim || o.sku.toUpperCase().includes(skuTrim))
       .filter((o) => branchFilter === 'all' || o.customerCode === branchFilter)
+      .filter((o) => statusFilter === 'all' || o.statusFlag === statusFilter)
       .filter((o) => {
         if (!fromTime && !toTime) return true;
         const t = new Date(o.orderDate).getTime();
@@ -134,13 +223,14 @@ export default function OrdersPage() {
         return true;
       })
       .sort((a, b) => new Date(b.orderDate).getTime() - new Date(a.orderDate).getTime());
-  }, [orders, orderNoSearch, customerOrderNoSearch, skuSearch, branchFilter, dateFrom, dateTo]);
+  }, [orders, orderNoSearch, customerOrderNoSearch, skuSearch, branchFilter, statusFilter, dateFrom, dateTo]);
 
   function clearFilters() {
     setOrderNoSearch('');
     setCustomerOrderNoSearch('');
     setSkuSearch('');
     setBranchFilter('all');
+    setStatusFilter('all');
     setDateFrom('');
     setDateTo('');
   }
@@ -231,39 +321,42 @@ export default function OrdersPage() {
         />
 
         {isHeadOffice && (
-          <div>
-            <label className="block text-xs font-medium text-ink/40 mb-1">Branch</label>
-            <select
-              value={branchFilter}
-              onChange={(e) => setBranchFilter(e.target.value)}
-              className="w-full rounded-lg border border-ink/10 px-3 py-2 text-sm focus:border-wave outline-none"
-            >
-              <option value="all">All branches</option>
-              {branchOptions.map(([code, name]) => (
-                <option key={code} value={code}>
-                  {name} ({code})
-                </option>
-              ))}
-            </select>
-          </div>
+          <SearchableSelect
+            label="Branch"
+            placeholder="All branches"
+            mono={false}
+            options={branchStringOptions}
+            value={branchFilter === 'all' ? '' : (branchLabelByCode.get(branchFilter) ?? '')}
+            onChange={(v) => setBranchFilter(v ? (branchCodeByLabel.get(v) ?? 'all') : 'all')}
+          />
         )}
-        <div>
-          <label className="block text-xs font-medium text-ink/40 mb-1">Order date from</label>
-          <input
-            type="date"
-            value={dateFrom}
-            onChange={(e) => setDateFrom(e.target.value)}
-            className="w-full rounded-lg border border-ink/10 px-3 py-2 text-sm focus:border-wave outline-none"
-          />
-        </div>
-        <div>
-          <label className="block text-xs font-medium text-ink/40 mb-1">Order date to</label>
-          <input
-            type="date"
-            value={dateTo}
-            onChange={(e) => setDateTo(e.target.value)}
-            className="w-full rounded-lg border border-ink/10 px-3 py-2 text-sm focus:border-wave outline-none"
-          />
+
+        {/* Status + date range share one row; dates are kept narrow so Status fits inline. */}
+        <div className="sm:col-span-2 lg:col-span-2">
+          <div className="flex items-end gap-3 flex-wrap">
+            <div className="flex-1 min-w-[150px]">
+              <label className="block text-xs font-medium text-ink/40 mb-1">Status</label>
+              <StatusFilter value={statusFilter} onChange={setStatusFilter} options={statusOptions} />
+            </div>
+            <div className="w-36 shrink-0">
+              <label className="block text-xs font-medium text-ink/40 mb-1">Order date from</label>
+              <input
+                type="date"
+                value={dateFrom}
+                onChange={(e) => setDateFrom(e.target.value)}
+                className="w-full rounded-lg border border-ink/10 px-3 py-2 text-sm focus:border-wave outline-none"
+              />
+            </div>
+            <div className="w-36 shrink-0">
+              <label className="block text-xs font-medium text-ink/40 mb-1">Order date to</label>
+              <input
+                type="date"
+                value={dateTo}
+                onChange={(e) => setDateTo(e.target.value)}
+                className="w-full rounded-lg border border-ink/10 px-3 py-2 text-sm focus:border-wave outline-none"
+              />
+            </div>
+          </div>
         </div>
 
         <div className="sm:col-span-2 lg:col-span-3 flex items-center justify-between pt-1">
