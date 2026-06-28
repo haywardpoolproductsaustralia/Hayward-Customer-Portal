@@ -11,30 +11,36 @@ import { getJSON } from './redis';
 // session claims (auth().orgId) and needs no custom shortcode at all,
 // so it doesn't depend on that broken mechanism.
 //
+// NOTE: These are the PRODUCTION instance org IDs (clerk.portal-hayward.com).
+// Production orgs were recreated fresh and received brand-new IDs that do
+// NOT match the old development instance. If you ever spin up a new instance
+// or recreate an org, re-harvest IDs (e.g. via the Clerk dashboard or a
+// backend org list) and update this map.
+//
 // Update this if a group is renamed, recreated, or a new customer is
 // onboarded - it must stay in sync with both Clerk's Organizations list
 // and portal-sync/config/customer-groups.json.
 const ORG_ID_TO_GROUP: Record<string, { groupKey: string; displayName: string; isAggregate?: boolean }> = {
-  org_3FWBvIWbOTuSElJBoHDld0Ot6ei: { groupKey: 'Reece', displayName: 'Reece' },
-  org_3FWC4rJyCAWsAdyGXeoEMbG894C: { groupKey: 'Poolwerx', displayName: 'Poolwerx' },
-  org_3FWC65qfMobPhnZBDTnKyDAbz7V: { groupKey: 'PoolSystems', displayName: 'Pool Systems' },
-  org_3FWC78NSvWRnlAjIKbyXDNB3h9M: { groupKey: 'Lincoln', displayName: 'Lincoln' },
-  org_3FWC7pDq5hfbVmb9qjT4kXhttCp: { groupKey: 'Austral', displayName: 'Austral' },
-  org_3FWC8kUv9dVqf36qMm56dI6DPpB: { groupKey: 'Dolphin', displayName: 'Dolphin' },
-  org_3FWC9cPk1sZfG79MVkDXZ20SCyD: { groupKey: 'Rainbow', displayName: 'Rainbow' },
-  org_3FWCAVWUOAX4ySOYgIlOQuwzA9Z: { groupKey: 'PoolwaterProducts', displayName: 'Poolwater Products' },
-  org_3FWCBPseymU4I0RKxb65WtftEst: { groupKey: 'PoolRanger', displayName: 'Pool Ranger' },
-  org_3FWCCHZPl5b0YndJCjyGSOra9nm: { groupKey: 'PoolPro', displayName: 'Pool Pro' },
-  org_3FWCD7xMQa7W9CKacKZfnKNXu4x: { groupKey: 'Legend', displayName: 'Legend' },
-  org_3FWCE0ASb08gqcY8tz0nGDESSb0: { groupKey: 'International', displayName: 'International' },
-  org_3FWCEnTkI67v70wPkDAAewiO3q1: { groupKey: 'Evolution', displayName: 'Evolution' },
-  org_3FWCFeCxQGBucFTiW25Gwj9HyKF: { groupKey: 'Eclipse', displayName: 'Eclipse' },
-  org_3FWCGOHnsfwpM0N41nfnMCqrgDM: { groupKey: 'Eagles', displayName: 'Eagles' },
-  org_3FWCHT2hvn39unvzJioqotHa0N1: { groupKey: 'AZPools', displayName: 'A-Z Pools' },
-  org_3FWG2xzxgqm35j6Y3C3419jpbZb: { groupKey: 'PoolSpaWarehouse', displayName: 'Pool & Spa Warehouse' },
-  org_3FWG3cp9MADKgjC356dt2jSVcSn: { groupKey: 'Compass', displayName: 'Compass' },
-  org_3FaK2as4age449sxVRiC6Msrte8: { groupKey: 'Hayward', displayName: 'Hayward', isAggregate: true },
-  // Test Org intentionally excluded - not a real customer group.
+  org_3FXoIQcXtB67hl99tCaw2TLsujA: { groupKey: 'Reece', displayName: 'Reece' },
+  org_3FXoLbi8bppSMRfGOOddA15wOEM: { groupKey: 'Poolwerx', displayName: 'Poolwerx' },
+  org_3FXoMcm542U2i1MlpS70gZ1acY0: { groupKey: 'PoolSystems', displayName: 'Pool Systems' },
+  org_3FXoNQ2lSHNlo3SKgxUZvYJqNHm: { groupKey: 'Lincoln', displayName: 'Lincoln' },
+  org_3FXoOHl4f2EbnPdJkxLctGXvlJ5: { groupKey: 'Austral', displayName: 'Austral' },
+  org_3FXoOv8Hwxz98CjYKgE4wqMEFbv: { groupKey: 'Dolphin', displayName: 'Dolphin' },
+  org_3FXoPhSizbC7vjV7EfSTIq7FPye: { groupKey: 'Rainbow', displayName: 'Rainbow' },
+  org_3FXoQaqpeHV2Yd9kRO2yezbZpQ7: { groupKey: 'PoolwaterProducts', displayName: 'Poolwater Products' },
+  org_3FXoRNmRkeb2m9zxJW47tGDBq37: { groupKey: 'PoolRanger', displayName: 'Pool Ranger' },
+  org_3FXoSFvgGkDS5hsxEzVksAbVYuA: { groupKey: 'PoolPro', displayName: 'Pool Pro' },
+  org_3FXoSzd2FI5pVCTjfRt53V8dxhA: { groupKey: 'Legend', displayName: 'Legend' },
+  org_3FXoTmKiD23OMtXgkAndTUWzOHC: { groupKey: 'International', displayName: 'International' },
+  org_3FXoUeuPmvIwKPhhkBF6OhP15pD: { groupKey: 'Evolution', displayName: 'Evolution' },
+  org_3FXoVDyaf2XuvLDgY9DBrGGfsZp: { groupKey: 'Eclipse', displayName: 'Eclipse' },
+  org_3FXoVz1ROrx71NMqUczDeUpqIxm: { groupKey: 'Eagles', displayName: 'Eagles' },
+  org_3FXoXP7hTrIzCR3Ju04twjCk3cD: { groupKey: 'AZPools', displayName: 'A-Z Pools' },
+  org_3FkCebllwiLs18S36g5jt5xTb8a: { groupKey: 'PoolSpaWarehouse', displayName: 'Pool & Spa Warehouse' },
+  org_3FkCgxlVfMXEJ2Kl9Q0xqkLVdgd: { groupKey: 'Compass', displayName: 'Compass' },
+  org_3FkCOPQRTCIuDtVHLXAwhCVyJtZ: { groupKey: 'Hayward', displayName: 'Hayward', isAggregate: true },
+  // testorg (org_3FXoaO7oKb6VcioyqvVrFsOjpNQ) intentionally excluded - not a real customer group.
 };
 
 export interface CustomerAccess {
