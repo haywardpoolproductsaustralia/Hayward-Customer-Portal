@@ -2,7 +2,7 @@
 
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import type { IntakeRecord, IntakeLine } from "@/lib/au-orders-inbox";
-import { Copy, Check, ChevronRight, ExternalLink, Lock } from "lucide-react";
+import { Copy, Check, ExternalLink, Lock } from "lucide-react";
 
 const fmtMoney = (n: number) =>
   n.toLocaleString("en-AU", { style: "currency", currency: "AUD" });
@@ -28,7 +28,6 @@ export default function OrderInboxQueue({ meId, meName }: { meId: string; meName
   const [showKeyed, setShowKeyed] = useState(false);
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   const [toast, setToast] = useState<Toast>(null);
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [copied, setCopied] = useState<string | null>(null);
   const [view, setView] = useState<"cards" | "quick">("cards");
   const showKeyedRef = useRef(showKeyed);
@@ -84,8 +83,6 @@ export default function OrderInboxQueue({ meId, meName }: { meId: string; meName
         else if (data.reason === "already_keyed") setToast({ text: "That order was already keyed by someone else.", tone: "warn" });
         else if (data.reason === "closed") setToast({ text: "That order is already done.", tone: "warn" });
         else setToast({ text: "That order is no longer yours to change.", tone: "warn" });
-      } else if (action === "claim") {
-        setExpanded((e) => ({ ...e, [id]: true })); // open it as soon as you grab it
       }
     } catch {
       setToast({ text: "Network hiccup — nothing was changed. Try again.", tone: "warn" });
@@ -172,9 +169,7 @@ export default function OrderInboxQueue({ meId, meName }: { meId: string; meName
               order={o}
               meId={meId}
               busy={!!busy[o.id]}
-              open={!!expanded[o.id]}
               copiedKey={copied}
-              onToggle={() => setExpanded((e) => ({ ...e, [o.id]: !e[o.id] }))}
               onAct={act}
               onCopy={copy}
             />
@@ -186,34 +181,24 @@ export default function OrderInboxQueue({ meId, meName }: { meId: string; meName
 }
 
 function OrderRow({
-  order, meId, busy, open, copiedKey, onToggle, onAct, onCopy,
+  order, meId, busy, copiedKey, onAct, onCopy,
 }: {
   order: IntakeRecord;
   meId: string;
   busy: boolean;
-  open: boolean;
   copiedKey: string | null;
-  onToggle: () => void;
   onAct: (id: string, action: "claim" | "release" | "key") => void;
   onCopy: (text: string, key: string) => void;
 }) {
   const mineClaim = order.status === "claimed" && order.claimedBy === meId;
   const otherClaim = order.status === "claimed" && order.claimedBy !== meId;
   const keyed = order.status === "keyed";
-  const stop = (e: React.MouseEvent) => e.stopPropagation();
+  const orderRev = order.lines.reduce((s, l) => s + (l.qty ?? 0) * (l.claimedPrice ?? 0), 0);
 
   return (
     <div className={mineClaim ? "bg-emerald-50/30" : keyed ? "bg-slate-50/60" : ""}>
-      {/* Compact row */}
-      <div
-        role="button"
-        tabIndex={0}
-        onClick={onToggle}
-        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onToggle(); } }}
-        className="flex cursor-pointer items-center gap-3 px-3 py-2.5 hover:bg-slate-50"
-      >
-        <ChevronRight className={`h-4 w-4 shrink-0 text-slate-400 transition-transform ${open ? "rotate-90" : ""}`} />
-
+      {/* Header row — always visible, no toggle */}
+      <div className="flex items-center gap-3 px-3 py-2.5">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
             <span className="truncate font-medium text-slate-900">{order.debtorName ?? order.fromName ?? order.fromEmail}</span>
@@ -228,11 +213,11 @@ function OrderRow({
             {order.seenInArrow && <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-xs font-medium text-emerald-700">In Arrow</span>}
           </div>
           <p className="mt-0.5 text-xs text-slate-400">
-            {order.lines.length} {order.lines.length === 1 ? "line" : "lines"} · {fmtTime(order.receivedAt)}
+            {order.lines.length} {order.lines.length === 1 ? "line" : "lines"} · <span className="font-medium text-slate-500">{fmtMoney(orderRev)}</span> · {fmtTime(order.receivedAt)}
           </p>
         </div>
 
-        <div className="flex shrink-0 items-center gap-2" onClick={stop}>
+        <div className="flex shrink-0 items-center gap-2">
           <StatusPill order={order} mine={mineClaim} />
           {order.status === "new" && (
             <button
@@ -246,9 +231,8 @@ function OrderRow({
         </div>
       </div>
 
-      {/* Expanded detail */}
-      {open && (
-        <div className="border-t border-slate-100 bg-white px-4 pb-4 pt-3">
+      {/* Detail — always open */}
+      <div className="border-t border-slate-100 bg-white px-4 pb-4 pt-3">
           <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-slate-600">
             {order.debtorCode && (
               <span className="inline-flex items-center gap-1">
@@ -354,7 +338,6 @@ function OrderRow({
             </div>
           </div>
         </div>
-      )}
     </div>
   );
 }
