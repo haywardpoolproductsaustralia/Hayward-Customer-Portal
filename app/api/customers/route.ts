@@ -59,17 +59,37 @@ export async function GET(req: NextRequest) {
     });
   }
 
-  // For aggregate orgs, read codeToGroup directly rather than going
-  // through access.customerCodes (which requires group:Hayward:codes to
-  // be populated). codeToGroup already has every real customer code and
-  // their group name, so we can build the deduplicated group list from
-  // it without any other dependency.
-  const seenGroups = new Set<string>();
-  const customers: ({ code: string; name: string } & Partial<CustomerProfile>)[] = [];
+  // Build one representative code per group — strongly preferring an AU
+  // branch over NZ. Without this, the first code Redis returns wins,
+  // which can be a NZ branch (e.g. Poolwerx Auckland) even when there
+  // are 297 AU alternatives.
+  const groupBestCode = new Map<string, string>();
 
   for (const [code, groupName] of Object.entries(codeToGroup)) {
-    if (seenGroups.has(groupName)) continue;
-    seenGroups.add(groupName);
+    const profile = customerProfiles?.[code];
+    const isNZ = ['NEW ZEALAND', 'NZ'].includes(
+      (profile?.state ?? '').toUpperCase()
+    );
+
+    if (!groupBestCode.has(groupName)) {
+      // No representative yet — take anything
+      groupBestCode.set(groupName, code);
+    } else if (isNZ) {
+      // Current candidate is better (or equal) — skip NZ codes
+      continue;
+    } else {
+      // This is an AU code — prefer it over whatever we had
+      const existingCode = groupBestCode.get(groupName)!;
+      const existingIsNZ = ['NEW ZEALAND', 'NZ'].includes(
+        (customerProfiles?.[existingCode]?.state ?? '').toUpperCase()
+      );
+      if (existingIsNZ) groupBestCode.set(groupName, code);
+    }
+  }
+
+  const customers: ({ code: string; name: string } & Partial<CustomerProfile>)[] = [];
+
+  for (const [groupName, code] of groupBestCode) {
     const profile = customerProfiles?.[code];
     customers.push({ code, name: groupName, ...profile });
   }
