@@ -30,8 +30,8 @@ export default function OrderInboxQueue({ meId, meName }: { meId: string; meName
   const [toast, setToast] = useState<Toast>(null);
   const [copied, setCopied] = useState<string | null>(null);
   const [view, setView] = useState<"cards" | "quick">("cards");
-  // Cards are open by default; an entry here means the user collapsed that one.
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  // Cards are collapsed by default; an entry here means the user opened that one.
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const showKeyedRef = useRef(showKeyed);
   showKeyedRef.current = showKeyed;
 
@@ -164,16 +164,16 @@ export default function OrderInboxQueue({ meId, meName }: { meId: string; meName
       ) : view === "quick" ? (
         <QuickView orders={orders} copiedKey={copied} onCopy={copy} />
       ) : (
-        <div className="overflow-hidden rounded-lg border border-slate-200 bg-white divide-y divide-slate-100">
+        <div className="space-y-3">
           {orders.map((o) => (
             <OrderRow
               key={o.id}
               order={o}
               meId={meId}
               busy={!!busy[o.id]}
-              open={!collapsed[o.id]}
+              open={!!expanded[o.id]}
               copiedKey={copied}
-              onToggle={() => setCollapsed((c) => ({ ...c, [o.id]: !c[o.id] }))}
+              onToggle={() => setExpanded((e) => ({ ...e, [o.id]: !e[o.id] }))}
               onAct={act}
               onCopy={copy}
             />
@@ -203,7 +203,15 @@ function OrderRow({
   const stop = (e: React.MouseEvent) => e.stopPropagation();
 
   return (
-    <div className={mineClaim ? "bg-emerald-50/30" : keyed ? "bg-slate-50/60" : ""}>
+    <div
+      className={`overflow-hidden rounded-lg border bg-white shadow-sm transition-shadow hover:shadow ${
+        mineClaim
+          ? "border-emerald-200 bg-emerald-50/30"
+          : keyed
+          ? "border-slate-200 bg-slate-50/50"
+          : "border-slate-200"
+      }`}
+    >
       {/* Header row — click the arrow (or row) to collapse/expand */}
       <div
         role="button"
