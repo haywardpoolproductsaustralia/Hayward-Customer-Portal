@@ -40,8 +40,16 @@ export async function GET(req: NextRequest) {
   const customerNames = await getJSON<Record<string, string>>('customerNames');
 
   if (level === 'branch') {
+    // Every individual branch this login can see, each with its own profile
+    // attached (price type, address, contact) so a branch pick carries the
+    // same detail a group pick does — the branch's real name takes priority
+    // over the profile name so e.g. "REECE DANDENONG" stays distinct.
+    const branchProfiles = await getJSON<Record<string, CustomerProfile>>('customerProfiles');
     const customers = access.customerCodes
-      .map((code) => ({ code, name: customerNames?.[code] ?? code }))
+      .map((code) => {
+        const profile = branchProfiles?.[code];
+        return { code, ...profile, name: customerNames?.[code] ?? profile?.name ?? code };
+      })
       .sort((a, b) => a.name.localeCompare(b.name));
     return NextResponse.json({ customers, isAggregate: true });
   }
