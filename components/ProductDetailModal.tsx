@@ -181,30 +181,39 @@ export function ProductDetailModal({ item, onClose }: { item: StockEntry; onClos
                 </div>
                 {pricing.breaks.length > 0 && (() => {
                   const sorted = [...pricing.breaks].sort((a, b) => a.qty - b.qty);
+                  // Break quantities are Arrow "up to" UPPER bounds (the last is an
+                  // open-ended sentinel). Collapse consecutive breaks that resolve
+                  // to the same price, keeping the highest qty as the tier's bound.
+                  const tiers: { upTo: number; price: number | null }[] = [];
+                  for (const b of sorted) {
+                    const last = tiers[tiers.length - 1];
+                    if (last && last.price === b.price) last.upTo = b.qty;
+                    else tiers.push({ upTo: b.qty, price: b.price });
+                  }
                   return (
                     <div className="pt-2 border-t border-ink/5 space-y-1.5">
                       <p className="text-xs text-ink/40 mb-1">Buy more, pay less</p>
-                      {sorted.map((b, idx) => {
-                        const isLast = idx === sorted.length - 1;
-                        const upper = isLast ? null : sorted[idx + 1].qty - 1;
+                      {tiers.map((t, idx) => {
+                        const lower = idx === 0 ? 1 : tiers[idx - 1].upTo + 1;
+                        const isLast = idx === tiers.length - 1;
                         const label = isLast
-                          ? `${b.qty}+`
-                          : upper != null && upper > b.qty
-                          ? `${b.qty}–${upper}`
-                          : `${b.qty}`;
+                          ? `${lower}+`
+                          : lower === t.upTo
+                          ? `${lower}`
+                          : `${lower}–${t.upTo}`;
                         const pct =
-                          pricing.listPrice && b.price != null
-                            ? Math.round((1 - b.price / pricing.listPrice) * 100)
+                          pricing.listPrice && t.price != null
+                            ? Math.round((1 - t.price / pricing.listPrice) * 100)
                             : null;
                         return (
-                          <div key={b.qty} className="flex items-baseline justify-between text-sm">
+                          <div key={idx} className="flex items-baseline justify-between text-sm">
                             <span className="text-ink/60">
                               Qty {label}
                               {pct != null ? (
                                 <span className="ml-1.5 text-xs font-semibold text-sunset">-{pct}%</span>
                               ) : null}
                             </span>
-                            <span className="font-medium text-ink">{formatMoney(b.price) ?? 'On request'} each</span>
+                            <span className="font-medium text-ink">{formatMoney(t.price) ?? 'On request'} each</span>
                           </div>
                         );
                       })}
