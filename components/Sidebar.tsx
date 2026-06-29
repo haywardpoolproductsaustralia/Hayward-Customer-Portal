@@ -12,8 +12,7 @@ const NAV_ITEMS = [
   { href: '/dashboard/orders', label: 'Orders', icon: Receipt },
   { href: '/dashboard/pricing', label: 'Pricing', icon: Tag },
   { href: '/dashboard/manuals', label: 'Manuals', icon: BookOpen },
-  { href: '/dashboard/assistant', label: 'Assistant', icon: Sparkles },
-];
+  ];
 
 const STAFF_ONLY_NAV_ITEMS = [
   { href: '/dashboard/au-orders-inbox', label: 'au-orders inbox', icon: Inbox },
