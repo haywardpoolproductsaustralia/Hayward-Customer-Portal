@@ -1,8 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import type { IntakeRecord } from "@/lib/au-orders-inbox";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
+import type { IntakeRecord, IntakeLine } from "@/lib/au-orders-inbox";
 import { Copy, Check, ChevronRight, ExternalLink, Lock } from "lucide-react";
+
+const fmtMoney = (n: number) =>
+  n.toLocaleString("en-AU", { style: "currency", currency: "AUD" });
 
 const POLL_MS = 7_000;
 const HEARTBEAT_MS = 5 * 60_000;
@@ -27,6 +30,7 @@ export default function OrderInboxQueue({ meId, meName }: { meId: string; meName
   const [toast, setToast] = useState<Toast>(null);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [copied, setCopied] = useState<string | null>(null);
+  const [view, setView] = useState<"cards" | "quick">("cards");
   const showKeyedRef = useRef(showKeyed);
   showKeyedRef.current = showKeyed;
 
@@ -120,6 +124,20 @@ export default function OrderInboxQueue({ meId, meName }: { meId: string; meName
           </p>
         </div>
         <div className="flex items-center gap-3 text-sm">
+          <div className="flex items-center overflow-hidden rounded-md border border-slate-300">
+            <button
+              onClick={() => setView("cards")}
+              className={`px-2.5 py-1.5 font-medium ${view === "cards" ? "bg-slate-800 text-white" : "text-slate-600 hover:bg-slate-50"}`}
+            >
+              Cards
+            </button>
+            <button
+              onClick={() => setView("quick")}
+              className={`px-2.5 py-1.5 font-medium ${view === "quick" ? "bg-slate-800 text-white" : "text-slate-600 hover:bg-slate-50"}`}
+            >
+              Quick view
+            </button>
+          </div>
           <label className="flex items-center gap-1.5 text-slate-600">
             <input type="checkbox" checked={showKeyed} onChange={(e) => setShowKeyed(e.target.checked)} />
             Show keyed
@@ -144,6 +162,8 @@ export default function OrderInboxQueue({ meId, meName }: { meId: string; meName
           <p className="font-medium text-slate-700">Nothing in the queue.</p>
           <p className="mt-1 text-sm text-slate-500">Orders from the au-orders mailbox will appear here as they&apos;re processed.</p>
         </div>
+      ) : view === "quick" ? (
+        <QuickView orders={orders} meId={meId} copiedKey={copied} onCopy={copy} />
       ) : (
         <div className="overflow-hidden rounded-lg border border-slate-200 bg-white divide-y divide-slate-100">
           {orders.map((o) => (
@@ -365,4 +385,82 @@ function StatusPill({ order, mine }: { order: IntakeRecord; mine: boolean }) {
 
 function Pill({ children, className }: { children: React.ReactNode; className: string }) {
   return <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ${className}`}>{children}</span>;
+}
+
+function QuickView({
+  orders, meId, copiedKey, onCopy,
+}: {
+  orders: IntakeRecord[];
+  meId: string;
+  copiedKey: string | null;
+  onCopy: (text: string, key: string) => void;
+}) {
+  const lineRev = (l: IntakeLine) => (l.qty ?? 0) * (l.claimedPrice ?? 0);
+  const orderRev = (o: IntakeRecord) => o.lines.reduce((s, l) => s + lineRev(l), 0);
+  const grand = orders.reduce((s, o) => s + orderRev(o), 0);
+  const lineCount = orders.reduce((s, o) => s + o.lines.length, 0);
+
+  if (orders.length === 0) return null;
+
+  return (
+    <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="bg-slate-50 text-left text-[11px] uppercase tracking-wide text-slate-500">
+            <th className="px-3 py-2 font-medium">SKU</th>
+            <th className="px-3 py-2 font-medium">Customer wrote</th>
+            <th className="px-3 py-2 font-medium text-right">Qty</th>
+            <th className="px-3 py-2 font-medium text-right">Unit $</th>
+            <th className="px-3 py-2 font-medium text-right">Line $</th>
+          </tr>
+        </thead>
+        <tbody>
+          {orders.map((o) => {
+            const mine = o.status === "claimed" && o.claimedBy === meId;
+            const skuQty = o.lines
+              .filter((l) => l.sku)
+              .map((l) => `${l.sku}\t${l.qty ?? ""}`)
+              .join("\n");
+            return (
+              <Fragment key={o.id}>
+                <tr className="border-t-2 border-slate-200 bg-slate-50/70">
+                  <td colSpan={4} className="px-3 py-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-semibold text-slate-800">{o.debtorName ?? o.fromName ?? o.fromEmail}</span>
+                      {o.debtorCode && <span className="font-mono text-xs text-slate-500">{o.debtorCode}</span>}
+                      {o.poRef && <span className="text-xs text-slate-500">PO {o.poRef}</span>}
+                      <StatusPill order={o} mine={mine} />
+                      {o.seenInArrow && <Pill className="bg-emerald-100 text-emerald-700">✓ In Arrow</Pill>}
+                      {skuQty && <CopyBtn value={skuQty} k={`qv-${o.id}`} copiedKey={copiedKey} onCopy={onCopy} />}
+                    </div>
+                  </td>
+                  <td className="px-3 py-2 text-right font-semibold text-slate-700 whitespace-nowrap">{fmtMoney(orderRev(o))}</td>
+                </tr>
+                {o.lines.map((l, i) => (
+                  <tr key={i} className="border-t border-slate-100 hover:bg-slate-50/60">
+                    <td className="px-3 py-1.5 font-mono text-xs whitespace-nowrap">
+                      {l.sku ?? <span className="text-rose-500">— no match —</span>}
+                    </td>
+                    <td className="px-3 py-1.5 text-slate-500">
+                      <span className="block max-w-md truncate">{l.description ?? l.raw}</span>
+                    </td>
+                    <td className="px-3 py-1.5 text-right tabular-nums">{l.qty ?? "—"}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums text-slate-500">{l.claimedPrice != null ? fmtMoney(l.claimedPrice) : "—"}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums whitespace-nowrap">{fmtMoney(lineRev(l))}</td>
+                  </tr>
+                ))}
+              </Fragment>
+            );
+          })}
+        </tbody>
+        <tfoot>
+          <tr className="border-t-2 border-slate-300 bg-slate-50">
+            <td colSpan={2} className="px-3 py-2 text-xs text-slate-500">{orders.length} orders · {lineCount} lines</td>
+            <td colSpan={2} className="px-3 py-2 text-right font-semibold text-slate-700">Total revenue</td>
+            <td className="px-3 py-2 text-right font-bold text-slate-900 whitespace-nowrap">{fmtMoney(grand)}</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  );
 }
