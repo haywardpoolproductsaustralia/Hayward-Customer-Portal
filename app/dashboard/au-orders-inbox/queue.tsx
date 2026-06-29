@@ -2,7 +2,7 @@
 
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import type { IntakeRecord, IntakeLine } from "@/lib/au-orders-inbox";
-import { Copy, Check, ExternalLink, Lock } from "lucide-react";
+import { Copy, Check, ChevronRight, ExternalLink, Lock } from "lucide-react";
 
 const fmtMoney = (n: number) =>
   n.toLocaleString("en-AU", { style: "currency", currency: "AUD" });
@@ -30,6 +30,8 @@ export default function OrderInboxQueue({ meId, meName }: { meId: string; meName
   const [toast, setToast] = useState<Toast>(null);
   const [copied, setCopied] = useState<string | null>(null);
   const [view, setView] = useState<"cards" | "quick">("cards");
+  // Cards are open by default; an entry here means the user collapsed that one.
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const showKeyedRef = useRef(showKeyed);
   showKeyedRef.current = showKeyed;
 
@@ -169,7 +171,9 @@ export default function OrderInboxQueue({ meId, meName }: { meId: string; meName
               order={o}
               meId={meId}
               busy={!!busy[o.id]}
+              open={!collapsed[o.id]}
               copiedKey={copied}
+              onToggle={() => setCollapsed((c) => ({ ...c, [o.id]: !c[o.id] }))}
               onAct={act}
               onCopy={copy}
             />
@@ -181,12 +185,14 @@ export default function OrderInboxQueue({ meId, meName }: { meId: string; meName
 }
 
 function OrderRow({
-  order, meId, busy, copiedKey, onAct, onCopy,
+  order, meId, busy, open, copiedKey, onToggle, onAct, onCopy,
 }: {
   order: IntakeRecord;
   meId: string;
   busy: boolean;
+  open: boolean;
   copiedKey: string | null;
+  onToggle: () => void;
   onAct: (id: string, action: "claim" | "release" | "key") => void;
   onCopy: (text: string, key: string) => void;
 }) {
@@ -194,11 +200,20 @@ function OrderRow({
   const otherClaim = order.status === "claimed" && order.claimedBy !== meId;
   const keyed = order.status === "keyed";
   const orderRev = order.lines.reduce((s, l) => s + (l.qty ?? 0) * (l.claimedPrice ?? 0), 0);
+  const stop = (e: React.MouseEvent) => e.stopPropagation();
 
   return (
     <div className={mineClaim ? "bg-emerald-50/30" : keyed ? "bg-slate-50/60" : ""}>
-      {/* Header row — always visible, no toggle */}
-      <div className="flex items-center gap-3 px-3 py-2.5">
+      {/* Header row — click the arrow (or row) to collapse/expand */}
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={onToggle}
+        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onToggle(); } }}
+        className="flex cursor-pointer items-center gap-3 px-3 py-2.5 hover:bg-slate-50"
+      >
+        <ChevronRight className={`h-4 w-4 shrink-0 text-slate-400 transition-transform ${open ? "rotate-90" : ""}`} />
+
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
             <span className="truncate font-medium text-slate-900">{order.debtorName ?? order.fromName ?? order.fromEmail}</span>
@@ -217,7 +232,7 @@ function OrderRow({
           </p>
         </div>
 
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex shrink-0 items-center gap-2" onClick={stop}>
           <StatusPill order={order} mine={mineClaim} />
           {order.status === "new" && (
             <button
@@ -231,8 +246,9 @@ function OrderRow({
         </div>
       </div>
 
-      {/* Detail — always open */}
-      <div className="border-t border-slate-100 bg-white px-4 pb-4 pt-3">
+      {/* Detail — open by default, collapsible via the arrow */}
+      {open && (
+        <div className="border-t border-slate-100 bg-white px-4 pb-4 pt-3">
           <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-slate-600">
             {order.debtorCode && (
               <span className="inline-flex items-center gap-1">
@@ -338,6 +354,7 @@ function OrderRow({
             </div>
           </div>
         </div>
+      )}
     </div>
   );
 }
