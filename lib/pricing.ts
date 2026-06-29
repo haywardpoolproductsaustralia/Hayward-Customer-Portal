@@ -15,38 +15,36 @@ function round2(v: number): number {
 }
 
 /**
- * Computes a final price for a quantity, using the same logic as the
- * existing Pricing Tool: the highest quantity-break threshold the qty
- * meets or exceeds wins; if none match, fall back to the flat discount,
- * then to the lowest tier's discount as a last resort.
+ * Computes a final price for a quantity using Arrow's actual break logic.
  *
- * `listPrice` is passed in explicitly (the SKU's own STKMAST.SELLING_PRICE1,
- * cached on the stock entry) rather than read from `rule.listPrice` -
- * category-level rules have no SKU of their own in SPRTRAN, so their
- * `listPrice` is always null even though the discount itself is perfectly
- * valid. Using the SKU's own list price means category-fallback pricing
- * actually produces a price instead of silently coming back empty.
+ * Arrow's SPRTRAN thresholds are UPPER bounds, not lower bounds:
+ * QUANTITY_1=3, DISC_1=70% means "qty 1–3 gets 70% off"
+ * QUANTITY_2=11, DISC_2=72% means "qty 4–11 gets 72% off"
+ * QUANTITY_3=1000, DISC_3=74% means "qty 12–1000 gets 74% off"
+ *
+ * So the correct selection is: find the LOWEST threshold that is >= qty.
+ * That threshold's discount is the one that applies.
+ * If qty exceeds ALL thresholds, use the last (highest) tier's discount.
+ *
+ * `listPrice` is passed in explicitly (the SKU's own STKMAST.SELLING_PRICE1)
+ * rather than read from `rule.listPrice` - category-level rules have no SKU
+ * of their own, so their listPrice is always null.
  */
 export function computePrice(rule: PricingRule, qty: number, listPrice: number | null): number | null {
   if (listPrice == null) return null;
 
   const sortedBreaks = [...rule.breaks].sort((a, b) => a.qty - b.qty);
+  if (sortedBreaks.length === 0) return null;
 
-  let bestDiscount: number | null = null;
-  for (const b of sortedBreaks) {
-    if (qty >= b.qty) bestDiscount = b.discount;
-  }
+  // Find the lowest threshold >= qty (Arrow upper-bound logic)
+  const applicableTier = sortedBreaks.find((b) => qty <= b.qty);
 
-  if (bestDiscount != null) {
-    return round2(listPrice * (1 - bestDiscount / 100));
-  }
-  if (rule.priceDiscount) {
-    return round2(listPrice * (1 - rule.priceDiscount / 100));
-  }
-  if (sortedBreaks.length > 0) {
-    return round2(listPrice * (1 - sortedBreaks[0].discount / 100));
-  }
-  return null;
+  // If qty exceeds all thresholds, use the last tier
+  const discount = applicableTier
+    ? applicableTier.discount
+    : sortedBreaks[sortedBreaks.length - 1].discount;
+
+  return round2(listPrice * (1 - discount / 100));
 }
 
 /**
