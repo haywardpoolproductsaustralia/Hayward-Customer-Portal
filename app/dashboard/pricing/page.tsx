@@ -31,15 +31,24 @@ function formatMoney(value: number | null) {
   return new Intl.NumberFormat('en-AU', { style: 'currency', currency: 'AUD' }).format(value);
 }
 
-// Picks the price for a given quantity from a sorted tier list: the tier
-// with the largest threshold that's <= qty wins (matches the server's
-// own quantity-break selection logic in lib/pricing.ts).
+// Arrow's SPRTRAN thresholds are UPPER bounds:
+// qty=3, disc=70% means "qty 1–3 gets 70% off".
+// So we find the LOWEST threshold >= qty to get the applicable tier.
 function resolvePrice(tiers: PriceTier[], qty: number): number | null {
-  let best: number | null = null;
-  for (const t of tiers) {
-    if (qty >= t.qty) best = t.price;
-  }
-  return best;
+  const sorted = [...tiers].sort((a, b) => a.qty - b.qty);
+  const tier = sorted.find((t) => qty <= t.qty);
+  if (tier) return tier.price;
+  // qty exceeds all thresholds — use last tier
+  return sorted.length > 0 ? sorted[sorted.length - 1].price : null;
+}
+
+// Label for a tier given its index in the sorted array.
+// e.g. [{qty:3}, {qty:11}, {qty:1000}] →  "1–3", "4–11", "12+"
+function tierLabel(sorted: PriceTier[], index: number): string {
+  const lower = index === 0 ? 1 : sorted[index - 1].qty + 1;
+  const isLast = index === sorted.length - 1;
+  if (isLast) return `${lower}+`;
+  return `${lower}–${sorted[index].qty}`;
 }
 
 interface TierSuggestion {
@@ -50,19 +59,24 @@ interface TierSuggestion {
   newLineTotal: number;
 }
 
-// The next break above the current qty, if one exists and is actually
-// cheaper - the "order a few more, pay less per unit" nudge.
+// Finds the next cheaper tier and how many units to add to reach it.
 function getNextTierSuggestion(tiers: PriceTier[], qty: number, currentUnitPrice: number | null): TierSuggestion | null {
   if (currentUnitPrice == null) return null;
   const sorted = [...tiers].sort((a, b) => a.qty - b.qty);
-  const next = sorted.find((t) => t.qty > qty && t.price != null && t.price < currentUnitPrice);
-  if (!next || next.price == null) return null;
+  const currentIndex = sorted.findIndex((t) => qty <= t.qty);
+  // If we're at the last tier or beyond all tiers, no suggestion
+  if (currentIndex === -1 || currentIndex === sorted.length - 1) return null;
+  const nextTier = sorted[currentIndex + 1];
+  if (nextTier.price == null || nextTier.price >= currentUnitPrice) return null;
+  // Next tier starts one unit above the current tier's upper bound
+  const nextLowerBound = sorted[currentIndex].qty + 1;
+  const extraUnits = nextLowerBound - qty;
   return {
-    extraUnits: next.qty - qty,
-    newQty: next.qty,
-    newUnitPrice: next.price,
-    savingsPerUnit: currentUnitPrice - next.price,
-    newLineTotal: next.price * next.qty,
+    extraUnits,
+    newQty: nextLowerBound,
+    newUnitPrice: nextTier.price,
+    savingsPerUnit: currentUnitPrice - nextTier.price,
+    newLineTotal: nextTier.price * nextLowerBound,
   };
 }
 
@@ -299,8 +313,10 @@ export default function PricingPage() {
                         <td colSpan={5} className="px-5 pb-3.5 pt-0">
                           <div className="flex flex-wrap items-center gap-2">
                             <span className="text-xs text-ink/40">Quantity breaks:</span>
-                            {sortedTiers.map((t) => {
-                              const isActive = t.qty <= l.qty && (sortedTiers.filter((x) => x.qty <= l.qty).slice(-1)[0]?.qty === t.qty);
+                            {sortedTiers.map((t, idx) => {
+                              const lowerBound = idx === 0 ? 1 : sortedTiers[idx - 1].qty + 1;
+                              const isActive = l.qty >= lowerBound && l.qty <= t.qty;
+                              const label = tierLabel(sortedTiers, idx);
                               return (
                                 <span
                                   key={t.qty}
@@ -308,7 +324,7 @@ export default function PricingPage() {
                                     isActive ? 'bg-wave text-white' : 'bg-foam text-ink/50'
                                   }`}
                                 >
-                                  {t.qty}+: {formatMoney(t.price)}
+                                  {label}: {formatMoney(t.price)}
                                 </span>
                               );
                             })}
