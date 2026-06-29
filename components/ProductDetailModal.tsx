@@ -179,17 +179,38 @@ export function ProductDetailModal({ item, onClose }: { item: StockEntry; onClos
                     ) : null}
                   </div>
                 </div>
-                {pricing.breaks.length > 0 && (
-                  <div className="pt-2 border-t border-ink/5 space-y-1.5">
-                    <p className="text-xs text-ink/40 mb-1">Buy more, pay less</p>
-                    {pricing.breaks.map((b) => (
-                      <div key={b.qty} className="flex items-baseline justify-between text-sm">
-                        <span className="text-ink/60">Qty {b.qty}+</span>
-                        <span className="font-medium text-ink">{formatMoney(b.price) ?? 'On request'} each</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                {pricing.breaks.length > 0 && (() => {
+                  const sorted = [...pricing.breaks].sort((a, b) => a.qty - b.qty);
+                  return (
+                    <div className="pt-2 border-t border-ink/5 space-y-1.5">
+                      <p className="text-xs text-ink/40 mb-1">Buy more, pay less</p>
+                      {sorted.map((b, idx) => {
+                        const isLast = idx === sorted.length - 1;
+                        const upper = isLast ? null : sorted[idx + 1].qty - 1;
+                        const label = isLast
+                          ? `${b.qty}+`
+                          : upper != null && upper > b.qty
+                          ? `${b.qty}–${upper}`
+                          : `${b.qty}`;
+                        const pct =
+                          pricing.listPrice && b.price != null
+                            ? Math.round((1 - b.price / pricing.listPrice) * 100)
+                            : null;
+                        return (
+                          <div key={b.qty} className="flex items-baseline justify-between text-sm">
+                            <span className="text-ink/60">
+                              Qty {label}
+                              {pct != null ? (
+                                <span className="ml-1.5 text-xs font-semibold text-sunset">-{pct}%</span>
+                              ) : null}
+                            </span>
+                            <span className="font-medium text-ink">{formatMoney(b.price) ?? 'On request'} each</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
               </div>
             ) : (
               <span className="text-sm text-ink/30">Price on request</span>
