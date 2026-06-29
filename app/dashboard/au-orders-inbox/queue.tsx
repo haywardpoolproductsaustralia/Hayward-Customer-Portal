@@ -200,6 +200,11 @@ function OrderRow({
   const otherClaim = order.status === "claimed" && order.claimedBy !== meId;
   const keyed = order.status === "keyed";
   const orderRev = order.lines.reduce((s, l) => s + (l.qty ?? 0) * (l.claimedPrice ?? 0), 0);
+  // Quantity check against Arrow. Matched on debtor + customer PO by the sync;
+  // arrowTotalQty is the summed qty of that Arrow order (null = not captured yet).
+  const intakeQty = order.lines.reduce((s, l) => s + (l.qty ?? 0), 0);
+  const arrowQtyKnown = order.seenInArrow && order.arrowTotalQty != null;
+  const qtyMatch = arrowQtyKnown && order.arrowTotalQty === intakeQty;
   const stop = (e: React.MouseEvent) => e.stopPropagation();
 
   return (
@@ -233,7 +238,15 @@ function OrderRow({
             {order.poRef && <span className="text-xs text-slate-500">PO {order.poRef}</span>}
             {order.duplicateOf && <span className="rounded bg-rose-100 px-1.5 py-0.5 text-xs font-medium text-rose-700">Duplicate</span>}
             {order.extractionConfidence === "low" && <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-800">Check</span>}
-            {order.seenInArrow && <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-xs font-medium text-emerald-700">In Arrow</span>}
+            {order.seenInArrow && (
+              qtyMatch ? (
+                <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-xs font-medium text-emerald-700">✓ On Arrow · qty match</span>
+              ) : arrowQtyKnown ? (
+                <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-800">On Arrow · qty differs</span>
+              ) : (
+                <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-xs font-medium text-emerald-700">In Arrow</span>
+              )
+            )}
           </div>
           <p className="mt-0.5 text-xs text-slate-400">
             {order.lines.length} {order.lines.length === 1 ? "line" : "lines"} · <span className="font-medium text-slate-500">{fmtMoney(orderRev)}</span> · {fmtTime(order.receivedAt)}
@@ -276,9 +289,16 @@ function OrderRow({
           {order.deliverTo && <p className="mb-3 text-sm text-slate-600"><span className="text-slate-400">To:</span> {order.deliverTo}</p>}
 
           {order.seenInArrow && (
-            <p className="mb-3 inline-flex items-center gap-1.5 rounded-md bg-emerald-50 px-2 py-1 text-sm text-emerald-700">
+            <p className={`mb-3 inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-sm ${
+              arrowQtyKnown && !qtyMatch ? "bg-amber-50 text-amber-800" : "bg-emerald-50 text-emerald-700"
+            }`}>
               <Check className="h-4 w-4" />
-              In Arrow{order.arrowOrderNo ? ` as ${order.arrowOrderNo}` : ""}
+              {qtyMatch
+                ? "Showing on Arrow — quantities match"
+                : arrowQtyKnown
+                ? `Showing on Arrow — quantities differ (Arrow ${order.arrowTotalQty} / email ${intakeQty})`
+                : "Showing on Arrow"}
+              {order.arrowOrderNo ? ` as ${order.arrowOrderNo}` : ""}
               {order.arrowEnteredBy ? ` · entered by ${order.arrowEnteredBy}` : ""}
               {order.seenInArrowAt ? ` · ${fmtTime(order.seenInArrowAt)}` : ""}
             </p>
@@ -406,8 +426,16 @@ function QuickView({
 
   const lineRev = (l: IntakeLine) => (l.qty ?? 0) * (l.claimedPrice ?? 0);
   const custOf = (o: IntakeRecord) => o.debtorName ?? o.fromName ?? o.fromEmail ?? "";
-  const statusOf = (o: IntakeRecord) =>
-    o.seenInArrow ? "In Arrow" : o.status === "keyed" ? "Keyed" : o.status === "claimed" ? "Claimed" : "New";
+  const statusOf = (o: IntakeRecord) => {
+    if (o.seenInArrow) {
+      if (o.arrowTotalQty != null) {
+        const iq = o.lines.reduce((s, l) => s + (l.qty ?? 0), 0);
+        return o.arrowTotalQty === iq ? "On Arrow (qty match)" : "On Arrow (qty differs)";
+      }
+      return "In Arrow";
+    }
+    return o.status === "keyed" ? "Keyed" : o.status === "claimed" ? "Claimed" : "New";
+  };
 
   // One row per line item — denormalised, like an Excel export
   const rows = orders.flatMap((o) => o.lines.map((l) => ({ o, l })));
