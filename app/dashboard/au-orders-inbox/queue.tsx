@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { IntakeRecord, IntakeLine } from "@/lib/au-orders-inbox";
 import { Copy, Check, ChevronRight, ExternalLink, Lock } from "lucide-react";
 
@@ -162,7 +162,7 @@ export default function OrderInboxQueue({ meId, meName }: { meId: string; meName
           <p className="mt-1 text-sm text-slate-500">Orders from the au-orders mailbox will appear here as they&apos;re processed.</p>
         </div>
       ) : view === "quick" ? (
-        <QuickView orders={orders} meId={meId} copiedKey={copied} onCopy={copy} />
+        <QuickView orders={orders} copiedKey={copied} onCopy={copy} />
       ) : (
         <div className="overflow-hidden rounded-lg border border-slate-200 bg-white divide-y divide-slate-100">
           {orders.map((o) => (
@@ -388,79 +388,112 @@ function Pill({ children, className }: { children: React.ReactNode; className: s
 }
 
 function QuickView({
-  orders, meId, copiedKey, onCopy,
+  orders, copiedKey, onCopy,
 }: {
   orders: IntakeRecord[];
-  meId: string;
   copiedKey: string | null;
   onCopy: (text: string, key: string) => void;
 }) {
-  const lineRev = (l: IntakeLine) => (l.qty ?? 0) * (l.claimedPrice ?? 0);
-  const orderRev = (o: IntakeRecord) => o.lines.reduce((s, l) => s + lineRev(l), 0);
-  const grand = orders.reduce((s, o) => s + orderRev(o), 0);
-  const lineCount = orders.reduce((s, o) => s + o.lines.length, 0);
-
   if (orders.length === 0) return null;
 
+  const lineRev = (l: IntakeLine) => (l.qty ?? 0) * (l.claimedPrice ?? 0);
+  const custOf = (o: IntakeRecord) => o.debtorName ?? o.fromName ?? o.fromEmail ?? "";
+  const statusOf = (o: IntakeRecord) =>
+    o.seenInArrow ? "In Arrow" : o.status === "keyed" ? "Keyed" : o.status === "claimed" ? "Claimed" : "New";
+
+  // One row per line item — denormalised, like an Excel export
+  const rows = orders.flatMap((o) => o.lines.map((l) => ({ o, l })));
+  const totalQty = rows.reduce((s, r) => s + (r.l.qty ?? 0), 0);
+  const grand = rows.reduce((s, r) => s + lineRev(r.l), 0);
+
+  const th = "border border-slate-300 bg-slate-100 px-2 py-1.5 text-left font-semibold text-slate-700 whitespace-nowrap";
+  const td = "border border-slate-300 px-2 py-1 align-top text-slate-700";
+
+  const HEADERS = ["Customer", "Debtor", "PO", "Received", "SKU", "Description", "Qty", "Unit $", "Line $", "Status"];
+  const tsv = [
+    HEADERS.join("\t"),
+    ...rows.map((r) =>
+      [
+        custOf(r.o),
+        r.o.debtorCode ?? "",
+        r.o.poRef ?? "",
+        fmtTime(r.o.receivedAt),
+        r.l.sku ?? "",
+        (r.l.description ?? r.l.raw ?? "").replace(/\t/g, " "),
+        r.l.qty ?? "",
+        r.l.claimedPrice ?? "",
+        lineRev(r.l).toFixed(2),
+        statusOf(r.o),
+      ].join("\t")
+    ),
+  ].join("\n");
+
   return (
-    <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="bg-slate-50 text-left text-[11px] uppercase tracking-wide text-slate-500">
-            <th className="px-3 py-2 font-medium">SKU</th>
-            <th className="px-3 py-2 font-medium">Customer wrote</th>
-            <th className="px-3 py-2 font-medium text-right">Qty</th>
-            <th className="px-3 py-2 font-medium text-right">Unit $</th>
-            <th className="px-3 py-2 font-medium text-right">Line $</th>
-          </tr>
-        </thead>
-        <tbody>
-          {orders.map((o) => {
-            const mine = o.status === "claimed" && o.claimedBy === meId;
-            const skuQty = o.lines
-              .filter((l) => l.sku)
-              .map((l) => `${l.sku}\t${l.qty ?? ""}`)
-              .join("\n");
-            return (
-              <Fragment key={o.id}>
-                <tr className="border-t-2 border-slate-200 bg-slate-50/70">
-                  <td colSpan={4} className="px-3 py-2">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-semibold text-slate-800">{o.debtorName ?? o.fromName ?? o.fromEmail}</span>
-                      {o.debtorCode && <span className="font-mono text-xs text-slate-500">{o.debtorCode}</span>}
-                      {o.poRef && <span className="text-xs text-slate-500">PO {o.poRef}</span>}
-                      <StatusPill order={o} mine={mine} />
-                      {o.seenInArrow && <Pill className="bg-emerald-100 text-emerald-700">✓ In Arrow</Pill>}
-                      {skuQty && <CopyBtn value={skuQty} k={`qv-${o.id}`} copiedKey={copiedKey} onCopy={onCopy} />}
-                    </div>
-                  </td>
-                  <td className="px-3 py-2 text-right font-semibold text-slate-700 whitespace-nowrap">{fmtMoney(orderRev(o))}</td>
-                </tr>
-                {o.lines.map((l, i) => (
-                  <tr key={i} className="border-t border-slate-100 hover:bg-slate-50/60">
-                    <td className="px-3 py-1.5 font-mono text-xs whitespace-nowrap">
-                      {l.sku ?? <span className="text-rose-500">— no match —</span>}
-                    </td>
-                    <td className="px-3 py-1.5 text-slate-500">
-                      <span className="block max-w-md truncate">{l.description ?? l.raw}</span>
-                    </td>
-                    <td className="px-3 py-1.5 text-right tabular-nums">{l.qty ?? "—"}</td>
-                    <td className="px-3 py-1.5 text-right tabular-nums text-slate-500">{l.claimedPrice != null ? fmtMoney(l.claimedPrice) : "—"}</td>
-                    <td className="px-3 py-1.5 text-right tabular-nums whitespace-nowrap">{fmtMoney(lineRev(l))}</td>
-                  </tr>
-                ))}
-              </Fragment>
-            );
-          })}
-        </tbody>
-        <tfoot>
-          <tr className="border-t-2 border-slate-300 bg-slate-50">
-            <td colSpan={2} className="px-3 py-2 text-xs text-slate-500">{orders.length} orders · {lineCount} lines</td>
-            <td colSpan={2} className="px-3 py-2 text-right font-semibold text-slate-700">Total revenue</td>
-            <td className="px-3 py-2 text-right font-bold text-slate-900 whitespace-nowrap">{fmtMoney(grand)}</td>
-          </tr>
-        </tfoot>
-      </table>
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <p className="text-xs text-slate-500">
+          {orders.length} {orders.length === 1 ? "order" : "orders"} · {rows.length} line items
+        </p>
+        <button
+          onClick={() => onCopy(tsv, "qv-tsv")}
+          className="inline-flex items-center gap-1 rounded border border-slate-300 px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
+        >
+          {copiedKey === "qv-tsv" ? <Check className="h-3 w-3 text-emerald-600" /> : <Copy className="h-3 w-3" />}
+          Copy table (paste into Excel)
+        </button>
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="text-xs" style={{ borderCollapse: "collapse" }}>
+          <thead>
+            <tr>
+              <th className={th}>Customer</th>
+              <th className={th}>Debtor</th>
+              <th className={th}>PO</th>
+              <th className={th}>Received</th>
+              <th className={th}>SKU</th>
+              <th className={th}>Description</th>
+              <th className={`${th} text-right`}>Qty</th>
+              <th className={`${th} text-right`}>Unit $</th>
+              <th className={`${th} text-right`}>Line $</th>
+              <th className={th}>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r, i) => (
+              <tr key={i} className="hover:bg-sky-50/40">
+                <td className={`${td} whitespace-nowrap font-medium text-slate-900`}>{custOf(r.o)}</td>
+                <td className={`${td} whitespace-nowrap font-mono`}>
+                  {r.o.debtorCode ?? <span className="text-rose-600">—</span>}
+                </td>
+                <td className={`${td} whitespace-nowrap`}>{r.o.poRef ?? ""}</td>
+                <td className={`${td} whitespace-nowrap text-slate-500`}>{fmtTime(r.o.receivedAt)}</td>
+                <td className={`${td} whitespace-nowrap font-mono`}>
+                  {r.l.sku ?? <span className="text-rose-600">no match</span>}
+                </td>
+                <td className={td}>
+                  <span className="block max-w-xs truncate">{r.l.description ?? r.l.raw}</span>
+                </td>
+                <td className={`${td} text-right tabular-nums`}>{r.l.qty ?? ""}</td>
+                <td className={`${td} text-right tabular-nums text-slate-500`}>
+                  {r.l.claimedPrice != null ? r.l.claimedPrice.toFixed(2) : ""}
+                </td>
+                <td className={`${td} text-right tabular-nums`}>{lineRev(r.l).toFixed(2)}</td>
+                <td className={`${td} whitespace-nowrap`}>{statusOf(r.o)}</td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td className={`${td} bg-slate-50 font-semibold`} colSpan={6}>Total</td>
+              <td className={`${td} bg-slate-50 text-right font-semibold tabular-nums`}>{totalQty}</td>
+              <td className={`${td} bg-slate-50`}></td>
+              <td className={`${td} bg-slate-50 text-right font-bold tabular-nums`}>{grand.toFixed(2)}</td>
+              <td className={`${td} bg-slate-50`}></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
     </div>
   );
 }
