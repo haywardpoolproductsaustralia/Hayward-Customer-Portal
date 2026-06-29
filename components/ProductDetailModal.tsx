@@ -172,23 +172,36 @@ export function ProductDetailModal({ item, onClose }: { item: StockEntry; onClos
                     ) : null}
                   </div>
                 </div>
-                {pricing.breaks.length > 0 && (
-                  <div className="pt-2 border-t border-ink/5 space-y-1.5">
-                    <p className="text-xs text-ink/40 mb-1">Buy more, pay less</p>
-                    {pricing.breaks.map((b, idx) => {
-                      const sorted = [...pricing.breaks].sort((a, c) => a.qty - c.qty);
-                      const lower = idx === 0 ? 1 : sorted[idx - 1].qty + 1;
-                      const isLast = idx === sorted.length - 1;
-                      const label = isLast ? `${lower}+` : `${lower}–${b.qty}`;
-                      return (
-                        <div key={b.qty} className="flex items-baseline justify-between text-sm">
-                          <span className="text-ink/60">{label}</span>
-                          <span className="font-medium text-ink">{formatMoney(b.price) ?? 'On request'} each</span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
+                {pricing.breaks.length > 0 && (() => {
+                  const sorted = [...pricing.breaks].sort((a, b) => a.qty - b.qty);
+                  return (
+                    <div className="pt-2 border-t border-ink/5 space-y-1.5">
+                      <p className="text-xs text-ink/40 mb-1">Quantity breaks</p>
+                      {sorted.map((b, idx) => {
+                        const lower = idx === 0 ? 1 : sorted[idx - 1].qty + 1;
+                        const isLast = idx === sorted.length - 1;
+                        const label = isLast ? `${lower}+` : `${lower}–${b.qty}`;
+                        const discPct =
+                          pricing.listPrice && b.price != null
+                            ? Math.round((1 - b.price / pricing.listPrice) * 1000) / 10
+                            : null;
+                        return (
+                          <div key={b.qty} className="flex items-baseline justify-between text-sm">
+                            <span className="text-ink/60">{label}</span>
+                            <div className="flex items-baseline gap-2">
+                              <span className="font-medium text-ink">
+                                {formatMoney(b.price) ?? 'On request'} each
+                              </span>
+                              {discPct != null && (
+                                <span className="text-xs font-semibold text-sunset">-{discPct}%</span>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
               </div>
             ) : (
               <span className="text-sm text-ink/30">Price on request</span>
