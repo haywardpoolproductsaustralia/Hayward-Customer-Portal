@@ -63,6 +63,7 @@ export interface IntakeRecord extends IntakeData {
   seenInArrowAt: number | null;
   arrowOrderNo: string | null;     // Hayward's order number once it's in Arrow
   arrowEnteredBy: string | null;   // Arrow operator who entered it (if SORMAST records it)
+  arrowTotalQty: number | null;    // summed qty of the matched Arrow order (for qty-match check)
 }
 
 const itemKey = (id: string) => `soq:${id}`;
@@ -88,6 +89,7 @@ function rowToRecord(id: string, h: Record<string, unknown>): IntakeRecord {
     seenInArrowAt: num(h.seenInArrowAt),
     arrowOrderNo: (h.arrowOrderNo as string) || null,
     arrowEnteredBy: (h.arrowEnteredBy as string) || null,
+    arrowTotalQty: num(h.arrowTotalQty),
   };
 }
 
@@ -148,6 +150,7 @@ export async function createIntake(data: IntakeData): Promise<string> {
     seenInArrowAt: "0",
     arrowOrderNo: "",
     arrowEnteredBy: "",
+    arrowTotalQty: "",
   });
   await redis.zadd(INDEX, { score: data.receivedAt, member: id });
   await redis.set(msgKey(data.internetMessageId), id);
