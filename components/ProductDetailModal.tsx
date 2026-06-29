@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { MapPin, Loader2, X, Receipt, AlertCircle, Truck } from 'lucide-react';
+import { MapPin, Loader2, X, Receipt, AlertCircle } from 'lucide-react';
 
 export interface StockEntry {
   sku: string;
@@ -10,13 +10,6 @@ export interface StockEntry {
   listPrice?: number | null;
   supplierStock?: string | null;
   byLocation?: Record<string, { onHand: number; allocated: number; backordered: number }>;
-  // Incoming supply from Hayward's suppliers. Quantity + expected dates ONLY -
-  // deliberately no supplier name, cost, or PO number (commercially sensitive).
-  incoming?: {
-    onOrderQty: number;
-    nextEta: string | null;
-    deliveries: { eta: string | null; qty: number }[];
-  };
 }
 
 interface OrderLine {
@@ -182,12 +175,18 @@ export function ProductDetailModal({ item, onClose }: { item: StockEntry; onClos
                 {pricing.breaks.length > 0 && (
                   <div className="pt-2 border-t border-ink/5 space-y-1.5">
                     <p className="text-xs text-ink/40 mb-1">Buy more, pay less</p>
-                    {pricing.breaks.map((b) => (
-                      <div key={b.qty} className="flex items-baseline justify-between text-sm">
-                        <span className="text-ink/60">Qty {b.qty}+</span>
-                        <span className="font-medium text-ink">{formatMoney(b.price) ?? 'On request'} each</span>
-                      </div>
-                    ))}
+                    {pricing.breaks.map((b, idx) => {
+                      const sorted = [...pricing.breaks].sort((a, c) => a.qty - c.qty);
+                      const lower = idx === 0 ? 1 : sorted[idx - 1].qty + 1;
+                      const isLast = idx === sorted.length - 1;
+                      const label = isLast ? `${lower}+` : `${lower}–${b.qty}`;
+                      return (
+                        <div key={b.qty} className="flex items-baseline justify-between text-sm">
+                          <span className="text-ink/60">{label}</span>
+                          <span className="font-medium text-ink">{formatMoney(b.price) ?? 'On request'} each</span>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -210,36 +209,6 @@ export function ProductDetailModal({ item, onClose }: { item: StockEntry; onClos
                     {qty.backordered ? <span className="text-amber"> · {qty.backordered} backordered</span> : null}
                   </span>
                 ))}
-              </div>
-            </div>
-          )}
-
-          {item.incoming && item.incoming.onOrderQty > 0 && (
-            <div>
-              <p className="text-xs font-semibold text-ink/40 uppercase tracking-wide mb-2">Incoming stock</p>
-              <div className="rounded-xl bg-wave/5 border border-wave/15 px-3.5 py-3">
-                <div className="flex items-center gap-2">
-                  <Truck className="h-4 w-4 text-wave flex-shrink-0" />
-                  <p className="text-sm text-ink">
-                    <span className="font-semibold text-deep">{item.incoming.onOrderQty}</span> on order from Hayward&apos;s suppliers
-                  </p>
-                </div>
-                {item.incoming.nextEta ? (
-                  <p className="text-xs text-ink/50 mt-1 ml-6">Next arrival expected {formatDate(item.incoming.nextEta)}</p>
-                ) : (
-                  <p className="text-xs text-ink/50 mt-1 ml-6">Arrival date being confirmed</p>
-                )}
-                {item.incoming.deliveries.length > 1 && (
-                  <div className="mt-2 ml-6 space-y-1 border-t border-wave/10 pt-2">
-                    {item.incoming.deliveries.slice(0, 4).map((d, i) => (
-                      <div key={i} className="flex items-baseline justify-between text-xs">
-                        <span className="text-ink/50">{d.eta ? formatDate(d.eta) : 'Date TBC'}</span>
-                        <span className="text-ink/70 font-medium tabular-nums">{d.qty}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                <p className="text-[11px] text-ink/35 mt-2 ml-6">Expected dates are indicative and may change.</p>
               </div>
             </div>
           )}
