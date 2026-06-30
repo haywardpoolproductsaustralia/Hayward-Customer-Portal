@@ -1,6 +1,6 @@
 'use client';
 
-import { Fragment, useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { Search, Plus, Trash2, Loader2, Printer, FileText, TrendingUp } from 'lucide-react';
 import { useSelectedCustomer } from '@/components/SelectedCustomerContext';
 
@@ -87,6 +87,13 @@ export default function PricingPage() {
   const [lines, setLines] = useState<QuoteLine[]>([]);
   const { selectedCustomer } = useSelectedCustomer();
 
+  // Always-current view of `lines` so the re-price effect below reads the
+  // latest list (incl. a just-added line) rather than a render-time snapshot.
+  const linesRef = useRef<QuoteLine[]>([]);
+  useEffect(() => {
+    linesRef.current = lines;
+  }, [lines]);
+
   useEffect(() => {
     let cancelled = false;
     fetch('/api/stock')
@@ -107,9 +114,10 @@ export default function PricingPage() {
   // prices shown before the switch are for a different customer and
   // would otherwise look right while being wrong.
   useEffect(() => {
-    if (lines.length === 0) return;
+    const current = linesRef.current;
+    if (current.length === 0) return;
     setLines((prev) => prev.map((l) => ({ ...l, loading: true, error: null })));
-    lines.forEach((l) => refetchLine(l.sku, l.name));
+    current.forEach((l) => refetchLine(l.sku, l.name));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCustomer?.code]);
 
