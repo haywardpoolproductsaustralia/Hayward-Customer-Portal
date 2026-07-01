@@ -156,8 +156,12 @@ export async function GET() {
 
     const enrichedLines: FulfillableLine[] = lines.map((l) => {
       const stock = stockBySkuMap.get(l.sku);
-      const onHandTotal = onHandBySku.get(l.sku) ?? 0;
-      const fulfillableQty = Math.min(l.qtyBackordered, onHandTotal);
+      // Arrow allows negative on-hand when stock is overcommitted.
+      // Clamp to 0 so we never produce negative fulfillable quantities
+      // or negative dollar values on the warehouse page.
+      const rawOnHand = onHandBySku.get(l.sku) ?? 0;
+      const onHandTotal = Math.max(0, rawOnHand);
+      const fulfillableQty = Math.max(0, Math.min(l.qtyBackordered, onHandTotal));
       const canFullyFulfil = onHandTotal >= l.qtyBackordered;
       const rule = findRuleForSku(rules, l.sku, stock?.stockCategory);
       const listPrice = stock?.listPrice ?? null;
