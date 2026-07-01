@@ -16,7 +16,7 @@ const NAV_ITEMS = [
 
 const STAFF_ONLY_NAV_ITEMS = [
   { href: '/dashboard/au-orders-inbox', label: 'au-orders inbox', icon: Inbox },
-  //{ href: '/dashboard/warehouse', label: 'Warehouse', icon: Warehouse },
+  { href: '/dashboard/warehouse', label: 'Warehouse', icon: Warehouse },
   { href: '/dashboard/forecast', label: 'Forecast', icon: TrendingUp },
 ];
 
