@@ -282,8 +282,14 @@ export default function WarehousePage() {
 
     if (sortMode === 'value') {
       list.sort((a, b) => {
+        // Orders with actual dollar value always beat $0 orders
+        const aHasValue = a.orderFulfillableValue > 0;
+        const bHasValue = b.orderFulfillableValue > 0;
+        if (aHasValue !== bHasValue) return aHasValue ? -1 : 1;
+        if (aHasValue && bHasValue) return b.orderFulfillableValue - a.orderFulfillableValue;
+        // Both $0 — ready before partial, then by due date
         if (a.fullyFulfillable !== b.fullyFulfillable) return a.fullyFulfillable ? -1 : 1;
-        return b.orderFulfillableValue - a.orderFulfillableValue;
+        return new Date(a.expectedDate).getTime() - new Date(b.expectedDate).getTime();
       });
     } else {
       list.sort((a, b) => {
