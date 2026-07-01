@@ -2,6 +2,21 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCustomerAccess } from '@/lib/access';
 import { getJSON } from '@/lib/redis';
 
+// Display-only relabel for the group picker. Keys are lowercase; the lookup
+// normalizes case so it matches whatever the sync stored ("Reece" / "REECE").
+// code is untouched, so pricing resolves identically.
+const GROUP_LABELS: Record<string, string> = {
+  'reece': 'Reece Group',
+  // Pool Systems / Poolwerx already read as their group name. Uncomment
+  // to give them a suffix too:
+  // 'pool systems': 'Pool Systems Group',
+  // 'poolwerx': 'Poolwerx Group',
+};
+
+function displayGroupName(groupName: string): string {
+  return GROUP_LABELS[groupName.trim().toLowerCase()] ?? groupName;
+}
+
 export interface CustomerProfile {
   name: string;
   contactName: string | null;
@@ -99,7 +114,7 @@ export async function GET(req: NextRequest) {
 
   for (const [groupName, code] of groupBestCode) {
     const profile = customerProfiles?.[code];
-    customers.push({ code, name: groupName, ...profile });
+    customers.push({ code, ...profile, name: displayGroupName(groupName) });
   }
 
   customers.sort((a, b) => a.name.localeCompare(b.name));
