@@ -4,7 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname } from 'next/navigation';
-import { Boxes, Receipt, Tag, BookOpen, Menu, X, Home, Sparkles, Warehouse, TrendingUp, Inbox } from 'lucide-react';
+import { Boxes, Receipt, Tag, BookOpen, Menu, X, Home, Sparkles, Warehouse, TrendingUp, Inbox, UserSearch } from 'lucide-react';
 
 const NAV_ITEMS = [
   { href: '/dashboard', label: 'Home', icon: Home },
@@ -16,6 +16,7 @@ const NAV_ITEMS = [
 
 const STAFF_ONLY_NAV_ITEMS = [
   { href: '/dashboard/au-orders-inbox', label: 'au-orders inbox', icon: Inbox },
+  { href: '/dashboard/lookup', label: 'Lookup', icon: UserSearch },
   { href: '/dashboard/warehouse', label: 'Warehouse', icon: Warehouse },
   { href: '/dashboard/forecast', label: 'Forecast', icon: TrendingUp },
 ];
@@ -54,11 +55,10 @@ function NavLinks({
   );
 }
 
-// isAggregate isn't used for nav items right now (no staff-only pages
-// exist), but the prop stays - app/dashboard/layout.tsx passes it
-// through, and other components (CustomerPicker) key off it too. Kept
-// here so this component's signature doesn't need to change again the
-// next time something genuinely is staff-only.
+// isAggregate gates the staff-only nav items (au-orders inbox, Lookup,
+// Warehouse, Forecast) - these only show for the Hayward aggregate org.
+// app/dashboard/layout.tsx passes it through, and other components
+// (CustomerPicker) key off it too.
 export function SidebarNav({ isAggregate = false }: { isAggregate?: boolean }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
