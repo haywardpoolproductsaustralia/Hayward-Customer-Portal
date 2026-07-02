@@ -5,7 +5,7 @@ import { redis, getJSON } from "@/lib/redis";
 import { createIntake, alreadyIngested, type IntakeData, type IntakeLine } from "@/lib/au-orders-inbox";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 /**
  * POST /api/au-orders-inbox/ingest
