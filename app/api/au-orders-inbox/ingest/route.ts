@@ -115,6 +115,13 @@ function attachmentBlocks(attachments: IncomingAttachment[]): Anthropic.ContentB
   for (const att of attachments.slice(0, 6)) {
     const type = (att.contentType || "").toLowerCase();
     const name = (att.name || "").toLowerCase();
+    // Guard: a single huge attachment is what stalls the Claude call for minutes.
+    // base64 is ~4/3 the decoded size, so ~5MB decoded ≈ 6.67MB of base64 chars.
+    const approxBytes = (att.contentBytes?.length ?? 0) * 0.75;
+    if (approxBytes > 5_000_000) {
+      blocks.push({ type: "text", text: `Attachment "${att.name}" skipped — too large to parse inline (${Math.round(approxBytes / 1e6)}MB). Key this line manually from the email.` });
+      continue;
+    }
     try {
       if (type.includes("pdf") || name.endsWith(".pdf")) {
         blocks.push({ type: "document", source: { type: "base64", media_type: "application/pdf", data: att.contentBytes } });
@@ -183,7 +190,11 @@ export async function POST(req: Request) {
     ...attachmentBlocks(body.attachments ?? []),
   ];
 
-  const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  const anthropic = new Anthropic({
+    apiKey: process.env.ANTHROPIC_API_KEY,
+    maxRetries: 1,      // don't multiply a slow call into 3x the wait
+    timeout: 120_000,   // 2-min hard cap; a stalled extraction fails cleanly, not after 10+ min
+  });
   let extracted: ExtractedOrder;
   try {
     const resp = await anthropic.messages.create({
