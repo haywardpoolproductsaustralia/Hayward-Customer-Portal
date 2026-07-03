@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { MapPin, Loader2, X, Receipt, AlertCircle, Truck } from 'lucide-react';
+import { useSelectedCustomer } from '@/components/SelectedCustomerContext';
 
 export interface StockEntry {
   sku: string;
@@ -69,6 +70,7 @@ function formatDate(value: string | null | undefined) {
  * same data, same behaviour wherever a SKU gets clicked.
  */
 export function ProductDetailModal({ item, onClose }: { item: StockEntry; onClose: () => void }) {
+  const { selectedCustomer } = useSelectedCustomer();
   const [orders, setOrders] = useState<OrderLine[] | null>(null);
   const [ordersError, setOrdersError] = useState<string | null>(null);
   const [ordersLoading, setOrdersLoading] = useState(true);
@@ -107,7 +109,10 @@ export function ProductDetailModal({ item, onClose }: { item: StockEntry; onClos
     let cancelled = false;
     setPricingLoading(true);
     setPricingError(null);
-    fetch(`/api/pricing?sku=${encodeURIComponent(item.sku)}&qty=1`)
+    fetch(
+      `/api/pricing?sku=${encodeURIComponent(item.sku)}&qty=1` +
+        (selectedCustomer ? `&customerCode=${encodeURIComponent(selectedCustomer.code)}` : '')
+    )
       .then(async (r) => {
         const data = await r.json();
         if (cancelled) return;
@@ -127,7 +132,7 @@ export function ProductDetailModal({ item, onClose }: { item: StockEntry; onClos
     return () => {
       cancelled = true;
     };
-  }, [item.sku]);
+  }, [item.sku, selectedCustomer?.code]);
 
   const locations = Object.entries(item.byLocation ?? {});
 
