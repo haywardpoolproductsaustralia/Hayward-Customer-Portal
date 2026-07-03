@@ -1,5 +1,5 @@
 import { auth } from '@clerk/nextjs/server';
-import { getJSON } from './redis';
+import { getJSON, redis } from './redis';
 
 // Maps each Clerk Organization's stable ID to the matching key in
 // portal-sync/config/customer-groups.json, plus a friendly display name.
@@ -109,4 +109,69 @@ export async function getCustomerAccess(): Promise<CustomerAccess | null> {
     branchCode: null,
     customerCodes,
   };
+}
+
+
+// Groups whose Arrow master AUTO_PRICE_TYPE is unreliable, mapped to the price
+// type verified 118/118 against Arrow pro-forma quotes. Poolwerx franchise
+// accounts carry ZCLOSE/AK in the master but Arrow bills them D5 (verified on
+// Bathurst 200033, Secret Harbour 900228, Taren Point 200144). Add groups here
+// only after confirming the tier against an Arrow quote.
+const GROUP_PRICE_TYPE_OVERRIDE: Record<string, string> = {
+  Poolwerx: 'D5',
+};
+
+// A price type is only usable if it exists and isn't a closed/placeholder "Z..."
+// code (ZC, ZCLOSE, blank) - those never have a pricing:{type} rule set.
+export function isUsablePriceType(t: string | null | undefined): t is string {
+  return !!t && !t.startsWith('Z');
+}
+
+/**
+ * Resolves which price type a pricing request should use:
+ *   1. an explicit per-group override (for groups with known-bad master data),
+ *   2. the representative customer's own price type, if usable,
+ *   3. otherwise the first sibling in the same group with a usable price type.
+ * `requestedCode` is the staff-selected customer from the picker; it's honored
+ * only when it's within the caller's allowed customerCodes.
+ */
+export async function resolvePriceType(
+  access: CustomerAccess,
+  requestedCode?: string | null
+): Promise<{ representativeCode: string | null; priceType: string | null }> {
+  const representativeCode =
+    requestedCode && access.customerCodes.includes(requestedCode)
+      ? requestedCode
+      : access.branchCode ?? access.customerCodes[0] ?? null;
+
+  if (!representativeCode) return { representativeCode: null, priceType: null };
+
+  // Resolve the group that actually OWNS this code (for staff viewing a
+  // specific customer, that's the customer's group, not "Hayward").
+  const codeToGroup = await getJSON<Record<string, string>>('codeToGroup');
+  const groupKey = codeToGroup?.[representativeCode] ?? access.groupKey;
+
+  // 1. Explicit override wins (Arrow-matched tier for unreliable master data).
+  const override = GROUP_PRICE_TYPE_OVERRIDE[groupKey];
+  if (override) return { representativeCode, priceType: override };
+
+  // 2. The customer's own price type, if usable.
+  const own = await redis.get<string>(`customerPriceType:${representativeCode}`);
+  if (isUsablePriceType(own)) return { representativeCode, priceType: own };
+
+  // 3. Fall back to a group sibling with a usable price type
+  //    (e.g. Legend 700957/718223 are ZC/blank but 714005 is D5).
+  if (codeToGroup) {
+    const sibs = Object.keys(codeToGroup)
+      .filter((c) => codeToGroup[c] === groupKey && c !== representativeCode)
+      .slice(0, 50);
+    const types = await Promise.all(
+      sibs.map((c) => redis.get<string>(`customerPriceType:${c}`))
+    );
+    for (const t of types) {
+      if (isUsablePriceType(t)) return { representativeCode, priceType: t };
+    }
+  }
+
+  return { representativeCode, priceType: null };
 }
