@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getCustomerAccess } from '@/lib/access';
-import { redis, getJSON } from '@/lib/redis';
+import { getCustomerAccess, resolvePriceType } from '@/lib/access';
+import { getJSON } from '@/lib/redis';
 import { computePrice, findRuleForSku, PricingRule } from '@/lib/pricing';
 
 interface BatchItem {
@@ -26,13 +26,11 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const representativeCode = access.branchCode ?? access.customerCodes[0];
+  const requestedCode = typeof body?.customerCode === 'string' ? body.customerCode.trim() : null;
+  const { representativeCode, priceType } = await resolvePriceType(access, requestedCode);
   if (!representativeCode) {
     return NextResponse.json({ error: 'No customer code resolved for pricing' }, { status: 404 });
   }
-
-  // customerPriceType:{code} is a raw string, not JSON - read directly.
-  const priceType = await redis.get<string>(`customerPriceType:${representativeCode}`);
   if (!priceType) {
     return NextResponse.json({ error: 'No price type found for this customer' }, { status: 404 });
   }
