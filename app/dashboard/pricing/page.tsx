@@ -156,9 +156,10 @@ export default function PricingPage() {
                   ...l,
                   loading: false,
                   listPrice: data.listPrice,
-                  tiers: [{ qty: 1, price: data.price }, ...(data.breaks ?? [])].sort(
-                    (a, b) => a.qty - b.qty
-                  ),
+                  tiers:
+                    ((data.breaks ?? []) as PriceTier[]).length > 0
+                      ? [...((data.breaks ?? []) as PriceTier[])].sort((a, b) => a.qty - b.qty)
+                      : [{ qty: 1, price: data.price }],
                 }
         )
       );
