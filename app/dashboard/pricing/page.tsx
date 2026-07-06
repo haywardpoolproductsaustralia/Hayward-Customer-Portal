@@ -263,6 +263,7 @@ export default function PricingPage() {
               <tr className="border-b border-ink/10 text-left text-ink/40">
                 <th className="px-5 py-3.5 font-medium">Product</th>
                 <th className="px-5 py-3.5 font-medium text-right">Qty</th>
+                <th className="px-5 py-3.5 font-medium text-right">List price</th>
                 <th className="px-5 py-3.5 font-medium text-right">Unit price</th>
                 <th className="px-5 py-3.5 font-medium text-right">Line total</th>
                 <th className="px-5 py-3.5 font-medium print:hidden"></th>
@@ -294,6 +295,9 @@ export default function PricingPage() {
                           className="w-20 rounded-lg border border-ink/10 px-2 py-1 text-right text-sm focus:border-wave outline-none print:border-none"
                         />
                       </td>
+                      <td className="px-5 py-3.5 text-right text-ink/50">
+                        {l.loading || l.error ? '-' : formatMoney(l.listPrice)}
+                      </td>
                       <td className="px-5 py-3.5 text-right">
                         {l.loading ? (
                           <Loader2 className="h-4 w-4 animate-spin inline text-ink/30" />
@@ -319,7 +323,7 @@ export default function PricingPage() {
                     </tr>
                     {!l.loading && !l.error && sortedTiers.length > 0 && (
                       <tr className="border-b border-ink/5 last:border-0 print:hidden">
-                        <td colSpan={5} className="px-5 pb-3.5 pt-0">
+                        <td colSpan={6} className="px-5 pb-3.5 pt-0">
                           <div className="flex flex-wrap items-center gap-2">
                             <span className="text-xs text-ink/40">Quantity breaks:</span>
                             {sortedTiers.map((t, idx) => {
@@ -358,7 +362,7 @@ export default function PricingPage() {
             </tbody>
             <tfoot>
               <tr className="bg-foam">
-                <td className="px-5 py-4 font-semibold text-deep" colSpan={3}>
+                <td className="px-5 py-4 font-semibold text-deep" colSpan={4}>
                   Total (ex GST)
                 </td>
                 <td className="px-5 py-4 text-right font-display text-lg text-deep font-bold" colSpan={2}>
