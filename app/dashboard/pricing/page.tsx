@@ -1,7 +1,8 @@
 'use client';
 
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
-import { Search, Plus, Trash2, Loader2, Printer, FileText, TrendingUp } from 'lucide-react';
+import { Fragment, useEffect, useRef, useState } from 'react';
+import { Trash2, Loader2, Printer, FileText, TrendingUp } from 'lucide-react';
+import { ProductCombobox } from '@/components/ProductCombobox';
 import { useSelectedCustomer } from '@/components/SelectedCustomerContext';
 
 interface StockEntry {
@@ -81,7 +82,6 @@ function getNextTierSuggestion(tiers: PriceTier[], qty: number, currentUnitPrice
 }
 
 export default function PricingPage() {
-  const [query, setQuery] = useState('');
   const [allStock, setAllStock] = useState<StockEntry[]>([]);
   const [stockLoading, setStockLoading] = useState(true);
   const [lines, setLines] = useState<QuoteLine[]>([]);
@@ -121,21 +121,6 @@ export default function PricingPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCustomer?.code]);
 
-  const searchResults = useMemo(() => {
-    const trimmed = query.trim().toUpperCase();
-    if (!trimmed) return [];
-    const already = new Set(lines.map((l) => l.sku));
-    return allStock
-      .filter((r) => !already.has(r.sku))
-      .filter(
-        (r) =>
-          r.sku.includes(trimmed) ||
-          (r.name ?? '').toUpperCase().includes(trimmed) ||
-          (r.supplierStock ?? '').toUpperCase().includes(trimmed)
-      )
-      .slice(0, 8);
-  }, [query, allStock, lines]);
-
   function pricingUrl(sku: string, qty: number) {
     const params = new URLSearchParams({ sku, qty: String(qty) });
     if (selectedCustomer) params.set('customerCode', selectedCustomer.code);
@@ -171,7 +156,6 @@ export default function PricingPage() {
   }
 
   async function addToQuote(item: StockEntry) {
-    setQuery('');
     const newLine: QuoteLine = {
       sku: item.sku,
       name: item.name || item.sku,
@@ -198,6 +182,8 @@ export default function PricingPage() {
     return sum + (price ?? 0) * l.qty;
   }, 0);
 
+  const addedSkus = new Set<string>(lines.map((l) => l.sku));
+
   return (
     <div className="space-y-6">
       <div className="flex items-end justify-between flex-wrap gap-3">
@@ -222,33 +208,29 @@ export default function PricingPage() {
         </div>
       )}
 
-      <div className="relative max-w-lg">
-        <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-ink/30" />
-        <input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder={stockLoading ? 'Loading products...' : 'Search by SKU or product name to add it'}
-          disabled={stockLoading}
-          className="w-full rounded-full border border-ink/10 bg-white pl-11 pr-4 py-3 text-sm shadow-soft focus:border-wave focus:ring-2 focus:ring-wave/20 outline-none disabled:opacity-50"
-        />
-
-        {searchResults.length > 0 && (
-          <div className="absolute z-10 mt-2 w-full rounded-2xl border border-ink/10 bg-white shadow-soft overflow-hidden">
-            {searchResults.map((r) => (
-              <button
-                key={r.sku}
-                onClick={() => addToQuote(r)}
-                className="w-full flex items-center justify-between gap-3 px-4 py-3 text-left hover:bg-foam border-b border-ink/5 last:border-0"
-              >
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-ink truncate">{r.name || r.sku}</p>
-                  <p className="text-xs text-ink/40 font-mono">{r.sku}</p>
-                </div>
-                <Plus className="h-4 w-4 text-wave flex-shrink-0" />
-              </button>
-            ))}
-          </div>
-        )}
+      <div className="grid gap-3 sm:grid-cols-2 max-w-3xl">
+        <div>
+          <label className="block text-xs font-medium text-ink/40 mb-1.5 ml-1">Find by SKU</label>
+          <ProductCombobox
+            mode="sku"
+            options={allStock}
+            excludeSkus={addedSkus}
+            disabled={stockLoading}
+            onSelect={addToQuote}
+            placeholder={stockLoading ? 'Loading products…' : 'Type a SKU or supplier code'}
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-ink/40 mb-1.5 ml-1">Find by description</label>
+          <ProductCombobox
+            mode="description"
+            options={allStock}
+            excludeSkus={addedSkus}
+            disabled={stockLoading}
+            onSelect={addToQuote}
+            placeholder={stockLoading ? 'Loading products…' : 'Type a product description'}
+          />
+        </div>
       </div>
 
       {lines.length === 0 ? (
