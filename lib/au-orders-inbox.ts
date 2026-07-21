@@ -27,6 +27,8 @@ export interface IntakeLine {
   unit: string | null;
   claimedPrice: number | null;
   confidence: "high" | "low";
+  suggestions?: { sku: string; description: string | null }[]; // close matches when sku is null
+  pickedBy?: string | null;   // set when an agent accepts a suggestion
 }
 
 /** Immutable payload from extraction. Stored as JSON in the `data` field. */
@@ -232,4 +234,39 @@ export async function markKeyed(id: string, userId: string, userName: string): P
 export async function heartbeatIntake(id: string, userId: string): Promise<ClaimOutcome> {
   const res = (await redis.eval(HEARTBEAT_LUA, [itemKey(id)], [userId, String(Date.now()), String(CLAIM_TTL_MS)])) as string;
   return res === "OK" ? { ok: true } : { ok: false, reason: "not_owner" };
+}
+
+/**
+ * Agent accepts a suggested SKU for a no-match line. Only the agent holding the
+ * claim can edit (same lock semantics as claim/key). Persists the chosen
+ * sku/description onto the line, marks it high-confidence + who picked it, and
+ * clears the suggestions so it renders as a normal matched line.
+ */
+export async function acceptSuggestion(
+  id: string,
+  userId: string,
+  userName: string,
+  lineIndex: number,
+  sku: string,
+  description: string | null
+): Promise<ClaimOutcome> {
+  const h = await redis.hgetall(itemKey(id));
+  if (!h || Object.keys(h).length === 0) return { ok: false, reason: "not_found" };
+  if (h.status === "keyed") return { ok: false, reason: "already_keyed" };
+  if (h.status !== "claimed" || h.claimedBy !== userId) return { ok: false, reason: "not_owner" };
+
+  const data = (typeof h.data === "string" ? JSON.parse(h.data as string) : h.data) as IntakeData;
+  const line = data.lines?.[lineIndex];
+  if (!line) return { ok: false, reason: "not_found" };
+
+  data.lines[lineIndex] = {
+    ...line,
+    sku,
+    description: description ?? line.description,
+    confidence: "high",
+    pickedBy: userName,
+    suggestions: [],
+  };
+  await redis.hset(itemKey(id), { data: JSON.stringify(data) });
+  return { ok: true };
 }
