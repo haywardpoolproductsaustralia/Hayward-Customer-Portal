@@ -95,6 +95,28 @@ export default function OrderInboxQueue({ meId, meName }: { meId: string; meName
     }
   }, [load]);
 
+  const accept = useCallback(async (id: string, lineIndex: number, sku: string, description: string | null) => {
+    setBusy((b) => ({ ...b, [id]: true }));
+    try {
+      const res = await fetch(`/api/au-orders-inbox/${id}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "accept-suggestion", lineIndex, sku, description }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        if (data.reason === "not_owner") setToast({ text: "Claim the order first, then pick the SKU.", tone: "warn" });
+        else if (data.reason === "already_keyed") setToast({ text: "That order is already keyed.", tone: "warn" });
+        else setToast({ text: "Couldn't set that SKU — try again.", tone: "warn" });
+      }
+    } catch {
+      setToast({ text: "Network hiccup — SKU not set. Try again.", tone: "warn" });
+    } finally {
+      setBusy((b) => ({ ...b, [id]: false }));
+      load();
+    }
+  }, [load]);
+
   useEffect(() => {
     if (!toast) return;
     const t = setTimeout(() => setToast(null), 4000);
@@ -163,7 +185,7 @@ export default function OrderInboxQueue({ meId, meName }: { meId: string; meName
           <p className="mt-1 text-sm text-slate-500">Orders from the au-orders mailbox will appear here as they&apos;re processed.</p>
         </div>
       ) : view === "quick" ? (
-        <QuickView orders={orders} copiedKey={copied} onCopy={copy} />
+        <QuickView orders={orders} meId={meId} copiedKey={copied} onCopy={copy} onAccept={accept} />
       ) : (
         <div className="space-y-3">
           {orders.map((o) => (
@@ -176,6 +198,7 @@ export default function OrderInboxQueue({ meId, meName }: { meId: string; meName
               copiedKey={copied}
               onToggle={() => setExpanded((e) => ({ ...e, [o.id]: !e[o.id] }))}
               onAct={act}
+              onAccept={accept}
               onCopy={copy}
             />
           ))}
@@ -186,7 +209,7 @@ export default function OrderInboxQueue({ meId, meName }: { meId: string; meName
 }
 
 function OrderRow({
-  order, meId, busy, open, copiedKey, onToggle, onAct, onCopy,
+  order, meId, busy, open, copiedKey, onToggle, onAct, onAccept, onCopy,
 }: {
   order: IntakeRecord;
   meId: string;
@@ -195,6 +218,7 @@ function OrderRow({
   copiedKey: string | null;
   onToggle: () => void;
   onAct: (id: string, action: "claim" | "release" | "key") => void;
+  onAccept: (id: string, lineIndex: number, sku: string, description: string | null) => void;
   onCopy: (text: string, key: string) => void;
 }) {
   const mineClaim = order.status === "claimed" && order.claimedBy === meId;
@@ -348,9 +372,28 @@ function OrderRow({
                         {l.description && <span className="text-slate-500">— {l.description}</span>}
                       </span>
                     ) : (
-                      <span className="font-medium text-rose-600">No match — check</span>
+                      <span className="inline-flex flex-wrap items-center gap-1">
+                        <span className="font-medium text-rose-600">No match — check</span>
+                        {(l.suggestions ?? []).length > 0 && (
+                          <>
+                            <span className="text-xs text-slate-400">closest:</span>
+                            {(l.suggestions ?? []).map((s, si) => (
+                              <button
+                                key={si}
+                                disabled={busy}
+                                onClick={(e) => { e.stopPropagation(); onAccept(order.id, i, s.sku, s.description); }}
+                                title={mineClaim ? `Use ${s.sku}` : "Claim the order first, then click to use this SKU"}
+                                className="inline-flex items-center gap-1 rounded border border-sky-300 bg-sky-50 px-1.5 py-0.5 text-xs font-medium text-sky-700 hover:bg-sky-100 disabled:opacity-50"
+                              >
+                                {s.sku}{s.description ? ` — ${s.description}` : ""}
+                              </button>
+                            ))}
+                          </>
+                        )}
+                      </span>
                     )}
                     {l.confidence === "low" && l.sku && <span className="ml-1 text-xs text-amber-700">(low confidence)</span>}
+                    {l.pickedBy && l.sku && <span className="ml-1 text-xs font-medium text-emerald-600">✓ picked by {l.pickedBy}</span>}
                     {l.claimedPrice != null && <span className="ml-1 text-xs text-slate-400">cust. quoted ${l.claimedPrice}</span>}
                   </td>
                 </tr>
@@ -417,11 +460,13 @@ function Pill({ children, className }: { children: React.ReactNode; className: s
 }
 
 function QuickView({
-  orders, copiedKey, onCopy,
+  orders, meId, copiedKey, onCopy, onAccept,
 }: {
   orders: IntakeRecord[];
+  meId: string;
   copiedKey: string | null;
   onCopy: (text: string, key: string) => void;
+  onAccept: (id: string, lineIndex: number, sku: string, description: string | null) => void;
 }) {
   if (orders.length === 0) return null;
 
@@ -444,7 +489,7 @@ function QuickView({
   const keyedByOf = (o: IntakeRecord) => (o.status === "keyed" ? (o.keyedByName ?? "") : "");
 
   // One row per line item — denormalised, like an Excel export
-  const rows = orders.flatMap((o) => o.lines.map((l) => ({ o, l })));
+  const rows = orders.flatMap((o) => o.lines.map((l, li) => ({ o, l, li })));
   const totalQty = rows.reduce((s, r) => s + (r.l.qty ?? 0), 0);
   const grand = rows.reduce((s, r) => s + lineRev(r.l), 0);
 
@@ -469,8 +514,6 @@ function QuickView({
     clean1(r.l.description ?? r.l.raw ?? ""),
   ]);
 
-  const tsv = [HEADERS.join("\t"), ...aoa.map((row) => row.map((c) => clean1(String(c ?? ""))).join("\t"))].join("\n");
-
   function exportXlsx() {
     const ws = XLSX.utils.aoa_to_sheet([HEADERS, ...aoa]);
     ws["!cols"] = [{ wch: 22 }, { wch: 8 }, { wch: 12 }, { wch: 18 }, { wch: 16 }, { wch: 5 }, { wch: 9 }, { wch: 9 }, { wch: 18 }, { wch: 12 }, { wch: 14 }, { wch: 50 }];
@@ -485,21 +528,12 @@ function QuickView({
         <p className="text-xs text-slate-500">
           {orders.length} {orders.length === 1 ? "order" : "orders"} · {rows.length} line items
         </p>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={exportXlsx}
-            className="inline-flex items-center gap-1 rounded border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-100"
-          >
-            <Download className="h-3 w-3" /> Export to Excel
-          </button>
-          <button
-            onClick={() => onCopy(tsv, "qv-tsv")}
-            className="inline-flex items-center gap-1 rounded border border-slate-300 px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
-          >
-            {copiedKey === "qv-tsv" ? <Check className="h-3 w-3 text-emerald-600" /> : <Copy className="h-3 w-3" />}
-            Copy table
-          </button>
-        </div>
+        <button
+          onClick={exportXlsx}
+          className="inline-flex items-center gap-2 rounded-md border border-emerald-300 bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700"
+        >
+          <Download className="h-4 w-4" /> Export to Excel
+        </button>
       </div>
 
       <div className="overflow-x-auto">
@@ -530,7 +564,28 @@ function QuickView({
                 <td className={`${td} whitespace-nowrap`}>{r.o.poRef ?? ""}</td>
                 <td className={`${td} whitespace-nowrap text-slate-500`}>{fmtTime(r.o.receivedAt)}</td>
                 <td className={`${td} whitespace-nowrap font-mono`}>
-                  {r.l.sku ?? <span className="text-rose-600">no match</span>}
+                  {r.l.sku ? (
+                    <span>
+                      {r.l.sku}
+                      {r.l.pickedBy ? <span className="ml-1 text-[10px] font-sans text-emerald-600">✓</span> : null}
+                    </span>
+                  ) : (r.l.suggestions ?? []).length > 0 ? (
+                    <span className="inline-flex flex-wrap items-center gap-1">
+                      <span className="text-rose-600">no match</span>
+                      {(r.l.suggestions ?? []).map((s, si) => (
+                        <button
+                          key={si}
+                          onClick={() => onAccept(r.o.id, r.li, s.sku, s.description)}
+                          title={r.o.status === "claimed" && r.o.claimedBy === meId ? `Use ${s.sku}` : "Claim the order first"}
+                          className="rounded border border-sky-300 bg-sky-50 px-1 py-0.5 text-[11px] font-medium text-sky-700 hover:bg-sky-100"
+                        >
+                          {s.sku}
+                        </button>
+                      ))}
+                    </span>
+                  ) : (
+                    <span className="text-rose-600">no match</span>
+                  )}
                 </td>
                 <td className={`${td} text-right tabular-nums`}>{r.l.qty ?? ""}</td>
                 <td className={`${td} text-right tabular-nums text-slate-500`}>
