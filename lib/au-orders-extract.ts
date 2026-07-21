@@ -77,16 +77,34 @@ function matchSku(
   skuLiteral: string | null,
   stockAll: StockRow[]
 ): { sku: string | null; description: string | null; confidence: "high" | "low" } {
-  // 1. Customer wrote an actual code that exists (sku or supplier part no.) → high.
-  if (skuLiteral) {
-    const lit = skuLiteral.toUpperCase().trim();
+  // Pull every plausible product code out of the line — the customer's explicit
+  // skuLiteral, plus any token that looks like a part number (has a digit, >=5
+  // chars). Strips vendor-part markers like "V.PN#" / "PN#" that wrap the real
+  // Hayward code, and trailing punctuation. The buried "20-HWX200036005" in a
+  // messy line gets caught here.
+  const candidates: string[] = [];
+  const push = (c: string | null | undefined) => {
+    if (!c) return;
+    let t = String(c).toUpperCase().trim();
+    t = t.replace(/^V\.?\s*PN\s*#?/, "").replace(/^PN\s*#/, ""); // drop vendor-part markers
+    t = t.replace(/^[^A-Z0-9]+/, "").replace(/[^A-Z0-9-]+$/, ""); // trim edge punctuation
+    if (t.length >= 5 && /\d/.test(t) && /[A-Z0-9]/.test(t)) candidates.push(t);
+  };
+  push(skuLiteral);
+  for (const tok of rawLine.split(/[\s,;]+/)) push(tok);
+
+  // 1. Exact match of any candidate against a real sku or supplier part no. → high.
+  for (const c of candidates) {
     const exact = stockAll.find(
-      (r) => r.sku.toUpperCase() === lit || (r.supplierStock ?? "").toUpperCase() === lit
+      (r) => r.sku.toUpperCase() === c || (r.supplierStock ?? "").toUpperCase() === c
     );
     if (exact) return { sku: exact.sku, description: exact.name ?? null, confidence: "high" };
   }
-  // 2. Word-order-independent substring match over sku + name + supplierStock (same as search_products).
-  const words = norm(rawLine).split(" ").filter((w) => w.length > 1);
+
+  // 2. Fallback: word match over the DESCRIPTION words (ignore qty/price/EA noise).
+  const words = norm(rawLine)
+    .split(" ")
+    .filter((w) => w.length > 2 && w !== "EA" && !/^\d+([.,]\d+)?$/.test(w));
   if (words.length === 0) return { sku: null, description: null, confidence: "low" };
   const hits = stockAll.filter((r) => {
     const hay = `${r.sku} ${r.name ?? ""} ${r.supplierStock ?? ""}`.toUpperCase();
@@ -146,7 +164,7 @@ Schema:
     { "raw": string,                  // the line exactly as the customer wrote it
       "qty": number|null,
       "unit": string|null,
-      "skuLiteral": string|null,      // an explicit product code/part number IF the customer wrote one, else null
+      "skuLiteral": string|null,      // an explicit product code the customer wrote. Prefer a vendor/Hayward part number (often written like "V.PN#20-HWX200036005", "20-HWX...", "1B-SP...", "1C-..."). Extract just the code (e.g. "20-HWX200036005"), not the "V.PN#" prefix. Null only if no code is present.
       "claimedPrice": number|null }   // a price the customer stated, if any
   ]
 }
