@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { IntakeRecord, IntakeLine } from "@/lib/au-orders-inbox";
-import { Copy, Check, ChevronRight, ExternalLink, Lock } from "lucide-react";
+import { Copy, Check, ChevronRight, ExternalLink, Lock, Download } from "lucide-react";
+import * as XLSX from "xlsx";
 
 const fmtMoney = (n: number) =>
   n.toLocaleString("en-AU", { style: "currency", currency: "AUD" });
@@ -424,6 +425,9 @@ function QuickView({
 }) {
   if (orders.length === 0) return null;
 
+  // Collapse embedded newlines/tabs so a line item stays on ONE row in Excel.
+  const clean1 = (s: string) => String(s ?? "").replace(/[\r\n\t]+/g, " ").replace(/\s{2,}/g, " ").trim();
+
   const lineRev = (l: IntakeLine) => (l.qty ?? 0) * (l.claimedPrice ?? 0);
   const custOf = (o: IntakeRecord) => o.debtorName ?? o.fromName ?? o.fromEmail ?? "";
   const statusOf = (o: IntakeRecord) => {
@@ -436,6 +440,8 @@ function QuickView({
     }
     return o.status === "keyed" ? "Keyed" : o.status === "claimed" ? "Claimed" : "New";
   };
+  const inArrowOf = (o: IntakeRecord) => (o.seenInArrow ? (o.arrowOrderNo ?? "yes") : "");
+  const keyedByOf = (o: IntakeRecord) => (o.status === "keyed" ? (o.keyedByName ?? "") : "");
 
   // One row per line item — denormalised, like an Excel export
   const rows = orders.flatMap((o) => o.lines.map((l) => ({ o, l })));
@@ -445,38 +451,55 @@ function QuickView({
   const th = "border border-slate-300 bg-slate-100 px-2 py-1.5 text-left font-semibold text-slate-700 whitespace-nowrap";
   const td = "border border-slate-300 px-2 py-1 align-top text-slate-700";
 
-  const HEADERS = ["Customer", "Debtor", "PO", "Received", "SKU", "Description", "Qty", "Unit $", "Line $", "Status"];
-  const tsv = [
-    HEADERS.join("\t"),
-    ...rows.map((r) =>
-      [
-        custOf(r.o),
-        r.o.debtorCode ?? "",
-        r.o.poRef ?? "",
-        fmtTime(r.o.receivedAt),
-        r.l.sku ?? "",
-        (r.l.description ?? r.l.raw ?? "").replace(/\t/g, " "),
-        r.l.qty ?? "",
-        r.l.claimedPrice ?? "",
-        lineRev(r.l).toFixed(2),
-        statusOf(r.o),
-      ].join("\t")
-    ),
-  ].join("\n");
+  const HEADERS = ["Customer", "Debtor", "PO", "Received", "SKU", "Qty", "Unit $", "Line $", "Status", "In Arrow", "Keyed by", "Description"];
+
+  // Array-of-arrays used for BOTH the TSV copy and the real .xlsx export.
+  const aoa = rows.map((r) => [
+    custOf(r.o),
+    r.o.debtorCode ?? "",
+    r.o.poRef ?? "",
+    fmtTime(r.o.receivedAt),
+    r.l.sku ?? "",
+    r.l.qty ?? "",
+    r.l.claimedPrice != null ? Number(r.l.claimedPrice) : "",
+    Number(lineRev(r.l).toFixed(2)),
+    statusOf(r.o),
+    inArrowOf(r.o),
+    keyedByOf(r.o),
+    clean1(r.l.description ?? r.l.raw ?? ""),
+  ]);
+
+  const tsv = [HEADERS.join("\t"), ...aoa.map((row) => row.map((c) => clean1(String(c ?? ""))).join("\t"))].join("\n");
+
+  function exportXlsx() {
+    const ws = XLSX.utils.aoa_to_sheet([HEADERS, ...aoa]);
+    ws["!cols"] = [{ wch: 22 }, { wch: 8 }, { wch: 12 }, { wch: 18 }, { wch: 16 }, { wch: 5 }, { wch: 9 }, { wch: 9 }, { wch: 18 }, { wch: 12 }, { wch: 14 }, { wch: 50 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "au-orders");
+    XLSX.writeFile(wb, `au-orders-${new Date().toISOString().slice(0, 10)}.xlsx`);
+  }
 
   return (
     <div className="space-y-2">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-2">
         <p className="text-xs text-slate-500">
           {orders.length} {orders.length === 1 ? "order" : "orders"} · {rows.length} line items
         </p>
-        <button
-          onClick={() => onCopy(tsv, "qv-tsv")}
-          className="inline-flex items-center gap-1 rounded border border-slate-300 px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
-        >
-          {copiedKey === "qv-tsv" ? <Check className="h-3 w-3 text-emerald-600" /> : <Copy className="h-3 w-3" />}
-          Copy table (paste into Excel)
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={exportXlsx}
+            className="inline-flex items-center gap-1 rounded border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-100"
+          >
+            <Download className="h-3 w-3" /> Export to Excel
+          </button>
+          <button
+            onClick={() => onCopy(tsv, "qv-tsv")}
+            className="inline-flex items-center gap-1 rounded border border-slate-300 px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
+          >
+            {copiedKey === "qv-tsv" ? <Check className="h-3 w-3 text-emerald-600" /> : <Copy className="h-3 w-3" />}
+            Copy table
+          </button>
+        </div>
       </div>
 
       <div className="overflow-x-auto">
@@ -488,11 +511,13 @@ function QuickView({
               <th className={th}>PO</th>
               <th className={th}>Received</th>
               <th className={th}>SKU</th>
-              <th className={th}>Description</th>
               <th className={`${th} text-right`}>Qty</th>
               <th className={`${th} text-right`}>Unit $</th>
               <th className={`${th} text-right`}>Line $</th>
               <th className={th}>Status</th>
+              <th className={th}>In Arrow</th>
+              <th className={th}>Keyed by</th>
+              <th className={th}>Description</th>
             </tr>
           </thead>
           <tbody>
@@ -507,25 +532,31 @@ function QuickView({
                 <td className={`${td} whitespace-nowrap font-mono`}>
                   {r.l.sku ?? <span className="text-rose-600">no match</span>}
                 </td>
-                <td className={td}>
-                  <span className="block max-w-xs truncate">{r.l.description ?? r.l.raw}</span>
-                </td>
                 <td className={`${td} text-right tabular-nums`}>{r.l.qty ?? ""}</td>
                 <td className={`${td} text-right tabular-nums text-slate-500`}>
                   {r.l.claimedPrice != null ? r.l.claimedPrice.toFixed(2) : ""}
                 </td>
                 <td className={`${td} text-right tabular-nums`}>{lineRev(r.l).toFixed(2)}</td>
                 <td className={`${td} whitespace-nowrap`}>{statusOf(r.o)}</td>
+                <td className={`${td} whitespace-nowrap font-mono ${r.o.seenInArrow ? "text-emerald-700" : "text-slate-400"}`}>
+                  {inArrowOf(r.o) || "—"}
+                </td>
+                <td className={`${td} whitespace-nowrap`}>{keyedByOf(r.o) || <span className="text-slate-400">—</span>}</td>
+                <td className={td}>
+                  <span className="block max-w-md truncate" title={clean1(r.l.description ?? r.l.raw ?? "")}>
+                    {clean1(r.l.description ?? r.l.raw ?? "")}
+                  </span>
+                </td>
               </tr>
             ))}
           </tbody>
           <tfoot>
             <tr>
-              <td className={`${td} bg-slate-50 font-semibold`} colSpan={6}>Total</td>
+              <td className={`${td} bg-slate-50 font-semibold`} colSpan={5}>Total</td>
               <td className={`${td} bg-slate-50 text-right font-semibold tabular-nums`}>{totalQty}</td>
               <td className={`${td} bg-slate-50`}></td>
               <td className={`${td} bg-slate-50 text-right font-bold tabular-nums`}>{grand.toFixed(2)}</td>
-              <td className={`${td} bg-slate-50`}></td>
+              <td className={`${td} bg-slate-50`} colSpan={4}></td>
             </tr>
           </tfoot>
         </table>
