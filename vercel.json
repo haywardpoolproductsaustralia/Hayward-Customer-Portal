@@ -1,6 +1,5 @@
 {
   "crons": [
-    { "path": "/api/au-orders-inbox/process", "schedule": "* * * * *" },
-    { "path": "/api/cron/reconcile", "schedule": "30 21 * * *" }
+    { "path": "/api/au-orders-inbox/process", "schedule": "* * * * *" }
   ]
 }
