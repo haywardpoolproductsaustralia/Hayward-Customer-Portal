@@ -72,11 +72,65 @@ function resolveCustomer(
   return { code: best.code, name: best.name, confidence: best.score >= 0.6 ? "high" : "low" };
 }
 
+function levenshtein(a: string, b: string, cap: number): number {
+  if (Math.abs(a.length - b.length) > cap) return cap + 1;
+  const prev = new Array(b.length + 1);
+  for (let j = 0; j <= b.length; j++) prev[j] = j;
+  for (let i = 1; i <= a.length; i++) {
+    let diag = prev[0];
+    prev[0] = i;
+    let rowMin = prev[0];
+    for (let j = 1; j <= b.length; j++) {
+      const tmp = prev[j];
+      prev[j] = Math.min(prev[j] + 1, prev[j - 1] + 1, diag + (a[i - 1] === b[j - 1] ? 0 : 1));
+      diag = tmp;
+      if (prev[j] < rowMin) rowMin = prev[j];
+    }
+    if (rowMin > cap) return cap + 1; // early out
+  }
+  return prev[b.length];
+}
+
+// Find up to 3 stock codes that are near the customer's code (prefix or small
+// edit distance). Used only when there's no exact match, to offer the agent a
+// "did you mean" they can click to accept. Never auto-fills.
+function closeMatches(
+  code: string,
+  stockAll: StockRow[]
+): { sku: string; description: string | null }[] {
+  const c = code.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  if (c.length < 4) return [];
+  const cap = Math.max(1, Math.floor(c.length * 0.2)); // tolerate ~20% difference
+  const scored: { sku: string; description: string | null; d: number }[] = [];
+  for (const r of stockAll) {
+    for (const cand of [r.sku, r.supplierStock]) {
+      if (!cand) continue;
+      const s = cand.toUpperCase().replace(/[^A-Z0-9]/g, "");
+      if (!s || Math.abs(s.length - c.length) > cap) continue;
+      let d: number;
+      if (s === c) d = 0;
+      else if (s.startsWith(c) || c.startsWith(s)) d = Math.abs(s.length - c.length);
+      else d = levenshtein(c, s, cap);
+      if (d <= cap) { scored.push({ sku: r.sku, description: r.name ?? null, d }); break; }
+    }
+  }
+  scored.sort((a, b) => a.d - b.d);
+  const seen = new Set<string>();
+  const out: { sku: string; description: string | null }[] = [];
+  for (const x of scored) {
+    if (seen.has(x.sku)) continue;
+    seen.add(x.sku);
+    out.push({ sku: x.sku, description: x.description });
+    if (out.length >= 3) break;
+  }
+  return out;
+}
+
 function matchSku(
   rawLine: string,
   skuLiteral: string | null,
   stockAll: StockRow[]
-): { sku: string | null; description: string | null; confidence: "high" | "low" } {
+): { sku: string | null; description: string | null; confidence: "high" | "low"; suggestions: { sku: string; description: string | null }[] } {
   // Pull every plausible product code out of the line — the customer's explicit
   // skuLiteral, plus any token that looks like a part number (has a digit, >=5
   // chars). Strips vendor-part markers like "V.PN#" / "PN#" that wrap the real
@@ -98,21 +152,36 @@ function matchSku(
     const exact = stockAll.find(
       (r) => r.sku.toUpperCase() === c || (r.supplierStock ?? "").toUpperCase() === c
     );
-    if (exact) return { sku: exact.sku, description: exact.name ?? null, confidence: "high" };
+    if (exact) return { sku: exact.sku, description: exact.name ?? null, confidence: "high", suggestions: [] };
+  }
+
+  // No exact match — compute "did you mean" suggestions from the best candidate
+  // code(s) so the agent can click to accept. Never auto-fills.
+  let suggestions: { sku: string; description: string | null }[] = [];
+  for (const c of candidates) {
+    suggestions = closeMatches(c, stockAll);
+    if (suggestions.length) break;
   }
 
   // 2. Fallback: word match over the DESCRIPTION words (ignore qty/price/EA noise).
   const words = norm(rawLine)
     .split(" ")
     .filter((w) => w.length > 2 && w !== "EA" && !/^\d+([.,]\d+)?$/.test(w));
-  if (words.length === 0) return { sku: null, description: null, confidence: "low" };
+  if (words.length === 0) return { sku: null, description: null, confidence: "low", suggestions };
   const hits = stockAll.filter((r) => {
     const hay = `${r.sku} ${r.name ?? ""} ${r.supplierStock ?? ""}`.toUpperCase();
     return words.every((w) => hay.includes(w));
   });
-  if (hits.length === 1) return { sku: hits[0].sku, description: hits[0].name ?? null, confidence: "high" };
-  if (hits.length > 1) return { sku: hits[0].sku, description: hits[0].name ?? null, confidence: "low" };
-  return { sku: null, description: null, confidence: "low" };
+  if (hits.length === 1) return { sku: hits[0].sku, description: hits[0].name ?? null, confidence: "high", suggestions: [] };
+  if (hits.length > 1) {
+    // Ambiguous — don't guess. Offer the word-match hits (plus any code suggestions) to pick from.
+    const wordSug = hits.slice(0, 3).map((r) => ({ sku: r.sku, description: r.name ?? null }));
+    const merged = [...suggestions, ...wordSug].filter(
+      (s, i, a) => a.findIndex((x) => x.sku === s.sku) === i
+    ).slice(0, 3);
+    return { sku: null, description: null, confidence: "low", suggestions: merged };
+  }
+  return { sku: null, description: null, confidence: "low", suggestions };
 }
 
 // ---------------------------------------------------------------------------
@@ -233,6 +302,7 @@ export async function processRawIntake(body: IngestBody): Promise<IntakeResult> 
       unit: l.unit ?? null,
       claimedPrice: l.claimedPrice ?? null,
       confidence: m.sku ? m.confidence : "low",
+      suggestions: m.sku ? [] : m.suggestions,
     };
   });
 
