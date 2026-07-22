@@ -5,6 +5,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import { Boxes, Receipt, Tag, BookOpen, Menu, X, Home, Sparkles, Warehouse, TrendingUp, Inbox, UserSearch, ShieldCheck, GitCompareArrows, ShoppingCart } from 'lucide-react';
+import { PORTAL_ORDERS_ENABLED } from '@/lib/features';
 
 const NAV_ITEMS = [
   { href: '/dashboard', label: 'Home', icon: Home },
@@ -16,7 +17,11 @@ const NAV_ITEMS = [
   ];
 
 const STAFF_ONLY_NAV_ITEMS = [
-  { href: '/dashboard/portal-orders', label: 'Portal orders-testing atm', icon: ShoppingCart },
+  // Portal orders is hidden while PORTAL_ORDERS_ENABLED is false. Kept in the
+  // list rather than deleted so re-enabling is one flag, not an edit here.
+  ...(PORTAL_ORDERS_ENABLED
+    ? [{ href: '/dashboard/portal-orders', label: 'Portal orders', icon: ShoppingCart }]
+    : []),
   { href: '/dashboard/au-orders-inbox', label: 'AU-orders inbox', icon: Inbox },
   { href: '/dashboard/lookup', label: 'Customers', icon: UserSearch },
   { href: '/dashboard/warehouse', label: 'Warehouse', icon: Warehouse },
