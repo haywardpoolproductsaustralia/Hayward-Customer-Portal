@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { ProductCombobox } from '@/components/ProductCombobox';
 import { useSelectedCustomer } from '@/components/SelectedCustomerContext';
+import { AccountSelect } from '@/components/AccountSelect';
 
 interface StockEntry {
   sku: string;
@@ -144,7 +145,6 @@ export default function PricingPage() {
   // --- order submission state ---------------------------------------------
   const [orderOpen, setOrderOpen] = useState(false);
   const [accounts, setAccounts] = useState<AccountOption[]>([]);
-  const [accountFilter, setAccountFilter] = useState('');
   const [debtorCode, setDebtorCode] = useState('');
   const [poRef, setPoRef] = useState('');
   const [requiredBy, setRequiredBy] = useState('');
@@ -319,12 +319,6 @@ export default function PricingPage() {
     poRef.trim() !== '' &&
     agreed &&
     !submitting;
-
-  const filteredAccounts = accountFilter.trim()
-    ? accounts.filter((a) =>
-        `${a.code} ${a.name}`.toLowerCase().includes(accountFilter.trim().toLowerCase())
-      )
-    : accounts;
 
   async function submitOrder(confirmDuplicate = false) {
     setSubmitting(true);
@@ -644,26 +638,15 @@ export default function PricingPage() {
                 <label className="block text-xs font-medium text-ink/40 mb-1.5 ml-1">
                   Deliver to account <span className="text-coral">*</span>
                 </label>
-                {accounts.length > 12 && (
-                  <input
-                    value={accountFilter}
-                    onChange={(e) => setAccountFilter(e.target.value)}
-                    placeholder="Filter accounts by name or code"
-                    className="w-full mb-2 rounded-lg border border-ink/10 px-3 py-2 text-sm focus:border-wave outline-none"
-                  />
-                )}
-                <select
+                {/* One searchable control. The separate filter box and native
+                    <select> were two states that could disagree, and a native
+                    select can't do the prefix matching that makes Arrow's
+                    truncated names findable. */}
+                <AccountSelect
+                  accounts={accounts}
                   value={debtorCode}
-                  onChange={(e) => setDebtorCode(e.target.value)}
-                  className="w-full rounded-lg border border-ink/10 px-3 py-2 text-sm focus:border-wave outline-none bg-white"
-                >
-                  <option value="">Select an account…</option>
-                  {filteredAccounts.slice(0, 300).map((a) => (
-                    <option key={a.code} value={a.code}>
-                      {a.name} ({a.code})
-                    </option>
-                  ))}
-                </select>
+                  onChange={setDebtorCode}
+                />
                 {accounts.length === 0 && (
                   <p className="text-xs text-amber mt-1.5">
                     No accounts are linked to this login yet - please contact Hayward before ordering.
