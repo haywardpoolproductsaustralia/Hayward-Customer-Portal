@@ -16,6 +16,7 @@ import {
 import { ProductCombobox } from '@/components/ProductCombobox';
 import { useSelectedCustomer } from '@/components/SelectedCustomerContext';
 import { AccountSelect } from '@/components/AccountSelect';
+import { PORTAL_ORDERS_ENABLED } from '@/lib/features';
 
 interface StockEntry {
   sku: string;
@@ -394,7 +395,7 @@ export default function PricingPage() {
               <Printer className="h-4 w-4" /> Print quote
             </button>
           )}
-          {lines.length > 0 && !orderOpen && (
+          {PORTAL_ORDERS_ENABLED && lines.length > 0 && !orderOpen && (
             <button
               onClick={() => {
                 setOrderOpen(true);
@@ -612,7 +613,7 @@ export default function PricingPage() {
       )}
 
       {/* ---------------- Convert to order ---------------- */}
-      {orderOpen && lines.length > 0 && (
+      {PORTAL_ORDERS_ENABLED && orderOpen && lines.length > 0 && (
         <div className="rounded-2xl border border-wave/30 bg-white shadow-soft print:hidden">
           <div className="flex items-center justify-between px-5 py-4 border-b border-ink/10">
             <h2 className="font-display text-xl text-deep font-bold">Send this to Hayward as an order</h2>
