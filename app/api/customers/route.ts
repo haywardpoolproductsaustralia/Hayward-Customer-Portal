@@ -2,19 +2,20 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCustomerAccess } from '@/lib/access';
 import { getJSON } from '@/lib/redis';
 
-// Display-only relabel for the group picker. Keys are lowercase; the lookup
+// Display-only relabel for the group buttons. Keys are lowercase; the lookup
 // normalizes case so it matches whatever the sync stored ("Reece" / "REECE").
 // code is untouched, so pricing resolves identically.
 const GROUP_LABELS: Record<string, string> = {
   'reece': 'Reece Group',
-  // Pool Systems / Poolwerx already read as their group name. Uncomment
-  // to give them a suffix too:
-  // 'pool systems': 'Pool Systems Group',
-  // 'poolwerx': 'Poolwerx Group',
+  'poolwerx': 'Poolwerx Group',
+  'pool systems': 'Pool Systems Group',
 };
 
 function displayGroupName(groupName: string): string {
-  return GROUP_LABELS[groupName.trim().toLowerCase()] ?? groupName;
+  const key = groupName.trim().toLowerCase();
+  if (GROUP_LABELS[key]) return GROUP_LABELS[key];
+  // Anything not explicitly mapped still reads as a group.
+  return /group$/i.test(groupName.trim()) ? groupName : `${groupName} Group`;
 }
 
 export interface CustomerProfile {
@@ -27,116 +28,129 @@ export interface CustomerProfile {
   state: string | null;
   postcode: string | null;
   priceType: string | null;
+  deleted?: boolean;
 }
 
-// Lists customers for a picker. Two modes:
+export interface CustomerGroupOption {
+  groupName: string;
+  code: string;
+  memberCount: number;
+  priceType: string | null;
+  priceTypes: string[];
+  /** False when members disagree on AUTO_PRICE_TYPE, which makes a
+   *  group-level price ambiguous. The UI must not hide this. */
+  priceTypeConsistent: boolean;
+}
+
+const isNZ = (p?: CustomerProfile) =>
+  ['NEW ZEALAND', 'NZ'].includes((p?.state ?? '').toUpperCase());
+
+// Customer lists for the header picker and the lookup page.
 //
-// - level=group (default) - one entry per real customer (18, not 479),
-//   deduped via the codeToGroup map, with full profile details attached
-//   (phone, address, AUTO_PRICE_TYPE) - used for the "pricing for"
-//   picker, since every branch within a group shares one price type.
-// - level=branch - every individual code this login can see, with its
-//   real name only (no profile). Used for things like customer notes,
-//   where per-branch granularity genuinely matters.
+//   (no level)     every account in Arrow, lean (code + name + priceType),
+//                  plus one entry per customer group. Used by CustomerPicker.
+//   level=branch   every account with its full profile. Used by the lookup
+//                  page, which needs phone/address to verify a caller.
+//   level=group    groups only, in the old shape. Kept for compatibility.
 //
-// Both only return anything for an aggregate org (Hayward) - an ordinary
-// single-group head office has nothing useful to pick between either way.
+// All modes are aggregate-org (Hayward staff) only.
+//
+// IMPORTANT: these read customerNames/customerProfiles, which are written by
+// portal-sync's syncCustomerNames(). That function must be pulling ALL of
+// DRSMAST — if it's still filtered to the configured group codes, most of
+// Arrow's accounts will be missing here no matter what this route does.
 export async function GET(req: NextRequest) {
   const access = await getCustomerAccess();
   if (!access) {
     return NextResponse.json({ error: 'No organization selected' }, { status: 403 });
   }
-
-  // scope=mine - every account code THIS login actually holds, whether or not
-  // it's the aggregate org. Used by the order form's "deliver to account"
-  // picker: a customer has to be able to say which of their own branches is
-  // ordering, and both modes below deliberately return nothing for a
-  // non-aggregate org, so neither of them can serve that.
-  if (req.nextUrl.searchParams.get('scope') === 'mine') {
-    const [names, profiles] = await Promise.all([
-      getJSON<Record<string, string>>('customerNames'),
-      getJSON<Record<string, CustomerProfile>>('customerProfiles'),
-    ]);
-    const customers = access.customerCodes
-      .map((code) => {
-        const profile = profiles?.[code];
-        return { code, ...profile, name: names?.[code] ?? profile?.name ?? code };
-      })
-      .sort((a, b) => a.name.localeCompare(b.name));
-    return NextResponse.json({ customers, isAggregate: access.isAggregate, scope: 'mine' });
-  }
-
   if (!access.isAggregate) {
-    return NextResponse.json({ customers: [], isAggregate: false });
+    return NextResponse.json({ customers: [], groups: [], isAggregate: false });
   }
 
-  const level = req.nextUrl.searchParams.get('level') === 'branch' ? 'branch' : 'group';
-  const customerNames = await getJSON<Record<string, string>>('customerNames');
+  const level = req.nextUrl.searchParams.get('level');
 
-  if (level === 'branch') {
-    // Every individual branch this login can see, each with its own profile
-    // attached (price type, address, contact) so a branch pick carries the
-    // same detail a group pick does — the branch's real name takes priority
-    // over the profile name so e.g. "REECE DANDENONG" stays distinct.
-    const branchProfiles = await getJSON<Record<string, CustomerProfile>>('customerProfiles');
-    const customers = access.customerCodes
-      .map((code) => {
-        const profile = branchProfiles?.[code];
-        return { code, ...profile, name: customerNames?.[code] ?? profile?.name ?? code };
-      })
-      .sort((a, b) => a.name.localeCompare(b.name));
-    return NextResponse.json({ customers, isAggregate: true });
-  }
-
-  const [codeToGroup, customerProfiles] = await Promise.all([
-    getJSON<Record<string, string>>('codeToGroup'),
+  const [customerNames, customerProfiles, codeToGroup] = await Promise.all([
+    getJSON<Record<string, string>>('customerNames'),
     getJSON<Record<string, CustomerProfile>>('customerProfiles'),
+    getJSON<Record<string, string>>('codeToGroup'),
   ]);
 
-  if (!codeToGroup || Object.keys(codeToGroup).length === 0) {
-    return NextResponse.json({
-      customers: [],
-      isAggregate: true,
-      error: 'codeToGroup not yet populated - run the sync job on AZ-Grey',
+  const names = customerNames ?? {};
+  const profiles = customerProfiles ?? {};
+
+  // Deleted accounts can't be ordered against, so they're not selectable.
+  const liveCodes = Object.keys(names).filter((code) => !profiles[code]?.deleted);
+
+  /* ---- groups ---------------------------------------------------------- */
+
+  const membersByGroup = new Map<string, string[]>();
+  for (const [code, groupName] of Object.entries(codeToGroup ?? {})) {
+    if (!names[code] || profiles[code]?.deleted) continue;
+    if (!membersByGroup.has(groupName)) membersByGroup.set(groupName, []);
+    membersByGroup.get(groupName)!.push(code);
+  }
+
+  const groups: CustomerGroupOption[] = [];
+  for (const [groupName, codes] of membersByGroup) {
+    // Prefer an AU branch as the representative. Without this the first code
+    // Redis happens to return wins, which can be a NZ branch even when there
+    // are hundreds of AU alternatives.
+    const representative = codes.find((c) => !isNZ(profiles[c])) ?? codes[0];
+
+    // Whether a group price is meaningful at all. If members disagree on
+    // AUTO_PRICE_TYPE then pricing "as the group" is really pricing as one
+    // arbitrary branch, and the answer would be wrong for the others.
+    const priceTypes = [...new Set(codes.map((c) => profiles[c]?.priceType).filter(Boolean) as string[])].sort();
+    const consistent = priceTypes.length <= 1;
+
+    groups.push({
+      groupName: displayGroupName(groupName),
+      code: representative,
+      memberCount: codes.length,
+      priceType: consistent ? priceTypes[0] ?? null : null,
+      priceTypes,
+      priceTypeConsistent: consistent,
     });
   }
+  groups.sort((a, b) => a.groupName.localeCompare(b.groupName));
 
-  // Build one representative code per group — strongly preferring an AU
-  // branch over NZ. Without this, the first code Redis returns wins,
-  // which can be a NZ branch (e.g. Poolwerx Auckland) even when there
-  // are 297 AU alternatives.
-  const groupBestCode = new Map<string, string>();
+  /* ---- old group-only shape -------------------------------------------- */
 
-  for (const [code, groupName] of Object.entries(codeToGroup)) {
-    const profile = customerProfiles?.[code];
-    const isNZ = ['NEW ZEALAND', 'NZ'].includes(
-      (profile?.state ?? '').toUpperCase()
-    );
-
-    if (!groupBestCode.has(groupName)) {
-      // No representative yet — take anything
-      groupBestCode.set(groupName, code);
-    } else if (isNZ) {
-      // Current candidate is better (or equal) — skip NZ codes
-      continue;
-    } else {
-      // This is an AU code — prefer it over whatever we had
-      const existingCode = groupBestCode.get(groupName)!;
-      const existingIsNZ = ['NEW ZEALAND', 'NZ'].includes(
-        (customerProfiles?.[existingCode]?.state ?? '').toUpperCase()
-      );
-      if (existingIsNZ) groupBestCode.set(groupName, code);
-    }
+  if (level === 'group') {
+    const customers = groups.map((g) => ({
+      code: g.code,
+      ...profiles[g.code],
+      name: g.groupName,
+    }));
+    return NextResponse.json({ customers, groups, isAggregate: true });
   }
 
-  const customers: ({ code: string; name: string } & Partial<CustomerProfile>)[] = [];
+  /* ---- full profiles (lookup page) ------------------------------------- */
 
-  for (const [groupName, code] of groupBestCode) {
-    const profile = customerProfiles?.[code];
-    customers.push({ code, ...profile, name: displayGroupName(groupName) });
+  if (level === 'branch') {
+    const customers = liveCodes
+      .map((code) => ({ code, ...profiles[code], name: names[code] ?? profiles[code]?.name ?? code }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    return NextResponse.json({ customers, groups, isAggregate: true });
   }
 
-  customers.sort((a, b) => a.name.localeCompare(b.name));
+  /* ---- default: lean list of every account, for the picker ------------- */
 
-  return NextResponse.json({ customers, isAggregate: true });
+  // Deliberately lean. This loads in the header on every page, and the full
+  // profile for ~3,000 accounts is close to a megabyte; the picker only needs
+  // enough to list, search and price. Full detail comes from ?level=branch or
+  // is already on the selected record.
+  const customers = liveCodes
+    .map((code) => ({
+      code,
+      name: names[code] ?? profiles[code]?.name ?? code,
+      priceType: profiles[code]?.priceType ?? null,
+      suburb: profiles[code]?.suburb ?? null,
+      state: profiles[code]?.state ?? null,
+      groupName: codeToGroup?.[code] ? displayGroupName(codeToGroup[code]) : null,
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  return NextResponse.json({ customers, groups, isAggregate: true, total: customers.length });
 }
