@@ -4,7 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname } from 'next/navigation';
-import { Boxes, Receipt, Tag, BookOpen, Menu, X, Home, Sparkles, Warehouse, TrendingUp, Inbox, UserSearch, ShieldCheck, GitCompareArrows } from 'lucide-react';
+import { Boxes, Receipt, Tag, BookOpen, Menu, X, Home, Sparkles, Warehouse, TrendingUp, Inbox, UserSearch, ShieldCheck, GitCompareArrows, ShoppingCart } from 'lucide-react';
 
 const NAV_ITEMS = [
   { href: '/dashboard', label: 'Home', icon: Home },
@@ -12,10 +12,11 @@ const NAV_ITEMS = [
   { href: '/dashboard/orders', label: 'Orders', icon: Receipt },
   { href: '/dashboard/pricing', label: 'Pricing', icon: Tag },
   { href: '/dashboard/manuals', label: 'Manuals', icon: BookOpen },
-  { href: '/dashboard/support', label: 'Warranty', icon: ShieldCheck },
+ // { href: '/dashboard/support', label: 'Warranty', icon: ShieldCheck },
   ];
 
 const STAFF_ONLY_NAV_ITEMS = [
+  { href: '/dashboard/portal-orders', label: 'Portal orders', icon: ShoppingCart },
   { href: '/dashboard/au-orders-inbox', label: 'AU-orders inbox', icon: Inbox },
   { href: '/dashboard/lookup', label: 'Customers', icon: UserSearch },
   { href: '/dashboard/warehouse', label: 'Warehouse', icon: Warehouse },
