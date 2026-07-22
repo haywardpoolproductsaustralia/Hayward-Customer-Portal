@@ -1,37 +1,51 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { User, Users, ChevronDown, X, Phone, MapPin, Tag, ArrowLeft, Search } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { User, ChevronDown, X, Phone, MapPin, Tag, ArrowLeft, Search, AlertTriangle } from 'lucide-react';
 import { useSelectedCustomer, SelectedCustomer } from './SelectedCustomerContext';
 
-// Header-level "viewing pricing as" picker for the Hayward (aggregate)
-// org. Deliberately one shared control rather than a per-page picker -
-// selecting a customer here is what makes that customer's pricing apply
-// "across the board" on Products, Pricing, and anywhere else that reads
-// from the shared context, instead of having to re-pick per page.
+// Header-level "viewing pricing as" picker for the Hayward (aggregate) org.
+// Deliberately one shared control rather than a per-page picker — selecting a
+// customer here is what makes that customer's pricing apply across Products,
+// Pricing, Orders and anywhere else reading the shared context.
 //
-// Default view is one row per group (every Reece branch collapses to a
-// single "Reece"), since branches in a group share one price type. The
-// "Show all branches" toggle switches to level=branch so an agent can
-// search for and pick a specific store (e.g. Reece Dandenong) when they
-// need that exact account, not just its pricing.
+// Shows EVERY account in Arrow as an individual branch, searchable, with the
+// customer groups (Reece, Poolwerx, ...) as buttons above the list for when a
+// group-level price is what's wanted.
+//
+// On pricing accuracy: selecting a group prices as one representative branch,
+// which is only correct when every branch in that group shares an
+// AUTO_PRICE_TYPE. The API checks that per group and returns
+// priceTypeConsistent; where it's false the group button is flagged, because
+// silently pricing as an arbitrary branch would be wrong for all the others.
+
+interface PickerCustomer extends SelectedCustomer {
+  groupName?: string | null;
+}
+
+interface GroupOption {
+  groupName: string;
+  code: string;
+  memberCount: number;
+  priceType: string | null;
+  priceTypes: string[];
+  priceTypeConsistent: boolean;
+}
+
 export function CustomerPicker() {
   const { selectedCustomer, setSelectedCustomer } = useSelectedCustomer();
   const [open, setOpen] = useState(false);
-  const [customers, setCustomers] = useState<SelectedCustomer[]>([]);
+  const [customers, setCustomers] = useState<PickerCustomer[]>([]);
+  const [groups, setGroups] = useState<GroupOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [viewingDetail, setViewingDetail] = useState<SelectedCustomer | null>(null);
-  // Branch level is the default: agents are almost always after a specific
-  // store (Reece Dandenong), not the group. Untick to collapse to one row
-  // per group when you only care about which price type applies.
-  const [allBranches, setAllBranches] = useState(true);
   const [query, setQuery] = useState('');
 
   useEffect(() => {
     setLoading(true);
     setLoadError(null);
-    fetch(`/api/customers${allBranches ? '?level=branch' : ''}`)
+    fetch('/api/customers')
       .then(async (r) => {
         const data = await r.json();
         if (!r.ok) {
@@ -40,14 +54,23 @@ export function CustomerPicker() {
           return;
         }
         setCustomers(data.customers ?? []);
+        setGroups(data.groups ?? []);
       })
       .catch(() => setLoadError('Could not reach the server.'))
       .finally(() => setLoading(false));
-  }, [allBranches]);
+  }, []);
 
   function pick(customer: SelectedCustomer) {
     setSelectedCustomer(customer);
     setViewingDetail(customer);
+  }
+
+  function pickGroup(g: GroupOption) {
+    // Carries the representative branch's code — that's what every pricing
+    // call downstream resolves against — but displays the group name.
+    setSelectedCustomer({ code: g.code, name: g.groupName, priceType: g.priceType });
+    setOpen(false);
+    setViewingDetail(null);
   }
 
   function closeAndReset() {
@@ -59,11 +82,25 @@ export function CustomerPicker() {
     [c.street, c.suburb, c.city, c.state, c.postcode].filter(Boolean).join(', ');
 
   const q = query.trim().toLowerCase();
-  const filtered = q
-    ? customers.filter(
-        (c) => c.name.toLowerCase().includes(q) || c.code.toLowerCase().includes(q)
-      )
-    : customers;
+
+  // Searches name, code and suburb — an agent looking for "Berrimah" is often
+  // going off the delivery address rather than the account name, which matters
+  // more than usual here because Arrow truncates CUSTOMER_NAME at 30 chars and
+  // cuts the branch word off ("REECE IRRIGATION & POOLS CAMPB").
+  const filtered = useMemo(() => {
+    if (!q) return customers;
+    return customers.filter(
+      (c) =>
+        c.name.toLowerCase().includes(q) ||
+        c.code.toLowerCase().includes(q) ||
+        (c.suburb ?? '').toLowerCase().includes(q)
+    );
+  }, [customers, q]);
+
+  const visibleGroups = useMemo(
+    () => (q ? groups.filter((g) => g.groupName.toLowerCase().includes(q)) : groups),
+    [groups, q]
+  );
 
   return (
     <div className="relative">
@@ -81,7 +118,7 @@ export function CustomerPicker() {
       </button>
 
       {open && (
-        <div className="absolute right-0 z-30 mt-2 w-80 rounded-2xl border border-ink/10 bg-white shadow-soft overflow-hidden">
+        <div className="absolute right-0 z-30 mt-2 w-96 rounded-2xl border border-ink/10 bg-white shadow-soft overflow-hidden">
           <div className="flex items-center justify-between px-4 py-3 border-b border-ink/10">
             {viewingDetail ? (
               <button
@@ -92,12 +129,28 @@ export function CustomerPicker() {
               </button>
             ) : (
               <p className="text-sm font-semibold text-deep">
-                {allBranches ? 'All branches' : 'Customer groups'}
+                Select customer
+                {customers.length > 0 && (
+                  <span className="ml-1.5 font-normal text-ink/40">{customers.length}</span>
+                )}
               </p>
             )}
-            <button onClick={closeAndReset} className="p-1 rounded-full hover:bg-ink/5">
-              <X className="h-4 w-4 text-ink/40" />
-            </button>
+            <div className="flex items-center gap-1">
+              {selectedCustomer && !viewingDetail && (
+                <button
+                  onClick={() => {
+                    setSelectedCustomer(null);
+                    closeAndReset();
+                  }}
+                  className="text-xs text-ink/40 hover:text-coral px-1.5"
+                >
+                  Clear
+                </button>
+              )}
+              <button onClick={closeAndReset} className="p-1 rounded-full hover:bg-ink/5">
+                <X className="h-4 w-4 text-ink/40" />
+              </button>
+            </div>
           </div>
 
           {viewingDetail ? (
@@ -141,50 +194,58 @@ export function CustomerPicker() {
             </div>
           ) : (
             <>
-              <div className="px-3 pt-3 pb-2 border-b border-ink/5 space-y-2">
+              <div className="px-3 pt-3 pb-2 border-b border-ink/5">
                 <div className="relative">
                   <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-ink/30" />
                   <input
                     value={query}
                     onChange={(e) => setQuery(e.target.value)}
-                    placeholder={allBranches ? 'Search all branches…' : 'Search customers…'}
+                    placeholder="Search name, code or suburb…"
                     className="w-full rounded-lg border border-ink/10 pl-8 pr-3 py-1.5 text-sm focus:outline-none focus:border-wave/40"
                     autoFocus
                   />
                 </div>
-                <label className="flex items-center gap-1.5 text-xs text-ink/60 cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    checked={allBranches}
-                    onChange={(e) => setAllBranches(e.target.checked)}
-                  />
-                  Show all branches
-                </label>
               </div>
-              {/* Explicit "no customer selected" option — previously you could
-                  only clear from inside a customer's detail panel. */}
-              <button
-                onClick={() => {
-                  setSelectedCustomer(null);
-                  closeAndReset();
-                }}
-                className={`w-full flex items-center justify-between gap-3 px-4 py-3 text-left border-b border-ink/5 hover:bg-foam ${
-                  selectedCustomer ? '' : 'bg-wave/5'
-                }`}
-              >
-                <div className="flex items-center gap-2 min-w-0">
-                  <Users className="h-4 w-4 text-ink/30 flex-shrink-0" />
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium text-ink">All customers</p>
-                    <p className="text-xs text-ink/40">Standard list pricing — no customer applied</p>
-                  </div>
-                </div>
-                {!selectedCustomer && (
-                  <span className="text-[11px] font-semibold text-wave flex-shrink-0">Selected</span>
-                )}
-              </button>
 
-              <div className="max-h-72 overflow-y-auto">
+              {visibleGroups.length > 0 && (
+                <div className="px-3 py-2.5 border-b border-ink/5 bg-foam/40">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-ink/40 mb-1.5">
+                    Customer groups
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {visibleGroups.map((g) => (
+                      <button
+                        key={g.groupName}
+                        onClick={() => pickGroup(g)}
+                        title={
+                          g.priceTypeConsistent
+                            ? `${g.memberCount} branches, price type ${g.priceType ?? 'n/a'}`
+                            : `${g.memberCount} branches with DIFFERENT price types (${g.priceTypes.join(', ')}) — pick a branch for exact pricing`
+                        }
+                        className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors ${
+                          selectedCustomer?.name === g.groupName
+                            ? 'border-wave bg-wave/10 text-deep'
+                            : g.priceTypeConsistent
+                            ? 'border-ink/10 bg-white text-ink/70 hover:border-wave/40 hover:bg-wave/5'
+                            : 'border-amber/50 bg-amber/5 text-ink/70 hover:border-amber'
+                        }`}
+                      >
+                        {!g.priceTypeConsistent && <AlertTriangle className="h-3 w-3 text-amber" />}
+                        {g.groupName}
+                        <span className="text-ink/35">{g.memberCount}</span>
+                      </button>
+                    ))}
+                  </div>
+                  {visibleGroups.some((g) => !g.priceTypeConsistent) && (
+                    <p className="mt-1.5 text-[11px] leading-snug text-amber">
+                      Flagged groups have branches on different price types — a group price would only
+                      be right for some of them. Select the individual branch instead.
+                    </p>
+                  )}
+                </div>
+              )}
+
+              <div className="max-h-80 overflow-y-auto">
                 {loading ? (
                   <p className="px-4 py-6 text-sm text-ink/40 text-center">Loading...</p>
                 ) : loadError ? (
@@ -200,13 +261,17 @@ export function CustomerPicker() {
                     <button
                       key={c.code}
                       onClick={() => pick(c)}
-                      className={`w-full flex items-center justify-between gap-3 px-4 py-3 text-left hover:bg-foam border-b border-ink/5 last:border-0 ${
+                      className={`w-full flex items-center justify-between gap-3 px-4 py-2.5 text-left hover:bg-foam border-b border-ink/5 last:border-0 ${
                         selectedCustomer?.code === c.code ? 'bg-wave/5' : ''
                       }`}
                     >
                       <div className="min-w-0">
                         <p className="text-sm font-medium text-ink truncate">{c.name}</p>
-                        <p className="text-xs text-ink/40 font-mono">{c.code}</p>
+                        <p className="text-xs text-ink/40">
+                          <span className="font-mono">{c.code}</span>
+                          {c.suburb && <span className="ml-2">{c.suburb}</span>}
+                          {c.priceType && <span className="ml-2 text-ink/30">{c.priceType}</span>}
+                        </p>
                       </div>
                       {selectedCustomer?.code === c.code && (
                         <span className="text-[11px] font-semibold text-wave flex-shrink-0">Selected</span>
