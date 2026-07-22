@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { Search, Phone, MapPin, User, Hash, Tag, Copy, Check, Users } from 'lucide-react';
+import { matchesCustomerQuery, normalizePhone } from '@/lib/customer-search';
 
 interface Branch {
   code: string;
@@ -14,17 +15,6 @@ interface Branch {
   state?: string | null;
   postcode?: string | null;
   priceType?: string | null;
-}
-
-// Normalize AU phone numbers to a national significant number (no country
-// code, no trunk 0) so a caller-ID "+61 3 9793 1234" matches a stored
-// "03 9793 1234". All non-digits are stripped before comparing.
-function normPhone(s?: string | null): string {
-  let d = (s ?? '').replace(/\D/g, '');
-  if (d.startsWith('0061')) d = d.slice(4);
-  else if (d.startsWith('61')) d = d.slice(2);
-  else if (d.startsWith('0')) d = d.slice(1);
-  return d;
 }
 
 export default function CustomerLookupPage() {
@@ -48,16 +38,20 @@ export default function CustomerLookupPage() {
   }, []);
 
   const results = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return [];
-    const qDigits = normPhone(query);
+    if (!query.trim()) return [];
+    const qDigits = normalizePhone(query);
     const byPhone = qDigits.length >= 3;
     return branches
       .filter((b) => {
-        const hay = [b.name, b.code, b.suburb, b.city, b.state, b.postcode, b.contactName]
-          .filter(Boolean).join(' ').toLowerCase();
-        if (hay.includes(q)) return true;
-        if (byPhone && b.phone) return normPhone(b.phone).includes(qDigits);
+        // Word-by-word prefix matching, not a substring scan — Arrow truncates
+        // CUSTOMER_NAME at 30 characters, so "REECE IRRIGATION & POOLS
+        // DANDENONG" is stored as "...DANDE" and neither "reece dandenong" nor
+        // "dandenong" would ever have matched it.
+        if (matchesCustomerQuery(
+          [b.name, b.code, b.suburb, b.city, b.state, b.postcode, b.contactName, b.street],
+          query
+        )) return true;
+        if (byPhone && b.phone) return normalizePhone(b.phone).includes(qDigits);
         return false;
       })
       .slice(0, 100);
