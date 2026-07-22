@@ -16,7 +16,7 @@ const NAV_ITEMS = [
   ];
 
 const STAFF_ONLY_NAV_ITEMS = [
-  { href: '/dashboard/portal-orders', label: 'Portal orders', icon: ShoppingCart },
+  { href: '/dashboard/portal-orders', label: 'Portal orders-testing atm', icon: ShoppingCart },
   { href: '/dashboard/au-orders-inbox', label: 'AU-orders inbox', icon: Inbox },
   { href: '/dashboard/lookup', label: 'Customers', icon: UserSearch },
   { href: '/dashboard/warehouse', label: 'Warehouse', icon: Warehouse },
