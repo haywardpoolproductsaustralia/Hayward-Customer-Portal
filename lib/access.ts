@@ -112,13 +112,27 @@ export async function getCustomerAccess(): Promise<CustomerAccess | null> {
 }
 
 
-// Groups whose Arrow master AUTO_PRICE_TYPE is unreliable, mapped to the price
-// type verified 118/118 against Arrow pro-forma quotes. Poolwerx franchise
-// accounts carry ZCLOSE/AK in the master but Arrow bills them D5 (verified on
-// Bathurst 200033, Secret Harbour 900228, Taren Point 200144). Add groups here
-// only after confirming the tier against an Arrow quote.
-const GROUP_PRICE_TYPE_OVERRIDE: Record<string, string> = {
-  Poolwerx: 'D5',
+// Groups whose Arrow master AUTO_PRICE_TYPE is unreliable or inconsistent
+// across branches, mapped to the one tier the whole group is priced at.
+//
+// Exported because /api/customers needs the same map to decide whether a
+// group's pricing is settled. Without it the picker reads raw AUTO_PRICE_TYPE,
+// sees branches disagreeing, and flags a group whose price is in fact fixed.
+export const GROUP_PRICE_TYPE_OVERRIDE: Record<string, string> = {
+  // Set 22 Jul 2026. Supersedes an earlier D5 override that cited Arrow
+  // pro-formas; neither D5 nor AK reproduced Poolwerx's actual billed prices
+  // (both compute roughly half what Arrow charged), so that question was
+  // closed on business direction rather than on the billing data. If Poolwerx
+  // pricing is ever queried, the open item is which STKMAST price column the
+  // discount applies to — see sql/verify-poolwerx-pricetype.sql.
+  Poolwerx: 'AK',
+
+  Reece: 'RE',
+  PoolSpaWarehouse: 'A5',
+
+  // Master is D5 on 714005 and ZC/blank on 700957 and 718223. ZC is a closed
+  // placeholder, never a real tier, so D5 is the whole group's price.
+  Legend: 'D5',
 };
 
 // A price type is only usable if it exists and isn't a closed/placeholder "Z..."
