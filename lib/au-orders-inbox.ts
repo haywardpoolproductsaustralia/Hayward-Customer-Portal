@@ -48,6 +48,11 @@ export interface IntakeData {
   notes: string | null;
   extractionConfidence: "high" | "low";
   duplicateOf: string | null;
+  /** Runner-up customer matches, best first. Shown when the debtor is
+   *  unresolved or low-confidence so an agent can see the real options
+   *  instead of trusting a single wrong guess. Optional — older records
+   *  predate it. */
+  debtorCandidates?: { code: string; name: string; score: number }[];
 }
 
 export interface IntakeRecord extends IntakeData {
