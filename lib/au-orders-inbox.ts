@@ -52,7 +52,7 @@ export interface IntakeData {
    *  unresolved or low-confidence so an agent can see the real options
    *  instead of trusting a single wrong guess. Optional — older records
    *  predate it. */
-  debtorCandidates?: { code: string; name: string; score: number }[];
+  debtorCandidates?: { code: string; name: string; score: number; why?: string }[];
 }
 
 export interface IntakeRecord extends IntakeData {
