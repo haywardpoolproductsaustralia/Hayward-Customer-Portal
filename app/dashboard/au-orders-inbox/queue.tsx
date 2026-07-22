@@ -44,6 +44,7 @@ export default function OrderInboxQueue({ meId, meName }: { meId: string; meName
   const [showKeyed, setShowKeyed] = useState(false);
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   const [toast, setToast] = useState<Toast>(null);
+  const [queue, setQueue] = useState<{ pending: number; failed: number; failedTail?: string[] } | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
   const [view, setView] = useState<"cards" | "quick">("cards");
   // Cards are collapsed by default; an entry here means the user opened that one.
@@ -63,6 +64,7 @@ export default function OrderInboxQueue({ meId, meName }: { meId: string; meName
       if (!res.ok) throw new Error("Couldn't load the queue. Refresh to try again.");
       const data = await res.json();
       setOrders(data.orders);
+      setQueue(data.queue ?? null);
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong loading the queue.");
@@ -212,6 +214,21 @@ export default function OrderInboxQueue({ meId, meName }: { meId: string; meName
           </button>
         </div>
       </header>
+
+      {queue && (queue.pending > 0 || queue.failed > 0) && (
+        <div className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          <span className="font-medium">Emails not on this list:</span>{" "}
+          {queue.pending > 0 && <>{queue.pending} still waiting to be read</>}
+          {queue.pending > 0 && queue.failed > 0 && " · "}
+          {queue.failed > 0 && <>{queue.failed} failed extraction</>}
+          .{" "}
+          {queue.failed > 0 && (
+            <span className="text-amber-800">
+              Failed ones never became orders — they need to be keyed from the mailbox directly.
+            </span>
+          )}
+        </div>
+      )}
 
       <div className="mb-4 rounded-lg border border-slate-200 bg-slate-50/70 p-3">
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
@@ -396,6 +413,22 @@ function OrderRow({
             {order.deliverBy && <span><span className="text-slate-400">Deliver by:</span> {order.deliverBy}</span>}
             {order.contact && <span><span className="text-slate-400">Contact:</span> {order.contact}</span>}
           </div>
+
+          {(order.debtorCandidates ?? []).length > 0 && (
+            <div className="mb-3 rounded-md bg-amber-50 px-2 py-1.5 text-xs text-amber-900">
+              <span className="font-medium">
+                {order.debtorCode ? "Debtor not certain — closest accounts:" : "No confident debtor match — closest accounts:"}
+              </span>
+              <span className="ml-1 inline-flex flex-wrap gap-1.5 align-middle">
+                {(order.debtorCandidates ?? []).map((c) => (
+                  <span key={c.code} className="inline-flex items-center gap-1 rounded border border-amber-300 bg-white px-1.5 py-0.5 font-mono">
+                    {c.code} <span className="font-sans text-slate-600">{c.name}</span>
+                    <CopyBtn value={c.code} k={`${order.id}-cand-${c.code}`} copiedKey={copiedKey} onCopy={onCopy} />
+                  </span>
+                ))}
+              </span>
+            </div>
+          )}
           {order.deliverTo && <p className="mb-3 text-sm text-slate-600"><span className="text-slate-400">To:</span> {order.deliverTo}</p>}
 
           {order.seenInArrow && (
