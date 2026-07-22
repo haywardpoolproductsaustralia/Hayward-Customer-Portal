@@ -76,6 +76,27 @@ interface AddressProfile {
   suburb?: string | null;
   city?: string | null;
   postcode?: string | null;
+  phone?: string | null;
+  /** DRSMAST.DELETE_CUSTOMER. Deleted accounts are kept in the cache so it
+   *  mirrors Arrow, but they can't be ordered against, so they're skipped. */
+  deleted?: boolean;
+  /** From Arrow DELMAST. A chain can order under one debtor code but ship to
+   *  many branches, so the delivery block on an incoming PO often matches one
+   *  of these rather than the account's own registered address. */
+  deliveryAddresses?: { address?: string | null; phone?: string | null }[] | null;
+}
+
+/** Last 8 digits of every phone-shaped number in a blob of text. Branch POs
+ *  print the ordering branch's own phone, which is the single most decisive
+ *  identifier available — far better than any name comparison. */
+function phoneKeys(s: string | null): Set<string> {
+  const out = new Set<string>();
+  if (!s) return out;
+  for (const m of s.matchAll(/[\d][\d\s()+-]{7,}/g)) {
+    const d = m[0].replace(/\D/g, "");
+    if (d.length >= 8) out.add(d.slice(-8));
+  }
+  return out;
 }
 
 /**
@@ -97,6 +118,40 @@ interface AddressProfile {
  * customer's own suburb/postcode to separate branches of a chain, and a floor
  * below which it reports nothing rather than something wrong.
  */
+/**
+ * Weight of the tokens a probe and a candidate name share.
+ *
+ * Arrow's CUSTOMER_NAME is char(30) and it truncates. "REECE IRRIGATION &
+ * POOLS CAMPBELLTOWN" is stored as "REECE IRRIGATION & POOLS CAMPB", so the
+ * one token that identifies the branch survives only as a stub. Exact token
+ * comparison can never match CAMPBELLTOWN to CAMPB, which would leave every
+ * long branch name unmatchable no matter how complete the customer file is.
+ *
+ * So: exact match first, then — only for the final token of a name that is
+ * sitting at the 30-character cap — allow that token to match a probe token it
+ * is a prefix of. Restricting it to the last token of a capped name is what
+ * keeps this from turning into loose prefix matching everywhere.
+ */
+function sharedWeight(
+  probeToks: string[],
+  nameToks: string[],
+  nameIsTruncated: boolean,
+  idf: (t: string) => number
+): number {
+  const nameSet = new Set(nameToks);
+  const stub = nameIsTruncated ? nameToks[nameToks.length - 1] : null;
+  let total = 0;
+  for (const p of probeToks) {
+    if (nameSet.has(p)) { total += idf(p); continue; }
+    if (stub && stub.length >= 4 && p.length > stub.length && p.startsWith(stub)) {
+      // Credit the stub's own weight — a rare stub like CAMPB is worth a lot,
+      // a common one is not.
+      total += idf(stub);
+    }
+  }
+  return total;
+}
+
 function resolveCustomer(
   companyGuess: string | null,
   fromName: string | null,
@@ -127,24 +182,29 @@ function resolveCustomer(
 
   const deliverSet = new Set(nameTokens(deliverTo ?? ""));
   const deliverNorm = norm(deliverTo ?? "");
+  const wantedPhones = phoneKeys(deliverTo);
 
   const scored: { code: string; name: string; score: number }[] = [];
 
   for (const [code, name] of entries) {
+    // Deleted accounts stay in the cache (it mirrors DRSMAST) but nothing can
+    // be keyed against them, so they must never win a match.
+    if (customerProfiles[code]?.deleted) continue;
+
     const nameToks = [...new Set(nameTokens(name))];
     if (nameToks.length === 0) continue;
     const nameWeight = nameToks.reduce((s, t) => s + idf(t), 0);
+    // char(30) is Arrow's cap on CUSTOMER_NAME; a name at the cap is cut.
+    const truncatedName = name.trim().length >= 30;
 
     let textScore = 0;
     for (const p of probes) {
       const pToks = [...new Set(nameTokens(p.text))];
       if (pToks.length === 0) continue;
       const probeWeight = pToks.reduce((s, t) => s + idf(t), 0);
-      const sharedWeight = pToks
-        .filter((t) => nameToks.includes(t))
-        .reduce((s, t) => s + idf(t), 0);
-      if (sharedWeight === 0) continue;
-      const jaccard = sharedWeight / (probeWeight + nameWeight - sharedWeight);
+      const shared = sharedWeight(pToks, nameToks, truncatedName, idf);
+      if (shared === 0) continue;
+      const jaccard = shared / (probeWeight + nameWeight - shared);
       textScore = Math.max(textScore, jaccard * p.weight);
     }
 
@@ -153,13 +213,55 @@ function resolveCustomer(
     // Reece Berrimah from Reece Villawood.
     const prof = customerProfiles[code];
     let bonus = 0;
+    let corroborated = false;
     if (prof) {
+      // Whole-phrase match, not any-word. Matching a single word lets generic
+      // parts of a locality collide: "Frankston South" would otherwise match
+      // "South Penrith" on SOUTH and hand the order to the wrong state.
       const suburb = norm(prof.suburb ?? prof.city ?? "");
-      if (suburb && suburb.split(" ").some((w) => w.length > 2 && deliverSet.has(w))) bonus += 0.3;
-      if (prof.postcode && deliverNorm.includes(String(prof.postcode))) bonus += 0.2;
+      if (suburb.length >= 4 && deliverNorm.includes(suburb)) { bonus += 0.3; corroborated = true; }
+      if (prof.postcode && deliverNorm.includes(String(prof.postcode))) { bonus += 0.2; corroborated = true; }
+
+      // Delivery addresses on file (DELMAST) count the same way — this is what
+      // catches a branch that ships to its own site under a parent account.
+      // Two shared words or a postcode; one word is too easy to hit by chance.
+      if (!corroborated) {
+        for (const da of prof.deliveryAddresses ?? []) {
+          const daNorm = norm(da.address ?? "");
+          if (!daNorm) continue;
+          const shared = [...new Set(daNorm.split(" "))].filter((w) => w.length > 3 && deliverSet.has(w));
+          const pc = daNorm.match(/\b\d{4}\b/g) ?? [];
+          if (pc.some((p) => deliverNorm.includes(p))) { bonus += 0.3; corroborated = true; }
+          else if (shared.length >= 2) { bonus += 0.25; corroborated = true; }
+          if (corroborated) break;
+        }
+      }
+
+      // A phone hit is all but conclusive — a branch's own number identifies it
+      // outright, whatever the name on the letterhead says.
+      if (wantedPhones.size) {
+        const numbers = [prof.phone, ...(prof.deliveryAddresses ?? []).map((d) => d.phone)];
+        outer: for (const n of numbers) {
+          for (const k of phoneKeys(n ?? null)) {
+            if (wantedPhones.has(k)) { bonus += 0.55; corroborated = true; break outer; }
+          }
+        }
+      }
     }
 
-    const score = Math.min(1, textScore + bonus);
+    let score = Math.min(1, textScore + bonus);
+
+    // The email gave us a postcode or a phone number, this account has those on
+    // file, and none of them agree. That is evidence AGAINST the match, not
+    // merely absent evidence — usually it means the real branch account isn't
+    // in Redis at all and we're about to settle for a sibling branch.
+    const profileHasLocation = !!(
+      prof &&
+      (prof.postcode || prof.suburb || prof.city || prof.phone || (prof.deliveryAddresses ?? []).length)
+    );
+    const emailHasLocation = wantedPhones.size > 0 || /\b\d{4}\b/.test(deliverNorm);
+    if (emailHasLocation && profileHasLocation && !corroborated) score *= 0.55;
+
     if (score > 0) scored.push({ code, name, score });
   }
 
@@ -412,7 +514,9 @@ export async function processRawIntake(body: IngestBody): Promise<IntakeResult> 
     extracted.companyGuess ?? null,
     body.fromName ?? null,
     body.fromEmail,
-    [extracted.deliverTo, extracted.branchRef, body.subject].filter(Boolean).join(" ") || null,
+    [extracted.deliverTo, extracted.branchRef, extracted.contact, body.subject]
+      .filter(Boolean)
+      .join(" ") || null,
     customerNames ?? {},
     customerProfiles ?? {}
   );
