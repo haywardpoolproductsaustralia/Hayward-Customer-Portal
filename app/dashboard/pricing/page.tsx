@@ -1,7 +1,18 @@
 'use client';
 
-import { Fragment, useEffect, useRef, useState } from 'react';
-import { Trash2, Loader2, Printer, FileText, TrendingUp } from 'lucide-react';
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
+import {
+  Trash2,
+  Loader2,
+  Printer,
+  FileText,
+  TrendingUp,
+  ShoppingCart,
+  CheckCircle2,
+  AlertTriangle,
+  History,
+  X,
+} from 'lucide-react';
 import { ProductCombobox } from '@/components/ProductCombobox';
 import { useSelectedCustomer } from '@/components/SelectedCustomerContext';
 
@@ -27,9 +38,52 @@ interface QuoteLine {
   error: string | null;
 }
 
+/** One of the Arrow accounts this login is allowed to order against. */
+interface AccountOption {
+  code: string;
+  name: string;
+  street?: string | null;
+  suburb?: string | null;
+  city?: string | null;
+  state?: string | null;
+  postcode?: string | null;
+}
+
+/** A previously submitted portal order, as shown back to the customer. */
+interface MyOrder {
+  id: string;
+  ref: string;
+  poRef: string;
+  debtorName: string | null;
+  submittedAt: number;
+  lineCount: number;
+  subTotal: number | null;
+  statusLabel: string;
+  statusDetail: string | null;
+}
+
 function formatMoney(value: number | null) {
   if (value == null) return '-';
   return new Intl.NumberFormat('en-AU', { style: 'currency', currency: 'AUD' }).format(value);
+}
+
+function formatDate(ms: number) {
+  return new Date(ms).toLocaleString('en-AU', {
+    timeZone: 'Australia/Melbourne',
+    day: '2-digit',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+/** One-line postal address from a customer profile, for prefilling delivery. */
+function profileAddress(a: AccountOption | undefined): string {
+  if (!a) return '';
+  return [a.street, a.suburb, a.city, a.state, a.postcode]
+    .map((p) => (p ?? '').trim())
+    .filter(Boolean)
+    .join(', ');
 }
 
 // Arrow's SPRTRAN thresholds are UPPER bounds:
@@ -87,6 +141,25 @@ export default function PricingPage() {
   const [lines, setLines] = useState<QuoteLine[]>([]);
   const { selectedCustomer } = useSelectedCustomer();
 
+  // --- order submission state ---------------------------------------------
+  const [orderOpen, setOrderOpen] = useState(false);
+  const [accounts, setAccounts] = useState<AccountOption[]>([]);
+  const [accountFilter, setAccountFilter] = useState('');
+  const [debtorCode, setDebtorCode] = useState('');
+  const [poRef, setPoRef] = useState('');
+  const [requiredBy, setRequiredBy] = useState('');
+  const [deliverTo, setDeliverTo] = useState('');
+  const [contact, setContact] = useState('');
+  const [phone, setPhone] = useState('');
+  const [notes, setNotes] = useState('');
+  const [agreed, setAgreed] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [duplicate, setDuplicate] = useState<string | null>(null);
+  const [submitted, setSubmitted] = useState<{ ref: string; lineCount: number; subTotal: number } | null>(null);
+  const [myOrders, setMyOrders] = useState<MyOrder[]>([]);
+  const [historyOpen, setHistoryOpen] = useState(false);
+
   // Always-current view of `lines` so the re-price effect below reads the
   // latest list (incl. a just-added line) rather than a render-time snapshot.
   const linesRef = useRef<QuoteLine[]>([]);
@@ -108,6 +181,56 @@ export default function PricingPage() {
       cancelled = true;
     };
   }, []);
+
+  // The accounts this login may raise an order against. This is the same list
+  // the submit endpoint validates against, so anything offered here is
+  // guaranteed to be accepted.
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/customers?scope=mine')
+      .then((r) => r.json())
+      .then((data) => {
+        if (cancelled) return;
+        const list: AccountOption[] = data.customers ?? [];
+        setAccounts(list);
+        // One account means there's nothing to choose - don't make them choose.
+        if (list.length === 1) setDebtorCode(list[0].code);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const loadMyOrders = useCallback(async () => {
+    try {
+      const res = await fetch('/api/my-orders', { cache: 'no-store' });
+      if (!res.ok) return;
+      const data = await res.json();
+      setMyOrders(data.orders ?? []);
+    } catch {
+      /* the receipt list is a nicety - never block ordering on it */
+    }
+  }, []);
+
+  useEffect(() => {
+    loadMyOrders();
+  }, [loadMyOrders]);
+
+  // Staff viewing a specific customer: default the order to that account.
+  useEffect(() => {
+    if (selectedCustomer?.code) setDebtorCode(selectedCustomer.code);
+  }, [selectedCustomer?.code]);
+
+  // Prefill the delivery address from the chosen account, but only while the
+  // customer hasn't typed their own - silently overwriting a hand-typed site
+  // address when they switch account would be worse than leaving it blank.
+  const deliverToTouched = useRef(false);
+  useEffect(() => {
+    if (deliverToTouched.current) return;
+    const addr = profileAddress(accounts.find((a) => a.code === debtorCode));
+    if (addr) setDeliverTo(addr);
+  }, [debtorCode, accounts]);
 
   // Re-price every line already on the quote whenever the selected
   // customer changes (picked from the header, not a page-local control) -
@@ -165,6 +288,7 @@ export default function PricingPage() {
       loading: true,
       error: null,
     };
+    setSubmitted(null);
     setLines((prev) => [...prev, newLine]);
     await refetchLine(item.sku, newLine.name);
   }
@@ -184,22 +308,159 @@ export default function PricingPage() {
 
   const addedSkus = new Set<string>(lines.map((l) => l.sku));
 
+  // A line that never priced can't be ordered - that would be sending Hayward
+  // an order line with no agreed price on it.
+  const unpricedLines = lines.filter((l) => l.error || resolvePrice(l.tiers, l.qty) == null);
+  const canSubmit =
+    lines.length > 0 &&
+    unpricedLines.length === 0 &&
+    !lines.some((l) => l.loading) &&
+    debtorCode !== '' &&
+    poRef.trim() !== '' &&
+    agreed &&
+    !submitting;
+
+  const filteredAccounts = accountFilter.trim()
+    ? accounts.filter((a) =>
+        `${a.code} ${a.name}`.toLowerCase().includes(accountFilter.trim().toLowerCase())
+      )
+    : accounts;
+
+  async function submitOrder(confirmDuplicate = false) {
+    setSubmitting(true);
+    setSubmitError(null);
+    setDuplicate(null);
+    try {
+      const res = await fetch('/api/orders/submit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          debtorCode,
+          poRef: poRef.trim(),
+          requiredBy: requiredBy || null,
+          deliverTo: deliverTo.trim() || null,
+          contact: contact.trim() || null,
+          phone: phone.trim() || null,
+          notes: notes.trim() || null,
+          confirmDuplicate,
+          // The server reprices every line; this is only what we displayed, so
+          // an agent can see it if the two ever disagree.
+          lines: lines.map((l) => ({ sku: l.sku, qty: l.qty, unitPrice: resolvePrice(l.tiers, l.qty) })),
+        }),
+      });
+      const data = await res.json();
+
+      if (res.status === 409 && data.error === 'duplicate') {
+        setDuplicate(data.message ?? 'This PO has already been submitted for this account.');
+        return;
+      }
+      if (!res.ok) {
+        setSubmitError(data.error ?? 'We could not submit this order. Please try again.');
+        return;
+      }
+
+      setSubmitted({ ref: data.ref, lineCount: data.lineCount, subTotal: data.subTotal });
+      setLines([]);
+      setOrderOpen(false);
+      setPoRef('');
+      setRequiredBy('');
+      setNotes('');
+      setAgreed(false);
+      loadMyOrders();
+    } catch {
+      setSubmitError('We could not reach the server. Your order has not been submitted.');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-end justify-between flex-wrap gap-3">
         <div>
           <h1 className="font-display text-3xl text-deep font-bold">Quote builder</h1>
-          <p className="text-ink/50 mt-1">Add products, set quantities, get your discounted price per line.</p>
+          <p className="text-ink/50 mt-1">
+            Add products, set quantities, get your discounted price per line - then send it to us as an order.
+          </p>
         </div>
-        {lines.length > 0 && (
-          <button
-            onClick={() => window.print()}
-            className="rounded-xl border border-ink/10 bg-white px-4 py-2.5 text-sm font-medium shadow-soft hover:border-wave/30 flex items-center gap-2"
-          >
-            <Printer className="h-4 w-4" /> Print quote
-          </button>
-        )}
+        <div className="flex items-center gap-2 print:hidden">
+          {myOrders.length > 0 && (
+            <button
+              onClick={() => setHistoryOpen((v) => !v)}
+              className="rounded-xl border border-ink/10 bg-white px-4 py-2.5 text-sm font-medium shadow-soft hover:border-wave/30 flex items-center gap-2"
+            >
+              <History className="h-4 w-4" /> My orders
+            </button>
+          )}
+          {lines.length > 0 && (
+            <button
+              onClick={() => window.print()}
+              className="rounded-xl border border-ink/10 bg-white px-4 py-2.5 text-sm font-medium shadow-soft hover:border-wave/30 flex items-center gap-2"
+            >
+              <Printer className="h-4 w-4" /> Print quote
+            </button>
+          )}
+          {lines.length > 0 && !orderOpen && (
+            <button
+              onClick={() => {
+                setOrderOpen(true);
+                setSubmitted(null);
+              }}
+              className="rounded-xl bg-wave text-white px-4 py-2.5 text-sm font-semibold shadow-soft hover:bg-deep flex items-center gap-2"
+            >
+              <ShoppingCart className="h-4 w-4" /> Convert to order
+            </button>
+          )}
+        </div>
       </div>
+
+      {submitted && (
+        <div className="rounded-2xl bg-splash/5 border border-splash/30 px-5 py-4 flex items-start gap-3 print:hidden">
+          <CheckCircle2 className="h-5 w-5 text-splash flex-shrink-0 mt-0.5" />
+          <div className="text-sm">
+            <p className="font-semibold text-deep">Order received - your reference is {submitted.ref}</p>
+            <p className="text-ink/60 mt-1">
+              {submitted.lineCount} line{submitted.lineCount === 1 ? '' : 's'}, {formatMoney(submitted.subTotal)} ex
+              GST. Our customer service team will enter it and confirm. Prices and availability are confirmed on
+              our order acknowledgement, not here.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {historyOpen && myOrders.length > 0 && (
+        <div className="overflow-x-auto rounded-2xl border border-ink/10 bg-white shadow-soft print:hidden">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-ink/10 text-left text-ink/40">
+                <th className="px-5 py-3.5 font-medium">Reference</th>
+                <th className="px-5 py-3.5 font-medium">Your PO</th>
+                <th className="px-5 py-3.5 font-medium">Account</th>
+                <th className="px-5 py-3.5 font-medium">Submitted</th>
+                <th className="px-5 py-3.5 font-medium text-right">Total</th>
+                <th className="px-5 py-3.5 font-medium">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {myOrders.map((o) => (
+                <tr key={o.id} className="border-b border-ink/5 last:border-0">
+                  <td className="px-5 py-3 font-mono text-xs text-deep font-semibold">{o.ref}</td>
+                  <td className="px-5 py-3">{o.poRef}</td>
+                  <td className="px-5 py-3 text-ink/60">{o.debtorName ?? '-'}</td>
+                  <td className="px-5 py-3 text-ink/60">{formatDate(o.submittedAt)}</td>
+                  <td className="px-5 py-3 text-right">{formatMoney(o.subTotal)}</td>
+                  <td className="px-5 py-3">
+                    <span className="rounded-full bg-foam text-deep px-2.5 py-1 text-xs font-medium">
+                      {o.statusLabel}
+                    </span>
+                    {o.statusDetail && <span className="text-xs text-ink/40 ml-2">{o.statusDetail}</span>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {selectedCustomer && (
         <div className="rounded-xl bg-wave/5 border border-wave/20 px-4 py-2.5 text-sm text-deep">
@@ -353,6 +614,212 @@ export default function PricingPage() {
               </tr>
             </tfoot>
           </table>
+        </div>
+      )}
+
+      {/* ---------------- Convert to order ---------------- */}
+      {orderOpen && lines.length > 0 && (
+        <div className="rounded-2xl border border-wave/30 bg-white shadow-soft print:hidden">
+          <div className="flex items-center justify-between px-5 py-4 border-b border-ink/10">
+            <h2 className="font-display text-xl text-deep font-bold">Send this to Hayward as an order</h2>
+            <button onClick={() => setOrderOpen(false)} className="p-1.5 rounded-full hover:bg-ink/5">
+              <X className="h-4 w-4 text-ink/40" />
+            </button>
+          </div>
+
+          <div className="px-5 py-5 space-y-4">
+            {unpricedLines.length > 0 && (
+              <div className="rounded-xl bg-amber/10 border border-amber/30 px-4 py-3 text-sm text-ink/70 flex items-start gap-2">
+                <AlertTriangle className="h-4 w-4 text-amber flex-shrink-0 mt-0.5" />
+                <span>
+                  {unpricedLines.map((l) => l.sku).join(', ')} {unpricedLines.length === 1 ? 'has' : 'have'} no
+                  price yet, so this order can&apos;t be sent. Remove {unpricedLines.length === 1 ? 'it' : 'them'}{' '}
+                  and ask us to quote separately.
+                </span>
+              </div>
+            )}
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="sm:col-span-2">
+                <label className="block text-xs font-medium text-ink/40 mb-1.5 ml-1">
+                  Deliver to account <span className="text-coral">*</span>
+                </label>
+                {accounts.length > 12 && (
+                  <input
+                    value={accountFilter}
+                    onChange={(e) => setAccountFilter(e.target.value)}
+                    placeholder="Filter accounts by name or code"
+                    className="w-full mb-2 rounded-lg border border-ink/10 px-3 py-2 text-sm focus:border-wave outline-none"
+                  />
+                )}
+                <select
+                  value={debtorCode}
+                  onChange={(e) => setDebtorCode(e.target.value)}
+                  className="w-full rounded-lg border border-ink/10 px-3 py-2 text-sm focus:border-wave outline-none bg-white"
+                >
+                  <option value="">Select an account…</option>
+                  {filteredAccounts.slice(0, 300).map((a) => (
+                    <option key={a.code} value={a.code}>
+                      {a.name} ({a.code})
+                    </option>
+                  ))}
+                </select>
+                {accounts.length === 0 && (
+                  <p className="text-xs text-amber mt-1.5">
+                    No accounts are linked to this login yet - please contact Hayward before ordering.
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-ink/40 mb-1.5 ml-1">
+                  Your purchase order number <span className="text-coral">*</span>
+                  <span className="ml-1 font-normal text-ink/30">(max 15 characters)</span>
+                </label>
+                <input
+                  value={poRef}
+                  onChange={(e) => setPoRef(e.target.value)}
+                  maxLength={15}
+                  placeholder="e.g. PO-45219"
+                  className="w-full rounded-lg border border-ink/10 px-3 py-2 text-sm focus:border-wave outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-ink/40 mb-1.5 ml-1">Required by (optional)</label>
+                <input
+                  type="date"
+                  value={requiredBy}
+                  onChange={(e) => setRequiredBy(e.target.value)}
+                  className="w-full rounded-lg border border-ink/10 px-3 py-2 text-sm focus:border-wave outline-none"
+                />
+              </div>
+
+              <div className="sm:col-span-2">
+                <label className="block text-xs font-medium text-ink/40 mb-1.5 ml-1">Delivery address</label>
+                <textarea
+                  value={deliverTo}
+                  onChange={(e) => {
+                    deliverToTouched.current = true;
+                    setDeliverTo(e.target.value);
+                  }}
+                  rows={2}
+                  maxLength={120}
+                  className="w-full rounded-lg border border-ink/10 px-3 py-2 text-sm focus:border-wave outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-ink/40 mb-1.5 ml-1">Site contact (optional)</label>
+                <input
+                  value={contact}
+                  onChange={(e) => setContact(e.target.value)}
+                  maxLength={30}
+                  placeholder="Contact name"
+                  className="w-full rounded-lg border border-ink/10 px-3 py-2 text-sm focus:border-wave outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-ink/40 mb-1.5 ml-1">Contact phone (optional)</label>
+                <input
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  maxLength={30}
+                  placeholder="Phone number"
+                  className="w-full rounded-lg border border-ink/10 px-3 py-2 text-sm focus:border-wave outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-ink/40 mb-1.5 ml-1">
+                  Notes (optional) <span className="font-normal text-ink/30">(max 150 characters)</span>
+                </label>
+                <input
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  maxLength={150}
+                  placeholder="Anything we should know"
+                  className="w-full rounded-lg border border-ink/10 px-3 py-2 text-sm focus:border-wave outline-none"
+                />
+              </div>
+            </div>
+
+            <div className="rounded-xl bg-foam px-4 py-3 flex items-center justify-between text-sm">
+              <span className="text-ink/60">
+                {lines.length} line{lines.length === 1 ? '' : 's'}
+              </span>
+              <span className="font-display text-lg text-deep font-bold">
+                {formatMoney(grandTotal)}{' '}
+                <span className="text-xs font-body font-normal text-ink/40">ex GST</span>
+              </span>
+            </div>
+
+            <label className="flex items-start gap-2.5 text-sm text-ink/60">
+              <input
+                type="checkbox"
+                checked={agreed}
+                onChange={(e) => setAgreed(e.target.checked)}
+                className="mt-0.5 h-4 w-4 rounded border-ink/20"
+              />
+              <span>
+                I&apos;m authorised to place this order for the selected account. I understand prices and
+                availability shown here are indicative and are confirmed on Hayward&apos;s order acknowledgement.
+              </span>
+            </label>
+
+            {submitError && (
+              <div className="rounded-xl bg-coral/10 border border-coral/30 px-4 py-3 text-sm text-ink/70 flex items-start gap-2">
+                <AlertTriangle className="h-4 w-4 text-coral flex-shrink-0 mt-0.5" />
+                <span>{submitError}</span>
+              </div>
+            )}
+
+            {duplicate && (
+              <div className="rounded-xl bg-amber/10 border border-amber/30 px-4 py-3 text-sm text-ink/70 flex items-start gap-2">
+                <AlertTriangle className="h-4 w-4 text-amber flex-shrink-0 mt-0.5" />
+                <div>
+                  <p>{duplicate}</p>
+                  <p className="mt-1 text-ink/50">
+                    If this is a genuinely separate order, use a different PO number. Only send it anyway if
+                    you&apos;re sure.
+                  </p>
+                  <div className="mt-2.5 flex gap-2">
+                    <button
+                      onClick={() => submitOrder(true)}
+                      disabled={submitting}
+                      className="rounded-lg bg-amber text-white px-3 py-1.5 text-xs font-semibold disabled:opacity-50"
+                    >
+                      Send anyway
+                    </button>
+                    <button
+                      onClick={() => setDuplicate(null)}
+                      className="rounded-lg border border-ink/10 bg-white px-3 py-1.5 text-xs font-medium"
+                    >
+                      Let me change the PO
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <button
+                onClick={() => setOrderOpen(false)}
+                className="rounded-xl border border-ink/10 bg-white px-4 py-2.5 text-sm font-medium"
+              >
+                Keep editing
+              </button>
+              <button
+                onClick={() => submitOrder(false)}
+                disabled={!canSubmit}
+                className="rounded-xl bg-wave text-white px-5 py-2.5 text-sm font-semibold shadow-soft hover:bg-deep disabled:opacity-40 disabled:hover:bg-wave flex items-center gap-2"
+              >
+                {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShoppingCart className="h-4 w-4" />}
+                Submit order
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
