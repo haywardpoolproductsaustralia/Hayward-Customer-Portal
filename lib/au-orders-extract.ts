@@ -43,33 +43,147 @@ const norm = (s: string) => s.toUpperCase().replace(/[^A-Z0-9 ]+/g, " ").replace
 // Resolution against the portal's own data
 // ---------------------------------------------------------------------------
 
+// Words that appear in half the customer file and carry no identifying signal.
+// Legal suffixes and trading-name filler only — trade words like POOL are left
+// to the IDF weighting below, which discounts them automatically.
+const STOP_WORDS = new Set([
+  "PTY", "LTD", "PTYLTD", "THE", "AND", "ATF", "TRUST", "AUSTRALIA", "AUST",
+  "GROUP", "INC", "COMPANY", "TRADING", "SERVICES", "AUSTRALIAN",
+]);
+
+function nameTokens(s: string): string[] {
+  return norm(s)
+    .split(" ")
+    .filter((w) => w.length > 2 && !STOP_WORDS.has(w) && !/^\d+$/.test(w));
+}
+
+/**
+ * Inverse document frequency over the customer file itself. A token in many
+ * customer names (POOL, POOLS, REECE, SPA, WAREHOUSE) is worth little; a rare
+ * one (BERRIMAH, ROCKINGHAM, VILLAWOOD) is worth a lot. Derived from the data,
+ * so it stays correct as the customer file changes — no hand-kept word list.
+ */
+function buildIdf(customerNames: Record<string, string>): (t: string) => number {
+  const df = new Map<string, number>();
+  const total = Object.keys(customerNames).length || 1;
+  for (const name of Object.values(customerNames)) {
+    for (const t of new Set(nameTokens(name))) df.set(t, (df.get(t) ?? 0) + 1);
+  }
+  return (t: string) => Math.log((total + 1) / ((df.get(t) ?? 0) + 1)) + 0.1;
+}
+
+interface AddressProfile {
+  suburb?: string | null;
+  city?: string | null;
+  postcode?: string | null;
+}
+
+/**
+ * Resolve the email to a customer account.
+ *
+ * Replaces the previous `hits / Math.max(probeWords, nameWords)` scoring, which
+ * had two failure modes that between them mislabelled most branch orders:
+ *
+ *   1. A one-word probe (the mail domain, e.g. "REECE") scored highest against
+ *      the SHORTEST candidate name — "REECE" vs "REECE VILLAWOOD" = 0.50, which
+ *      beat the correct branch on every Reece email regardless of content.
+ *   2. Legal filler counted as signal — "Pool and Spa Manufacturing Australia
+ *      Pty Ltd" matched "POOL RANGER PTY LTD" on POOL/PTY/LTD at 0.43 and was
+ *      written in as debtor 203400.
+ *
+ * Now: IDF-weighted symmetric (Jaccard) overlap so short names get no free
+ * advantage, probes weighted by how much they're worth (a full company name
+ * beats a bare mail domain), delivery-address confirmation against the
+ * customer's own suburb/postcode to separate branches of a chain, and a floor
+ * below which it reports nothing rather than something wrong.
+ */
 function resolveCustomer(
   companyGuess: string | null,
   fromName: string | null,
   fromEmail: string,
-  customerNames: Record<string, string>
-): { code: string | null; name: string | null; confidence: "high" | "low" } {
+  deliverTo: string | null,
+  customerNames: Record<string, string>,
+  customerProfiles: Record<string, AddressProfile>
+): {
+  code: string | null;
+  name: string | null;
+  confidence: "high" | "low";
+  candidates: { code: string; name: string; score: number }[];
+} {
   const entries = Object.entries(customerNames);
-  if (entries.length === 0) return { code: null, name: null, confidence: "low" };
+  if (entries.length === 0) return { code: null, name: null, confidence: "low", candidates: [] };
 
+  const idf = buildIdf(customerNames);
   const domainToken = norm((fromEmail.split("@")[1] ?? "").split(".")[0] ?? "");
-  const probes = [companyGuess, fromName, domainToken].filter(Boolean).map((p) => norm(p as string));
 
-  let best: { code: string; name: string; score: number } | null = null;
+  // A mail domain is a group-level hint at best ("reece.com.au" is true of 400
+  // branches), so it's weighted well below anything naming an actual entity.
+  const probes = [
+    { text: companyGuess, weight: 1.0 },
+    { text: fromName, weight: 0.9 },
+    { text: deliverTo, weight: 0.9 },
+    { text: domainToken, weight: 0.35 },
+  ].filter((p) => p.text) as { text: string; weight: number }[];
+
+  const deliverSet = new Set(nameTokens(deliverTo ?? ""));
+  const deliverNorm = norm(deliverTo ?? "");
+
+  const scored: { code: string; name: string; score: number }[] = [];
+
   for (const [code, name] of entries) {
-    const nameWords = new Set(norm(name).split(" ").filter((w) => w.length > 2));
-    if (nameWords.size === 0) continue;
-    for (const probe of probes) {
-      const probeWords = probe.split(" ").filter((w) => w.length > 2);
-      if (probeWords.length === 0) continue;
-      const hits = probeWords.filter((w) => nameWords.has(w)).length;
-      const score = hits / Math.max(probeWords.length, nameWords.size);
-      if (score > 0 && (!best || score > best.score)) best = { code, name, score };
+    const nameToks = [...new Set(nameTokens(name))];
+    if (nameToks.length === 0) continue;
+    const nameWeight = nameToks.reduce((s, t) => s + idf(t), 0);
+
+    let textScore = 0;
+    for (const p of probes) {
+      const pToks = [...new Set(nameTokens(p.text))];
+      if (pToks.length === 0) continue;
+      const probeWeight = pToks.reduce((s, t) => s + idf(t), 0);
+      const sharedWeight = pToks
+        .filter((t) => nameToks.includes(t))
+        .reduce((s, t) => s + idf(t), 0);
+      if (sharedWeight === 0) continue;
+      const jaccard = sharedWeight / (probeWeight + nameWeight - sharedWeight);
+      textScore = Math.max(textScore, jaccard * p.weight);
     }
+
+    // Address confirmation. The delivery block on a branch PO names the branch
+    // suburb and postcode, which is the only thing that reliably separates
+    // Reece Berrimah from Reece Villawood.
+    const prof = customerProfiles[code];
+    let bonus = 0;
+    if (prof) {
+      const suburb = norm(prof.suburb ?? prof.city ?? "");
+      if (suburb && suburb.split(" ").some((w) => w.length > 2 && deliverSet.has(w))) bonus += 0.3;
+      if (prof.postcode && deliverNorm.includes(String(prof.postcode))) bonus += 0.2;
+    }
+
+    const score = Math.min(1, textScore + bonus);
+    if (score > 0) scored.push({ code, name, score });
   }
-  if (!best) return { code: null, name: null, confidence: "low" };
-  // A strong overlap is a confident match; a weak one is a hint a human should confirm.
-  return { code: best.code, name: best.name, confidence: best.score >= 0.6 ? "high" : "low" };
+
+  scored.sort((a, b) => b.score - a.score);
+  const candidates = scored.slice(0, 3);
+  const best = scored[0];
+
+  // Below the floor, say nothing. A wrong debtor code is worse than a blank
+  // one: it reads as resolved, it poisons the debtor+PO duplicate key, and it
+  // sends the agent to the wrong account in Arrow.
+  if (!best || best.score < 0.3) {
+    return { code: null, name: null, confidence: "low", candidates };
+  }
+
+  // A near-tie between two different accounts is not a confident answer either.
+  const runnerUp = scored[1];
+  const decisive = !runnerUp || best.score - runnerUp.score >= 0.1;
+
+  return {
+    code: best.code,
+    name: best.name,
+    confidence: best.score >= 0.6 && decisive ? "high" : "low",
+    candidates,
+  };
 }
 
 function levenshtein(a: string, b: string, cap: number): number {
@@ -222,7 +336,8 @@ const SYSTEM = `You extract a sales order from a customer email sent to a pool-e
 
 Schema:
 {
-  "companyGuess": string|null,        // the customer's company name if you can tell (from signature, domain, letterhead)
+  "companyGuess": string|null,        // the ORDERING entity. On a chain's purchase order this is the specific BRANCH placing the order (e.g. "Reece Irrigation & Pools Berrimah"), NOT the group letterhead at the top of the page (e.g. "Reece Australia Pty Ltd"). Look for "Purchase Branch", "Deliver to", the sending store's name, or the signature before falling back to the letterhead.
+  "branchRef": string|null,           // branch name/number and its suburb, state and postcode if the document shows one (e.g. "Irrigation & Pools Berrimah #8014, 47 Pruen Road, Berrimah NT 0828")
   "poRef": string|null,               // the customer's own PO / order reference number
   "deliverBy": string|null,           // requested delivery date or text
   "deliverTo": string|null,           // delivery address or "pickup"
@@ -285,12 +400,22 @@ export async function processRawIntake(body: IngestBody): Promise<IntakeResult> 
     return { ok: true, skipped: "not_an_order" };
   }
 
-  const [customerNames, stockAll] = await Promise.all([
+  const [customerNames, customerProfiles, stockAll] = await Promise.all([
     getJSON<Record<string, string>>("customerNames"),
+    getJSON<Record<string, AddressProfile>>("customerProfiles"),
     getJSON<StockRow[]>("stock:all"),
   ]);
 
-  const cust = resolveCustomer(extracted.companyGuess ?? null, body.fromName ?? null, body.fromEmail, customerNames ?? {});
+  // deliverTo carries the branch suburb and postcode on a chain PO, which is
+  // what actually distinguishes one branch account from another.
+  const cust = resolveCustomer(
+    extracted.companyGuess ?? null,
+    body.fromName ?? null,
+    body.fromEmail,
+    [extracted.deliverTo, extracted.branchRef, body.subject].filter(Boolean).join(" ") || null,
+    customerNames ?? {},
+    customerProfiles ?? {}
+  );
 
   const lines: IntakeLine[] = (extracted.lines ?? []).map((l) => {
     const m = matchSku(l.raw, l.skuLiteral ?? null, stockAll ?? []);
@@ -324,6 +449,7 @@ export async function processRawIntake(body: IngestBody): Promise<IntakeResult> 
     notes: extracted.notes ?? null,
     extractionConfidence: allResolved ? "high" : "low",
     duplicateOf: null, // createIntake fills this from debtor + PO
+    debtorCandidates: cust.confidence === "high" ? [] : cust.candidates,
   };
 
   const id = await createIntake(data);
@@ -333,6 +459,7 @@ export async function processRawIntake(body: IngestBody): Promise<IntakeResult> 
 
 interface ExtractedOrder {
   companyGuess?: string | null;
+  branchRef?: string | null;
   poRef?: string | null;
   deliverBy?: string | null;
   deliverTo?: string | null;
