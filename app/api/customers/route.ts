@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getCustomerAccess } from '@/lib/access';
+import { getCustomerAccess, GROUP_PRICE_TYPE_OVERRIDE, isUsablePriceType } from '@/lib/access';
 import { getJSON } from '@/lib/redis';
 
 // Display-only relabel for the group buttons. Keys are lowercase; the lookup
@@ -40,6 +40,11 @@ export interface CustomerGroupOption {
   /** False when members disagree on AUTO_PRICE_TYPE, which makes a
    *  group-level price ambiguous. The UI must not hide this. */
   priceTypeConsistent: boolean;
+  /** 'override' when lib/access.ts fixes this group's tier regardless of what
+   *  the branches carry in DRSMAST, 'master' when it comes from the branches
+   *  themselves. An overridden group is settled even if the master disagrees —
+   *  that's the whole reason the override exists. */
+  priceTypeSource: 'override' | 'master';
 }
 
 const isNZ = (p?: CustomerProfile) =>
@@ -135,16 +140,29 @@ export async function GET(req: NextRequest) {
     // Whether a group price is meaningful at all. If members disagree on
     // AUTO_PRICE_TYPE then pricing "as the group" is really pricing as one
     // arbitrary branch, and the answer would be wrong for the others.
-    const priceTypes = [...new Set(codes.map((c) => profiles[c]?.priceType).filter(Boolean) as string[])].sort();
-    const consistent = priceTypes.length <= 1;
+    // Only REAL tiers count. A "Z..." code (ZC, ZCLOSE, blank) is a closed
+    // placeholder with no pricing:{type} rule set, and resolvePriceType skips
+    // it outright — so a group whose branches read D5 and ZC is not in
+    // disagreement about anything, it just has some dormant accounts. Counting
+    // those was flagging groups that price perfectly consistently.
+    const priceTypes = [
+      ...new Set(codes.map((c) => profiles[c]?.priceType).filter(isUsablePriceType)),
+    ].sort();
+
+    // An override settles the group outright. resolvePriceType() applies it
+    // before ever reading a branch's own AUTO_PRICE_TYPE, so every branch
+    // prices identically no matter how inconsistent the master data is —
+    // flagging those groups was reporting a problem that doesn't exist.
+    const override = GROUP_PRICE_TYPE_OVERRIDE[groupName];
 
     groups.push({
       groupName: displayGroupName(groupName),
       code: representative,
       memberCount: codes.length,
-      priceType: consistent ? priceTypes[0] ?? null : null,
+      priceType: override ?? (priceTypes.length === 1 ? priceTypes[0] : null),
       priceTypes,
-      priceTypeConsistent: consistent,
+      priceTypeConsistent: !!override || priceTypes.length <= 1,
+      priceTypeSource: override ? 'override' : 'master',
     });
   }
   groups.sort((a, b) => a.groupName.localeCompare(b.groupName));
