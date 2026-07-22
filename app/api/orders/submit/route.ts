@@ -3,6 +3,7 @@ import { auth, currentUser } from "@clerk/nextjs/server";
 import { getCustomerAccess, resolvePriceType } from "@/lib/access";
 import { getJSON } from "@/lib/redis";
 import { computePrice, findRuleForSku, PricingRule } from "@/lib/pricing";
+import { PORTAL_ORDERS_ENABLED } from "@/lib/features";
 import {
   createPortalOrder,
   findDuplicate,
@@ -79,6 +80,16 @@ function freeStock(entry: StockRecord | null): number | null {
 }
 
 export async function POST(req: NextRequest) {
+  // Ordering is switched off. Refuse rather than accept an order into a queue
+  // that is currently hidden from staff — a silently stored order is worse
+  // than a clear rejection.
+  if (!PORTAL_ORDERS_ENABLED) {
+    return NextResponse.json(
+      { error: "Online ordering is temporarily unavailable. Please send your order to au-orders@hayward.com." },
+      { status: 503 }
+    );
+  }
+
   const { userId, orgId } = await auth();
   if (!userId || !orgId) {
     return NextResponse.json({ error: "Not signed in" }, { status: 401 });
