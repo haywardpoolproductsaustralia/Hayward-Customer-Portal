@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { IntakeRecord, IntakeLine } from "@/lib/au-orders-inbox";
-import { Copy, Check, ChevronRight, ExternalLink, Lock, Download } from "lucide-react";
+import { Copy, Check, ChevronRight, ExternalLink, Lock, Download, X } from "lucide-react";
 import * as XLSX from "xlsx";
 
 const fmtMoney = (n: number) =>
@@ -12,6 +12,21 @@ const POLL_MS = 7_000;
 const HEARTBEAT_MS = 5 * 60_000;
 
 type Toast = { text: string; tone: "info" | "warn" } | null;
+
+// YYYY-MM-DD in Melbourne time, so date filters line up with the times shown
+// on screen rather than with the browser's UTC day boundary.
+const melbDay = (ms: number) =>
+  new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Australia/Melbourne",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date(ms));
+
+// Loose match: case-insensitive, and ignores spaces/dashes/slashes so
+// "PO012365-1" is found by typing "012365" or "po 012365 1".
+const loose = (s: unknown) =>
+  String(s ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
 
 const fmtTime = (ms: number) =>
   new Date(ms).toLocaleString("en-AU", {
@@ -33,6 +48,12 @@ export default function OrderInboxQueue({ meId, meName }: { meId: string; meName
   const [view, setView] = useState<"cards" | "quick">("cards");
   // Cards are collapsed by default; an entry here means the user opened that one.
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  // Search / filter bar. All client-side over the already-loaded queue.
+  const [fCode, setFCode] = useState("");
+  const [fName, setFName] = useState("");
+  const [fPo, setFPo] = useState("");
+  const [fFrom, setFFrom] = useState("");
+  const [fTo, setFTo] = useState("");
   const showKeyedRef = useRef(showKeyed);
   showKeyedRef.current = showKeyed;
 
@@ -136,6 +157,28 @@ export default function OrderInboxQueue({ meId, meName }: { meId: string; meName
   const active = orders.filter((o) => o.status !== "keyed");
   const mine = active.filter((o) => o.claimedBy === meId).length;
 
+  const filtersOn = !!(fCode || fName || fPo || fFrom || fTo);
+  const clearFilters = () => { setFCode(""); setFName(""); setFPo(""); setFFrom(""); setFTo(""); };
+
+  const visible = orders.filter((o) => {
+    if (fCode && !loose(o.debtorCode).includes(loose(fCode))) return false;
+    if (fName) {
+      const hay = loose([o.debtorName, o.fromName, o.fromEmail].filter(Boolean).join(" "));
+      if (!hay.includes(loose(fName))) return false;
+    }
+    if (fPo && !loose(o.poRef).includes(loose(fPo))) return false;
+    if (fFrom || fTo) {
+      const d = melbDay(o.receivedAt);
+      if (fFrom && d < fFrom) return false;
+      if (fTo && d > fTo) return false;
+    }
+    return true;
+  });
+
+  const fieldCls =
+    "w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm text-slate-800 placeholder:text-slate-400 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500";
+  const labelCls = "mb-1 block text-[11px] font-medium uppercase tracking-wide text-slate-500";
+
   return (
     <div className="mx-auto max-w-5xl px-4 py-6">
       <header className="mb-5 flex flex-wrap items-center justify-between gap-3">
@@ -170,6 +213,41 @@ export default function OrderInboxQueue({ meId, meName }: { meId: string; meName
         </div>
       </header>
 
+      <div className="mb-4 rounded-lg border border-slate-200 bg-slate-50/70 p-3">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+          <div>
+            <label className={labelCls} htmlFor="f-code">Customer code</label>
+            <input id="f-code" value={fCode} onChange={(e) => setFCode(e.target.value)} placeholder="200225" className={fieldCls} />
+          </div>
+          <div>
+            <label className={labelCls} htmlFor="f-name">Customer name</label>
+            <input id="f-name" value={fName} onChange={(e) => setFName(e.target.value)} placeholder="Reece Villawood" className={fieldCls} />
+          </div>
+          <div>
+            <label className={labelCls} htmlFor="f-po">Customer PO</label>
+            <input id="f-po" value={fPo} onChange={(e) => setFPo(e.target.value)} placeholder="PO012365-1" className={fieldCls} />
+          </div>
+          <div>
+            <label className={labelCls} htmlFor="f-from">Received from</label>
+            <input id="f-from" type="date" value={fFrom} onChange={(e) => setFFrom(e.target.value)} className={fieldCls} />
+          </div>
+          <div>
+            <label className={labelCls} htmlFor="f-to">Received to</label>
+            <input id="f-to" type="date" value={fTo} onChange={(e) => setFTo(e.target.value)} className={fieldCls} />
+          </div>
+        </div>
+        {filtersOn && (
+          <div className="mt-2 flex items-center gap-3 text-xs">
+            <span className="text-slate-600">
+              Showing <span className="font-semibold text-slate-900">{visible.length}</span> of {orders.length}
+            </span>
+            <button onClick={clearFilters} className="inline-flex items-center gap-1 font-medium text-sky-700 hover:underline">
+              <X className="h-3 w-3" /> Clear filters
+            </button>
+          </div>
+        )}
+      </div>
+
       {toast && (
         <div className={`mb-4 rounded-md px-3 py-2 text-sm ${toast.tone === "warn" ? "bg-amber-50 text-amber-800" : "bg-sky-50 text-sky-800"}`}>
           {toast.text}
@@ -184,11 +262,18 @@ export default function OrderInboxQueue({ meId, meName }: { meId: string; meName
           <p className="font-medium text-slate-700">Nothing in the queue.</p>
           <p className="mt-1 text-sm text-slate-500">Orders from the au-orders mailbox will appear here as they&apos;re processed.</p>
         </div>
+      ) : visible.length === 0 ? (
+        <div className="rounded-lg border border-dashed border-slate-300 p-8 text-center">
+          <p className="font-medium text-slate-700">No orders match those filters.</p>
+          <button onClick={clearFilters} className="mt-2 text-sm font-medium text-sky-700 hover:underline">
+            Clear filters
+          </button>
+        </div>
       ) : view === "quick" ? (
-        <QuickView orders={orders} meId={meId} copiedKey={copied} onCopy={copy} onAccept={accept} />
+        <QuickView orders={visible} meId={meId} copiedKey={copied} onCopy={copy} onAccept={accept} />
       ) : (
         <div className="space-y-3">
-          {orders.map((o) => (
+          {visible.map((o) => (
             <OrderRow
               key={o.id}
               order={o}
@@ -486,17 +571,23 @@ function QuickView({
     return o.status === "keyed" ? "Keyed" : o.status === "claimed" ? "Claimed" : "New";
   };
   const inArrowOf = (o: IntakeRecord) => (o.seenInArrow ? (o.arrowOrderNo ?? "yes") : "");
+  // Qty as entered on the matching Arrow sales order (order-level, so it
+  // repeats down the denormalised line rows the same way PO/Debtor do).
+  const emailQtyOf = (o: IntakeRecord) => o.lines.reduce((s, l) => s + (l.qty ?? 0), 0);
+  const arrowQtyOf = (o: IntakeRecord) => (o.seenInArrow ? o.arrowTotalQty : null);
   const keyedByOf = (o: IntakeRecord) => (o.status === "keyed" ? (o.keyedByName ?? "") : "");
 
   // One row per line item — denormalised, like an Excel export
   const rows = orders.flatMap((o) => o.lines.map((l, li) => ({ o, l, li })));
   const totalQty = rows.reduce((s, r) => s + (r.l.qty ?? 0), 0);
   const grand = rows.reduce((s, r) => s + lineRev(r.l), 0);
+  // Arrow qty is order-level, so sum it once per order, not once per row.
+  const arrowTotal = orders.reduce((s, o) => s + (arrowQtyOf(o) ?? 0), 0);
 
   const th = "border border-slate-300 bg-slate-100 px-2 py-1.5 text-left font-semibold text-slate-700 whitespace-nowrap";
   const td = "border border-slate-300 px-2 py-1 align-top text-slate-700";
 
-  const HEADERS = ["Customer", "Debtor", "PO", "Received", "SKU", "Qty", "Unit $", "Line $", "Status", "In Arrow", "Keyed by", "Description"];
+  const HEADERS = ["Customer", "Debtor", "PO", "Received", "SKU", "Qty", "Arrow qty", "Unit $", "Line $", "Status", "In Arrow", "Keyed by", "Description"];
 
   // Array-of-arrays used for BOTH the TSV copy and the real .xlsx export.
   const aoa = rows.map((r) => [
@@ -506,6 +597,7 @@ function QuickView({
     fmtTime(r.o.receivedAt),
     r.l.sku ?? "",
     r.l.qty ?? "",
+    arrowQtyOf(r.o) ?? "",
     r.l.claimedPrice != null ? Number(r.l.claimedPrice) : "",
     Number(lineRev(r.l).toFixed(2)),
     statusOf(r.o),
@@ -516,7 +608,7 @@ function QuickView({
 
   function exportXlsx() {
     const ws = XLSX.utils.aoa_to_sheet([HEADERS, ...aoa]);
-    ws["!cols"] = [{ wch: 22 }, { wch: 8 }, { wch: 12 }, { wch: 18 }, { wch: 16 }, { wch: 5 }, { wch: 9 }, { wch: 9 }, { wch: 18 }, { wch: 12 }, { wch: 14 }, { wch: 50 }];
+    ws["!cols"] = [{ wch: 22 }, { wch: 8 }, { wch: 12 }, { wch: 18 }, { wch: 16 }, { wch: 5 }, { wch: 9 }, { wch: 9 }, { wch: 9 }, { wch: 18 }, { wch: 12 }, { wch: 14 }, { wch: 50 }];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "au-orders");
     XLSX.writeFile(wb, `au-orders-${new Date().toISOString().slice(0, 10)}.xlsx`);
@@ -546,6 +638,7 @@ function QuickView({
               <th className={th}>Received</th>
               <th className={th}>SKU</th>
               <th className={`${th} text-right`}>Qty</th>
+              <th className={`${th} text-right`} title="Quantity entered on the matching Arrow sales order">Arrow qty</th>
               <th className={`${th} text-right`}>Unit $</th>
               <th className={`${th} text-right`}>Line $</th>
               <th className={th}>Status</th>
@@ -588,6 +681,24 @@ function QuickView({
                   )}
                 </td>
                 <td className={`${td} text-right tabular-nums`}>{r.l.qty ?? ""}</td>
+                <td
+                  className={`${td} text-right tabular-nums ${
+                    arrowQtyOf(r.o) == null
+                      ? "text-slate-400"
+                      : arrowQtyOf(r.o) === emailQtyOf(r.o)
+                      ? "text-emerald-700"
+                      : "font-semibold text-amber-700"
+                  }`}
+                  title={
+                    arrowQtyOf(r.o) == null
+                      ? r.o.seenInArrow
+                        ? "Order is in Arrow but the qty hasn't been captured by the sync yet"
+                        : "Not yet in Arrow"
+                      : `Arrow ${arrowQtyOf(r.o)} vs email ${emailQtyOf(r.o)}`
+                  }
+                >
+                  {arrowQtyOf(r.o) ?? "—"}
+                </td>
                 <td className={`${td} text-right tabular-nums text-slate-500`}>
                   {r.l.claimedPrice != null ? r.l.claimedPrice.toFixed(2) : ""}
                 </td>
@@ -609,6 +720,7 @@ function QuickView({
             <tr>
               <td className={`${td} bg-slate-50 font-semibold`} colSpan={5}>Total</td>
               <td className={`${td} bg-slate-50 text-right font-semibold tabular-nums`}>{totalQty}</td>
+              <td className={`${td} bg-slate-50 text-right font-semibold tabular-nums`}>{arrowTotal}</td>
               <td className={`${td} bg-slate-50`}></td>
               <td className={`${td} bg-slate-50 text-right font-bold tabular-nums`}>{grand.toFixed(2)}</td>
               <td className={`${td} bg-slate-50`} colSpan={4}></td>
