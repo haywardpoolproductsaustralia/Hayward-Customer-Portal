@@ -46,244 +46,339 @@ const norm = (s: string) => s.toUpperCase().replace(/[^A-Z0-9 ]+/g, " ").replace
 // Words that appear in half the customer file and carry no identifying signal.
 // Legal suffixes and trading-name filler only — trade words like POOL are left
 // to the IDF weighting below, which discounts them automatically.
+/* ===========================================================================
+   Customer resolution.
+
+   Address-first, deliberately. The previous version scored on the company
+   name and treated the address as a tie-breaker, which had it backwards:
+
+     * An incoming order NEVER contains our customer code. Verified against
+       every PDF and email body received — a customer sends their identifiers,
+       not ours. So the code has to be derived from something on the document.
+     * DRSMAST.CUSTOMER_NAME is char(30) and Arrow truncates to fit, so the
+       word that identifies a branch is frequently cut off entirely
+       ("REECE IRRIGATION & POOLS CAMPBELLTOWN" is stored as "...CAMPB").
+       Names are the LEAST reliable field available.
+     * The delivery block and branch phone are present on essentially every
+       purchase order, and Arrow holds the same details for every account in
+       DRSMAST and DELMAST. That is the real join.
+
+   So: phone, then street, then postcode/suburb decide the match. The name is
+   corroboration only, and can never carry a match on its own beyond a
+   deliberately capped, never-confident score. This is general — it is not
+   tuned for any one customer.
+   =========================================================================== */
+
+// Legal filler and trading-name noise. Trade words (POOL, SPA) are left to the
+// IDF weighting, which discounts them from the data rather than by hand.
 const STOP_WORDS = new Set([
   "PTY", "LTD", "PTYLTD", "THE", "AND", "ATF", "TRUST", "AUSTRALIA", "AUST",
   "GROUP", "INC", "COMPANY", "TRADING", "SERVICES", "AUSTRALIAN",
 ]);
 
+// Street types, states and postal noise. These appear in almost every address
+// and identify nothing, so they must not count as a match.
+const ADDRESS_STOP = new Set([
+  "ROAD", "RD", "STREET", "ST", "AVENUE", "AVE", "DRIVE", "DR", "HIGHWAY",
+  "HWY", "COURT", "CRT", "CT", "PLACE", "PL", "LANE", "LN", "PARADE", "PDE",
+  "CRESCENT", "CRES", "CIRCUIT", "CCT", "BOULEVARD", "BVD", "TERRACE", "TCE",
+  "WAY", "CLOSE", "ESPLANADE", "UNIT", "SUITE", "LEVEL", "SHOP", "FACTORY",
+  "WAREHOUSE", "BOX", "POBOX", "NSW", "VIC", "QLD", "WA", "SA", "NT", "TAS",
+  "ACT", "AUSTRALIA", "NEW", "ZEALAND", "NZ", "DELIVER", "DELIVERY", "ADDRESS",
+  "ATTN", "ATTENTION", "PHONE", "FAX", "BRANCH", "STORE", "DEPOT", "NORTH",
+  "SOUTH", "EAST", "WEST", "UPPER", "LOWER", "MOUNT", "PORT", "PARK",
+]);
+
 function nameTokens(s: string): string[] {
-  return norm(s)
-    .split(" ")
-    .filter((w) => w.length > 2 && !STOP_WORDS.has(w) && !/^\d+$/.test(w));
+  return norm(s).split(" ").filter((w) => w.length > 2 && !STOP_WORDS.has(w) && !/^\d+$/.test(w));
 }
 
-/**
- * Inverse document frequency over the customer file itself. A token in many
- * customer names (POOL, POOLS, REECE, SPA, WAREHOUSE) is worth little; a rare
- * one (BERRIMAH, ROCKINGHAM, VILLAWOOD) is worth a lot. Derived from the data,
- * so it stays correct as the customer file changes — no hand-kept word list.
- */
-function buildIdf(customerNames: Record<string, string>): (t: string) => number {
+/** IDF over any corpus of token lists. A token in many records is worth
+ *  little; a rare one is worth a lot. Derived from the data, so it stays
+ *  correct as the customer file changes — no hand-kept weighting. */
+function buildIdf(docs: string[][]): (t: string) => number {
   const df = new Map<string, number>();
-  const total = Object.keys(customerNames).length || 1;
-  for (const name of Object.values(customerNames)) {
-    for (const t of new Set(nameTokens(name))) df.set(t, (df.get(t) ?? 0) + 1);
-  }
+  const total = docs.length || 1;
+  for (const d of docs) for (const t of new Set(d)) df.set(t, (df.get(t) ?? 0) + 1);
   return (t: string) => Math.log((total + 1) / ((df.get(t) ?? 0) + 1)) + 0.1;
 }
 
 interface AddressProfile {
+  name?: string | null;
+  street?: string | null;
   suburb?: string | null;
   city?: string | null;
+  state?: string | null;
   postcode?: string | null;
   phone?: string | null;
-  /** DRSMAST.DELETE_CUSTOMER. Deleted accounts are kept in the cache so it
-   *  mirrors Arrow, but they can't be ordered against, so they're skipped. */
+  /** DRSMAST.DELETE_CUSTOMER — kept in cache so it mirrors Arrow, skipped here. */
   deleted?: boolean;
-  /** From Arrow DELMAST. A chain can order under one debtor code but ship to
-   *  many branches, so the delivery block on an incoming PO often matches one
-   *  of these rather than the account's own registered address. */
+  /** DELMAST. A chain can order under one debtor code but ship to many sites,
+   *  so the delivery block often matches one of these, not the registered address. */
   deliveryAddresses?: { address?: string | null; phone?: string | null }[] | null;
 }
 
-/** Last 8 digits of every phone-shaped number in a blob of text. Branch POs
- *  print the ordering branch's own phone, which is the single most decisive
- *  identifier available — far better than any name comparison. */
-function phoneKeys(s: string | null): Set<string> {
+/** Last 8 digits of every phone-shaped number in a blob of text. Eight digits
+ *  ignores country/area-code formatting differences while staying specific. */
+function phoneKeys(s: string | null | undefined): Set<string> {
   const out = new Set<string>();
   if (!s) return out;
-  for (const m of s.matchAll(/[\d][\d\s()+-]{7,}/g)) {
+  for (const m of String(s).matchAll(/[\d][\d\s()+-]{7,}/g)) {
     const d = m[0].replace(/\D/g, "");
     if (d.length >= 8) out.add(d.slice(-8));
   }
   return out;
 }
 
-/**
- * Resolve the email to a customer account.
- *
- * Replaces the previous `hits / Math.max(probeWords, nameWords)` scoring, which
- * had two failure modes that between them mislabelled most branch orders:
- *
- *   1. A one-word probe (the mail domain, e.g. "REECE") scored highest against
- *      the SHORTEST candidate name — "REECE" vs "REECE VILLAWOOD" = 0.50, which
- *      beat the correct branch on every Reece email regardless of content.
- *   2. Legal filler counted as signal — "Pool and Spa Manufacturing Australia
- *      Pty Ltd" matched "POOL RANGER PTY LTD" on POOL/PTY/LTD at 0.43 and was
- *      written in as debtor 203400.
- *
- * Now: IDF-weighted symmetric (Jaccard) overlap so short names get no free
- * advantage, probes weighted by how much they're worth (a full company name
- * beats a bare mail domain), delivery-address confirmation against the
- * customer's own suburb/postcode to separate branches of a chain, and a floor
- * below which it reports nothing rather than something wrong.
- */
-/**
- * Weight of the tokens a probe and a candidate name share.
- *
- * Arrow's CUSTOMER_NAME is char(30) and it truncates. "REECE IRRIGATION &
- * POOLS CAMPBELLTOWN" is stored as "REECE IRRIGATION & POOLS CAMPB", so the
- * one token that identifies the branch survives only as a stub. Exact token
- * comparison can never match CAMPBELLTOWN to CAMPB, which would leave every
- * long branch name unmatchable no matter how complete the customer file is.
- *
- * So: exact match first, then — only for the final token of a name that is
- * sitting at the 30-character cap — allow that token to match a probe token it
- * is a prefix of. Restricting it to the last token of a capped name is what
- * keeps this from turning into loose prefix matching everywhere.
- */
-function sharedWeight(
-  probeToks: string[],
-  nameToks: string[],
-  nameIsTruncated: boolean,
-  idf: (t: string) => number
-): number {
-  const nameSet = new Set(nameToks);
-  const stub = nameIsTruncated ? nameToks[nameToks.length - 1] : null;
-  let total = 0;
-  for (const p of probeToks) {
-    if (nameSet.has(p)) { total += idf(p); continue; }
-    if (stub && stub.length >= 4 && p.length > stub.length && p.startsWith(stub)) {
-      // Credit the stub's own weight — a rare stub like CAMPB is worth a lot,
-      // a common one is not.
-      total += idf(stub);
-    }
+interface AddressFacts {
+  phones: Set<string>;
+  postcodes: Set<string>;
+  /** Street numbers — "65-67 Batt St" yields 65 and 67. */
+  numbers: Set<string>;
+  /** Locality and street-name words, with street types and states removed. */
+  words: Set<string>;
+  /** The address is a postal box, not a physical site. */
+  poBoxOnly: boolean;
+}
+
+function addressFacts(text: string | null | undefined): AddressFacts {
+  const n = norm(text ?? "");
+  const words = new Set(
+    n.split(" ").filter((w) => w.length > 2 && !ADDRESS_STOP.has(w) && !/^\d+$/.test(w))
+  );
+  const postcodes = new Set(n.match(/\b\d{4}\b/g) ?? []);
+
+  // Street numbers must EXCLUDE the postcode. A 4-digit postcode also matches
+  // a street-number pattern, so counting it as one made "street number agrees"
+  // true for every pair that merely shared a postcode — which fired the top
+  // confidence tier on unrelated businesses in the same suburb.
+  const numbers = new Set(
+    (n.match(/\b\d{1,5}\b/g) ?? []).filter((d) => !postcodes.has(d))
+  );
+
+  // A PO Box identifies a mail drop, not a site. Two different businesses
+  // collecting mail in the same town look identical on this evidence, so it
+  // must never reach the confidence a real street address does.
+  const poBoxOnly = /\bP\s?O\s?BOX\b|\bPOBOX\b|\bLOCKED\s?BAG\b|\bPRIVATE\s?BAG\b/.test(n);
+
+  return { phones: phoneKeys(text), postcodes, numbers, words, poBoxOnly };
+}
+
+/** All the address text Arrow holds for one account: its registered address
+ *  plus every delivery address on file. */
+function profileAddressText(p: AddressProfile | undefined): string {
+  if (!p) return "";
+  const own = [p.street, p.suburb, p.city, p.state, p.postcode, p.phone].filter(Boolean).join(" ");
+  const del = (p.deliveryAddresses ?? [])
+    .map((d) => [d.address, d.phone].filter(Boolean).join(" "))
+    .join(" ");
+  return `${own} ${del}`;
+}
+
+/* Parsing the address of every account is the expensive part, and it depends
+   only on the customer file — not on the order being matched. Doing it per
+   order would mean ~3,000 accounts re-parsed for every email in the queue.
+   Built once and reused until the customer file changes. */
+interface CustomerIndex {
+  entries: { code: string; name: string; facts: AddressFacts; nameToks: string[]; stub: string | null }[];
+  addrIdf: (t: string) => number;
+  nameIdf: (t: string) => number;
+  /** How many accounts carry each phone number. Head-office and franchise
+   *  numbers are shared by many accounts, so a phone hit is only decisive when
+   *  the number belongs to exactly one. */
+  phoneOwners: Map<string, number>;
+}
+let indexCache: { key: string; index: CustomerIndex } | null = null;
+
+function buildCustomerIndex(
+  customerNames: Record<string, string>,
+  customerProfiles: Record<string, AddressProfile>
+): CustomerIndex {
+  const codes = Object.keys(customerNames);
+  // Cheap identity for the cache: a full hash would cost more than it saves,
+  // and the sync replaces the whole map at once, so size plus endpoints is
+  // enough to notice a new snapshot.
+  const key = `${codes.length}:${codes[0] ?? ""}:${codes[codes.length - 1] ?? ""}`;
+  if (indexCache?.key === key) return indexCache.index;
+
+  const entries = codes.map((code) => {
+    const name = customerNames[code];
+    const nameToks = [...new Set(nameTokens(name))];
+    // CUSTOMER_NAME is char(30) and Arrow truncates, so the final token of a
+    // name at the cap is a stub of the real word.
+    const truncated = name.trim().length >= 30;
+    return {
+      code,
+      name,
+      facts: addressFacts(profileAddressText(customerProfiles[code])),
+      nameToks,
+      stub: truncated && nameToks.length ? nameToks[nameToks.length - 1] : null,
+    };
+  });
+
+  const phoneOwners = new Map<string, number>();
+  for (const e of entries) {
+    for (const k of e.facts.phones) phoneOwners.set(k, (phoneOwners.get(k) ?? 0) + 1);
   }
-  return total;
+
+  const index: CustomerIndex = {
+    entries,
+    phoneOwners,
+    // IDF over locality/street words across the whole customer file, so common
+    // words (INDUSTRIAL, CENTRAL, a suburb shared by many accounts) can't carry
+    // a match while a distinctive one can.
+    addrIdf: buildIdf(entries.map((e) => [...e.facts.words])),
+    nameIdf: buildIdf(entries.map((e) => e.nameToks)),
+  };
+  indexCache = { key, index };
+  return index;
 }
 
 function resolveCustomer(
   companyGuess: string | null,
   fromName: string | null,
   fromEmail: string,
-  deliverTo: string | null,
+  orderAddressText: string | null,
   customerNames: Record<string, string>,
   customerProfiles: Record<string, AddressProfile>
 ): {
   code: string | null;
   name: string | null;
   confidence: "high" | "low";
-  candidates: { code: string; name: string; score: number }[];
+  candidates: { code: string; name: string; score: number; why: string }[];
 } {
-  const entries = Object.entries(customerNames);
-  if (entries.length === 0) return { code: null, name: null, confidence: "low", candidates: [] };
+  if (Object.keys(customerNames).length === 0) {
+    return { code: null, name: null, confidence: "low", candidates: [] };
+  }
 
-  const idf = buildIdf(customerNames);
+  const want = addressFacts(orderAddressText);
+  const { entries, addrIdf, nameIdf, phoneOwners } = buildCustomerIndex(customerNames, customerProfiles);
+
   const domainToken = norm((fromEmail.split("@")[1] ?? "").split(".")[0] ?? "");
+  // Probe tokens are the same for every candidate, so tokenise once.
+  const probeTokenSets = [companyGuess, fromName, domainToken]
+    .filter(Boolean)
+    .map((p) => [...new Set(nameTokens(p as string))])
+    .filter((t) => t.length > 0);
 
-  // A mail domain is a group-level hint at best ("reece.com.au" is true of 400
-  // branches), so it's weighted well below anything naming an actual entity.
-  const probes = [
-    { text: companyGuess, weight: 1.0 },
-    { text: fromName, weight: 0.9 },
-    { text: deliverTo, weight: 0.9 },
-    { text: domainToken, weight: 0.35 },
-  ].filter((p) => p.text) as { text: string; weight: number }[];
+  const scored: { code: string; name: string; score: number; why: string }[] = [];
 
-  const deliverSet = new Set(nameTokens(deliverTo ?? ""));
-  const deliverNorm = norm(deliverTo ?? "");
-  const wantedPhones = phoneKeys(deliverTo);
-
-  const scored: { code: string; name: string; score: number }[] = [];
-
-  for (const [code, name] of entries) {
-    // Deleted accounts stay in the cache (it mirrors DRSMAST) but nothing can
-    // be keyed against them, so they must never win a match.
-    if (customerProfiles[code]?.deleted) continue;
-
-    const nameToks = [...new Set(nameTokens(name))];
-    if (nameToks.length === 0) continue;
-    const nameWeight = nameToks.reduce((s, t) => s + idf(t), 0);
-    // char(30) is Arrow's cap on CUSTOMER_NAME; a name at the cap is cut.
-    const truncatedName = name.trim().length >= 30;
-
-    let textScore = 0;
-    for (const p of probes) {
-      const pToks = [...new Set(nameTokens(p.text))];
-      if (pToks.length === 0) continue;
-      const probeWeight = pToks.reduce((s, t) => s + idf(t), 0);
-      const shared = sharedWeight(pToks, nameToks, truncatedName, idf);
-      if (shared === 0) continue;
-      const jaccard = shared / (probeWeight + nameWeight - shared);
-      textScore = Math.max(textScore, jaccard * p.weight);
-    }
-
-    // Address confirmation. The delivery block on a branch PO names the branch
-    // suburb and postcode, which is the only thing that reliably separates
-    // Reece Berrimah from Reece Villawood.
+  for (const entry of entries) {
+    const { code, name } = entry;
     const prof = customerProfiles[code];
-    let bonus = 0;
-    let corroborated = false;
-    if (prof) {
-      // Whole-phrase match, not any-word. Matching a single word lets generic
-      // parts of a locality collide: "Frankston South" would otherwise match
-      // "South Penrith" on SOUTH and hand the order to the wrong state.
-      const suburb = norm(prof.suburb ?? prof.city ?? "");
-      if (suburb.length >= 4 && deliverNorm.includes(suburb)) { bonus += 0.3; corroborated = true; }
-      if (prof.postcode && deliverNorm.includes(String(prof.postcode))) { bonus += 0.2; corroborated = true; }
+    if (prof?.deleted) continue; // can't be ordered against
 
-      // Delivery addresses on file (DELMAST) count the same way — this is what
-      // catches a branch that ships to its own site under a parent account.
-      // Two shared words or a postcode; one word is too easy to hit by chance.
-      if (!corroborated) {
-        for (const da of prof.deliveryAddresses ?? []) {
-          const daNorm = norm(da.address ?? "");
-          if (!daNorm) continue;
-          const shared = [...new Set(daNorm.split(" "))].filter((w) => w.length > 3 && deliverSet.has(w));
-          const pc = daNorm.match(/\b\d{4}\b/g) ?? [];
-          if (pc.some((p) => deliverNorm.includes(p))) { bonus += 0.3; corroborated = true; }
-          else if (shared.length >= 2) { bonus += 0.25; corroborated = true; }
-          if (corroborated) break;
-        }
+    const have = entry.facts; // precomputed in the index
+
+    /* ---- 1. Phone — but only decisive when the number is unique.
+             838 of ~3,200 accounts share a phone with another account
+             (franchise head offices, group switchboards, duplicated records).
+             A shared number narrows the field; it does not identify anyone. -- */
+    let addrScore = 0;
+    let why = "";
+    let sharedPhoneHit = false;
+    for (const k of want.phones) {
+      if (!have.phones.has(k)) continue;
+      const owners = phoneOwners.get(k) ?? 1;
+      if (owners === 1) { addrScore = 0.95; why = "unique phone match"; }
+      else { sharedPhoneHit = true; }
+      break;
+    }
+
+    /* ---- 2. Address. Postcode plus a distinctive locality/street word, with
+             a genuine street number as extra confirmation. ---------------- */
+    if (addrScore === 0) {
+      const pcHit = [...want.postcodes].some((p) => have.postcodes.has(p));
+      const sharedWords = [...want.words].filter((w) => have.words.has(w));
+      const sharedWeight = sharedWords.reduce((s, w) => s + addrIdf(w), 0);
+      // Street numbers only. Postcodes are excluded in addressFacts, and a
+      // single digit is too common to mean anything.
+      const numHit = [...want.numbers].some((nm) => nm.length >= 2 && have.numbers.has(nm));
+
+      // Weight thresholds rather than counts, so two generic words don't beat
+      // one highly distinctive one.
+      const strongWord = sharedWeight >= 3.0;
+      const someWord = sharedWeight >= 1.5;
+
+      if (pcHit && strongWord && numHit) { addrScore = 0.95; why = "postcode + street + number"; }
+      else if (pcHit && strongWord)      { addrScore = 0.88; why = "postcode + locality"; }
+      else if (pcHit && someWord)        { addrScore = 0.75; why = "postcode + partial address"; }
+      else if (strongWord && numHit)     { addrScore = 0.70; why = "street + number"; }
+      else if (strongWord)               { addrScore = 0.55; why = "distinctive locality"; }
+      else if (pcHit)                    { addrScore = 0.30; why = "postcode only"; }
+
+      // A postal box plus a town is not a site. Cap it below the confidence
+      // threshold so it can never resolve on its own — two unrelated
+      // businesses collecting mail in the same town are indistinguishable.
+      if ((want.poBoxOnly || have.poBoxOnly) && addrScore > 0.70) {
+        addrScore = 0.70;
+        why += " (PO box — not a site)";
       }
 
-      // A phone hit is all but conclusive — a branch's own number identifies it
-      // outright, whatever the name on the letterhead says.
-      if (wantedPhones.size) {
-        const numbers = [prof.phone, ...(prof.deliveryAddresses ?? []).map((d) => d.phone)];
-        outer: for (const n of numbers) {
-          for (const k of phoneKeys(n ?? null)) {
-            if (wantedPhones.has(k)) { bonus += 0.55; corroborated = true; break outer; }
-          }
-        }
+      // A shared phone is real corroboration, just not proof on its own.
+      if (sharedPhoneHit && addrScore > 0) {
+        addrScore = Math.min(0.92, addrScore + 0.1);
+        why += " + shared phone";
+      } else if (sharedPhoneHit) {
+        addrScore = 0.35;
+        why = "shared phone only";
       }
     }
 
-    let score = Math.min(1, textScore + bonus);
+    /* ---- 3. Name. Corroboration only. Prefix-matched against the final token
+             of any name sitting at Arrow's char(30) cap, since that token is a
+             stub of the real word. ---------------------------------------- */
+    const { nameToks, stub } = entry; // precomputed in the index
+    let nameFit = 0;
+    if (nameToks.length) {
+      const nameWeight = nameToks.reduce((s, t) => s + nameIdf(t), 0);
+      for (const pToks of probeTokenSets) {
+        const probeWeight = pToks.reduce((s, t) => s + nameIdf(t), 0);
+        let shared = 0;
+        for (const t of pToks) {
+          if (nameToks.includes(t)) shared += nameIdf(t);
+          else if (stub && stub.length >= 4 && t.length > stub.length && t.startsWith(stub)) shared += nameIdf(stub);
+        }
+        if (shared === 0) continue;
+        nameFit = Math.max(nameFit, shared / (probeWeight + nameWeight - shared));
+      }
+    }
 
-    // The email gave us a postcode or a phone number, this account has those on
-    // file, and none of them agree. That is evidence AGAINST the match, not
-    // merely absent evidence — usually it means the real branch account isn't
-    // in Redis at all and we're about to settle for a sibling branch.
-    const profileHasLocation = !!(
-      prof &&
-      (prof.postcode || prof.suburb || prof.city || prof.phone || (prof.deliveryAddresses ?? []).length)
-    );
-    const emailHasLocation = wantedPhones.size > 0 || /\b\d{4}\b/.test(deliverNorm);
-    if (emailHasLocation && profileHasLocation && !corroborated) score *= 0.55;
+    /* ---- 4. Combine. Address decides; the name adds at most a little. When
+             there is no address evidence at all, a name-only match is capped
+             below the confidence threshold — that cap is what stops a bare
+             mail-domain token picking the shortest account in the file. ---- */
+    let score: number;
+    if (addrScore > 0) {
+      score = Math.min(1, addrScore + nameFit * 0.15);
+      if (nameFit > 0.2) why += " + name";
+    } else {
+      score = Math.min(0.55, nameFit * 0.7);
+      why = nameFit > 0 ? "name only, no address match" : "";
+    }
 
-    if (score > 0) scored.push({ code, name, score });
+    if (score > 0) scored.push({ code, name, score, why });
   }
 
   scored.sort((a, b) => b.score - a.score);
   const candidates = scored.slice(0, 3);
   const best = scored[0];
+  const runnerUp = scored[1];
 
-  // Below the floor, say nothing. A wrong debtor code is worse than a blank
-  // one: it reads as resolved, it poisons the debtor+PO duplicate key, and it
-  // sends the agent to the wrong account in Arrow.
-  if (!best || best.score < 0.3) {
+  // Below the floor, say nothing. A wrong debtor reads as resolved, poisons the
+  // debtor+PO duplicate key, and sends the agent to the wrong Arrow account.
+  if (!best || best.score < 0.5) {
     return { code: null, name: null, confidence: "low", candidates };
   }
 
-  // A near-tie between two different accounts is not a confident answer either.
-  const runnerUp = scored[1];
+  // Two accounts scoring the same is not an answer either — usually two
+  // branches at one site, or the same address on file twice.
   const decisive = !runnerUp || best.score - runnerUp.score >= 0.1;
 
   return {
     code: best.code,
     name: best.name,
-    confidence: best.score >= 0.6 && decisive ? "high" : "low",
+    confidence: best.score >= 0.75 && decisive ? "high" : "low",
     candidates,
   };
 }
