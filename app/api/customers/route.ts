@@ -47,8 +47,13 @@ const isNZ = (p?: CustomerProfile) =>
 
 // Customer lists for the header picker and the lookup page.
 //
+//   scope=mine     ONLY the accounts this login may order against. Scoped to
+//                  the caller's own group/branch, never the whole file — a
+//                  Poolwerx login must not see Reece's accounts, or anyone
+//                  else's. Used by the order form on the quote builder.
 //   (no level)     every account in Arrow, lean (code + name + priceType),
-//                  plus one entry per customer group. Used by CustomerPicker.
+//                  plus one entry per customer group. Used by CustomerPicker,
+//                  which is aggregate-only (Hayward staff).
 //   level=branch   every account with its full profile. Used by the lookup
 //                  page, which needs phone/address to verify a caller.
 //   level=group    groups only, in the old shape. Kept for compatibility.
@@ -64,11 +69,40 @@ export async function GET(req: NextRequest) {
   if (!access) {
     return NextResponse.json({ error: 'No organization selected' }, { status: 403 });
   }
+
+  const level = req.nextUrl.searchParams.get('level');
+  const scope = req.nextUrl.searchParams.get('scope');
+
+  /* ---- scope=mine: what THIS login may order against -------------------- */
+  // Runs before the aggregate check, because an ordinary distributor login has
+  // to be able to see its own accounts even though it can't see the file.
+  // access.customerCodes is [branchCode] for a branch login, the group's codes
+  // for a head office, and every code for the Hayward aggregate org — the same
+  // list /api/orders/submit validates the posted debtorCode against, so
+  // anything offered here is guaranteed to be accepted.
+  if (scope === 'mine') {
+    const [names, profiles] = await Promise.all([
+      getJSON<Record<string, string>>('customerNames'),
+      getJSON<Record<string, CustomerProfile>>('customerProfiles'),
+    ]);
+    const customers = access.customerCodes
+      .filter((code) => !profiles?.[code]?.deleted)
+      .map((code) => ({
+        code,
+        name: names?.[code] ?? profiles?.[code]?.name ?? code,
+        street: profiles?.[code]?.street ?? null,
+        suburb: profiles?.[code]?.suburb ?? null,
+        city: profiles?.[code]?.city ?? null,
+        state: profiles?.[code]?.state ?? null,
+        postcode: profiles?.[code]?.postcode ?? null,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    return NextResponse.json({ customers, scope: 'mine', isAggregate: access.isAggregate });
+  }
+
   if (!access.isAggregate) {
     return NextResponse.json({ customers: [], groups: [], isAggregate: false });
   }
-
-  const level = req.nextUrl.searchParams.get('level');
 
   const [customerNames, customerProfiles, codeToGroup] = await Promise.all([
     getJSON<Record<string, string>>('customerNames'),
