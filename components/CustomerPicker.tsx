@@ -31,6 +31,7 @@ interface GroupOption {
   priceType: string | null;
   priceTypes: string[];
   priceTypeConsistent: boolean;
+  priceTypeSource?: 'override' | 'master';
 }
 
 export function CustomerPicker() {
@@ -217,9 +218,11 @@ export function CustomerPicker() {
                         key={g.groupName}
                         onClick={() => pickGroup(g)}
                         title={
-                          g.priceTypeConsistent
-                            ? `${g.memberCount} branches, price type ${g.priceType ?? 'n/a'}`
-                            : `${g.memberCount} branches with DIFFERENT price types (${g.priceTypes.join(', ')}) — pick a branch for exact pricing`
+                          !g.priceTypeConsistent
+                            ? `${g.memberCount} branches with DIFFERENT price types (${g.priceTypes.join(', ')}) — pick a branch for exact pricing`
+                            : g.priceTypeSource === 'override'
+                            ? `${g.memberCount} branches, all priced ${g.priceType} (fixed for the whole group, master data ignored)`
+                            : `${g.memberCount} branches, price type ${g.priceType ?? 'n/a'}`
                         }
                         className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors ${
                           selectedCustomer?.name === g.groupName
