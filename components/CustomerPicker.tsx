@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { User, ChevronDown, X, Phone, MapPin, Tag, ArrowLeft, Search, AlertTriangle } from 'lucide-react';
 import { useSelectedCustomer, SelectedCustomer } from './SelectedCustomerContext';
+import { matchesCustomerQuery } from '@/lib/customer-search';
 
 // Header-level "viewing pricing as" picker for the Hayward (aggregate) org.
 // Deliberately one shared control rather than a per-page picker — selecting a
@@ -83,23 +84,21 @@ export function CustomerPicker() {
 
   const q = query.trim().toLowerCase();
 
-  // Searches name, code and suburb — an agent looking for "Berrimah" is often
-  // going off the delivery address rather than the account name, which matters
-  // more than usual here because Arrow truncates CUSTOMER_NAME at 30 chars and
-  // cuts the branch word off ("REECE IRRIGATION & POOLS CAMPB").
+  // Word-by-word prefix matching over name, code, suburb and state. A plain
+  // substring scan fails here for two reasons: Arrow truncates CUSTOMER_NAME at
+  // 30 characters, so "REECE IRRIGATION & POOLS DANDENONG" is stored as
+  // "...DANDE" and "dandenong" matches nothing; and the words someone types
+  // aren't adjacent in the stored value, so "reece dan" can't match either.
   const filtered = useMemo(() => {
     if (!q) return customers;
-    return customers.filter(
-      (c) =>
-        c.name.toLowerCase().includes(q) ||
-        c.code.toLowerCase().includes(q) ||
-        (c.suburb ?? '').toLowerCase().includes(q)
+    return customers.filter((c) =>
+      matchesCustomerQuery([c.name, c.code, c.suburb, c.state], query)
     );
-  }, [customers, q]);
+  }, [customers, q, query]);
 
   const visibleGroups = useMemo(
-    () => (q ? groups.filter((g) => g.groupName.toLowerCase().includes(q)) : groups),
-    [groups, q]
+    () => (q ? groups.filter((g) => matchesCustomerQuery([g.groupName], query)) : groups),
+    [groups, q, query]
   );
 
   return (
