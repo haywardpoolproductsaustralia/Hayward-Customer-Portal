@@ -82,7 +82,7 @@ export default function CustomerLookupPage() {
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="e.g. 03 9793 1234, REEC12, Reece Dandenong, 3175…"
+          placeholder="Search by phone, customer number, name or postcode…"
           autoFocus
           className="w-full rounded-xl border border-ink/10 bg-white pl-10 pr-4 py-3 text-sm shadow-soft focus:outline-none focus:border-wave/40 focus:ring-2 focus:ring-wave/20"
         />
@@ -100,7 +100,7 @@ export default function CustomerLookupPage() {
         <div className="rounded-2xl bg-white border border-ink/10 shadow-soft px-5 py-8 text-center">
           <Users className="h-6 w-6 text-ink/20 mx-auto mb-2" />
           <p className="text-sm text-ink/50">
-            Start typing to search {branches.length.toLocaleString()} branches.
+            Start typing to search {branches.length.toLocaleString()} accounts.
           </p>
           <p className="text-xs text-ink/30 mt-1">
             Phone matches regardless of spacing or +61 / 0 prefix.
