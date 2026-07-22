@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { User, ChevronDown, X, Phone, MapPin, Tag, ArrowLeft, Search } from 'lucide-react';
+import { User, Users, ChevronDown, X, Phone, MapPin, Tag, ArrowLeft, Search } from 'lucide-react';
 import { useSelectedCustomer, SelectedCustomer } from './SelectedCustomerContext';
 
 // Header-level "viewing pricing as" picker for the Hayward (aggregate)
@@ -22,7 +22,10 @@ export function CustomerPicker() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [viewingDetail, setViewingDetail] = useState<SelectedCustomer | null>(null);
-  const [allBranches, setAllBranches] = useState(false);
+  // Branch level is the default: agents are almost always after a specific
+  // store (Reece Dandenong), not the group. Untick to collapse to one row
+  // per group when you only care about which price type applies.
+  const [allBranches, setAllBranches] = useState(true);
   const [query, setQuery] = useState('');
 
   useEffect(() => {
@@ -89,7 +92,7 @@ export function CustomerPicker() {
               </button>
             ) : (
               <p className="text-sm font-semibold text-deep">
-                {allBranches ? 'All branches' : 'All customers'}
+                {allBranches ? 'All branches' : 'Customer groups'}
               </p>
             )}
             <button onClick={closeAndReset} className="p-1 rounded-full hover:bg-ink/5">
@@ -158,6 +161,29 @@ export function CustomerPicker() {
                   Show all branches
                 </label>
               </div>
+              {/* Explicit "no customer selected" option — previously you could
+                  only clear from inside a customer's detail panel. */}
+              <button
+                onClick={() => {
+                  setSelectedCustomer(null);
+                  closeAndReset();
+                }}
+                className={`w-full flex items-center justify-between gap-3 px-4 py-3 text-left border-b border-ink/5 hover:bg-foam ${
+                  selectedCustomer ? '' : 'bg-wave/5'
+                }`}
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  <Users className="h-4 w-4 text-ink/30 flex-shrink-0" />
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-ink">All customers</p>
+                    <p className="text-xs text-ink/40">Standard list pricing — no customer applied</p>
+                  </div>
+                </div>
+                {!selectedCustomer && (
+                  <span className="text-[11px] font-semibold text-wave flex-shrink-0">Selected</span>
+                )}
+              </button>
+
               <div className="max-h-72 overflow-y-auto">
                 {loading ? (
                   <p className="px-4 py-6 text-sm text-ink/40 text-center">Loading...</p>
