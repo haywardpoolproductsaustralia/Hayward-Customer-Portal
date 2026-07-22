@@ -47,6 +47,25 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'No organization selected' }, { status: 403 });
   }
 
+  // scope=mine - every account code THIS login actually holds, whether or not
+  // it's the aggregate org. Used by the order form's "deliver to account"
+  // picker: a customer has to be able to say which of their own branches is
+  // ordering, and both modes below deliberately return nothing for a
+  // non-aggregate org, so neither of them can serve that.
+  if (req.nextUrl.searchParams.get('scope') === 'mine') {
+    const [names, profiles] = await Promise.all([
+      getJSON<Record<string, string>>('customerNames'),
+      getJSON<Record<string, CustomerProfile>>('customerProfiles'),
+    ]);
+    const customers = access.customerCodes
+      .map((code) => {
+        const profile = profiles?.[code];
+        return { code, ...profile, name: names?.[code] ?? profile?.name ?? code };
+      })
+      .sort((a, b) => a.name.localeCompare(b.name));
+    return NextResponse.json({ customers, isAggregate: access.isAggregate, scope: 'mine' });
+  }
+
   if (!access.isAggregate) {
     return NextResponse.json({ customers: [], isAggregate: false });
   }
