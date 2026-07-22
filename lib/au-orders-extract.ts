@@ -187,6 +187,11 @@ interface CustomerIndex {
    *  numbers are shared by many accounts, so a phone hit is only decisive when
    *  the number belongs to exactly one. */
   phoneOwners: Map<string, number>;
+  /** How many accounts share each suburb+postcode. Chains are billed to head
+   *  office, so all 137 Reece accounts carry the same Burwood 3125 address —
+   *  matching on it cannot tell one branch from another. Address evidence is
+   *  scaled by how much it actually narrows the field. */
+  addressOwners: Map<string, number>;
 }
 let indexCache: { key: string; index: CustomerIndex } | null = null;
 
@@ -217,13 +222,18 @@ function buildCustomerIndex(
   });
 
   const phoneOwners = new Map<string, number>();
+  const addressOwners = new Map<string, number>();
   for (const e of entries) {
     for (const k of e.facts.phones) phoneOwners.set(k, (phoneOwners.get(k) ?? 0) + 1);
+    const p = customerProfiles[e.code];
+    const sig = norm([p?.suburb ?? p?.city ?? "", p?.postcode ?? ""].join(" "));
+    if (sig) addressOwners.set(sig, (addressOwners.get(sig) ?? 0) + 1);
   }
 
   const index: CustomerIndex = {
     entries,
     phoneOwners,
+    addressOwners,
     // IDF over locality/street words across the whole customer file, so common
     // words (INDUSTRIAL, CENTRAL, a suburb shared by many accounts) can't carry
     // a match while a distinctive one can.
@@ -252,9 +262,14 @@ function resolveCustomer(
   }
 
   const want = addressFacts(orderAddressText);
-  const { entries, addrIdf, nameIdf, phoneOwners } = buildCustomerIndex(customerNames, customerProfiles);
+  const { entries, addrIdf, nameIdf, phoneOwners, addressOwners } =
+    buildCustomerIndex(customerNames, customerProfiles);
 
   const domainToken = norm((fromEmail.split("@")[1] ?? "").split(".")[0] ?? "");
+  // Weight a token appearing exactly once in the file would carry. Used to
+  // judge how distinctive a name match is, independent of file size.
+  const uniqueTokenIdf = Math.log(entries.length + 1) + 0.1;
+
   // Probe tokens are the same for every candidate, so tokenise once.
   const probeTokenSets = [companyGuess, fromName, domainToken]
     .filter(Boolean)
@@ -333,28 +348,69 @@ function resolveCustomer(
     if (nameToks.length) {
       const nameWeight = nameToks.reduce((s, t) => s + nameIdf(t), 0);
       for (const pToks of probeTokenSets) {
-        const probeWeight = pToks.reduce((s, t) => s + nameIdf(t), 0);
         let shared = 0;
+        let bestSharedIdf = 0;
         for (const t of pToks) {
-          if (nameToks.includes(t)) shared += nameIdf(t);
-          else if (stub && stub.length >= 4 && t.length > stub.length && t.startsWith(stub)) shared += nameIdf(stub);
+          let hit = 0;
+          if (nameToks.includes(t)) hit = nameIdf(t);
+          else if (stub && stub.length >= 4 && t.length > stub.length && t.startsWith(stub)) hit = nameIdf(stub);
+          if (hit > 0) { shared += hit; bestSharedIdf = Math.max(bestSharedIdf, hit); }
         }
         if (shared === 0) continue;
-        nameFit = Math.max(nameFit, shared / (probeWeight + nameWeight - shared));
+
+        // COVERAGE, not symmetric overlap: how much of the ARROW name the
+        // order accounts for. Arrow's CUSTOMER_NAME is a short, often
+        // truncated subset of the real trading name — "REECE CAMPBELLTOWN" for
+        // "Reece Irrigation & Pools Campbelltown" — so words present on the
+        // order but absent from Arrow are expected and must not be penalised.
+        const coverage = shared / nameWeight;
+
+        // But coverage alone would let a very short generic name win outright
+        // (an account called just "REECE" would be 100% covered by any Reece
+        // order — the exact trap that started this). So require the match to
+        // rest on something genuinely rare: scale by the strongest shared
+        // token's weight against the weight of a token unique in the file.
+        const distinctiveness = Math.min(1, bestSharedIdf / uniqueTokenIdf);
+
+        nameFit = Math.max(nameFit, coverage * distinctiveness);
       }
     }
 
-    /* ---- 4. Combine. Address decides; the name adds at most a little. When
-             there is no address evidence at all, a name-only match is capped
-             below the confidence threshold — that cap is what stops a bare
-             mail-domain token picking the shortest account in the file. ---- */
-    let score: number;
-    if (addrScore > 0) {
-      score = Math.min(1, addrScore + nameFit * 0.15);
-      if (nameFit > 0.2) why += " + name";
-    } else {
-      score = Math.min(0.55, nameFit * 0.7);
-      why = nameFit > 0 ? "name only, no address match" : "";
+    /* ---- 4. Combine.
+
+       Address evidence is worth only as much as it narrows the field. Arrow
+       bills chain branches to head office, so every Reece account carries the
+       same Burwood 3125 address — an address hit there identifies 137 accounts,
+       which is to say none of them. Scale the address score by how many
+       accounts share that address, and let the name decide when the address
+       cannot.
+
+       Letting the name decide is safe because nameFit is IDF-weighted: a bare
+       "REECE" is common across the file and scores near nothing, while
+       "REECE CAMPBELLTOWN" shares a rare token and scores high. That is what
+       makes this different from the original name-first matcher, which counted
+       every word equally and handed everything to the shortest account. ----- */
+    const prof2 = customerProfiles[code];
+    const addrSig = norm([prof2?.suburb ?? prof2?.city ?? "", prof2?.postcode ?? ""].join(" "));
+    const sharedBy = addrSig ? addressOwners.get(addrSig) ?? 1 : 1;
+    // 1 account -> full weight; 4 -> half; 137 -> ~8%.
+    const addrPower = 1 / Math.sqrt(sharedBy);
+
+    // A unique phone is a direct identifier, not a locality, so it is exempt.
+    const effectiveAddr = why.startsWith("unique phone") ? addrScore : addrScore * addrPower;
+
+    if (sharedBy > 3 && addrScore > 0 && !why.startsWith("unique phone")) {
+      why += ` (address shared by ${sharedBy})`;
+    }
+
+    // Whichever evidence is stronger leads; the other corroborates.
+    const strong = Math.max(effectiveAddr, nameFit);
+    const weak = Math.min(effectiveAddr, nameFit);
+    let score = Math.min(1, strong + weak * 0.15);
+    if (nameFit > effectiveAddr && nameFit > 0.2) {
+      why = why ? `name + ${why}` : "name match";
+    } else if (nameFit > 0.2 && effectiveAddr > 0) {
+      why += " + name";
     }
 
     if (score > 0) scored.push({ code, name, score, why });
