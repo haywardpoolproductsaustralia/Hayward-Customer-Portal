@@ -175,6 +175,64 @@ function profileAddressText(p: AddressProfile | undefined): string {
   return `${own} ${del}`;
 }
 
+/* ---------------------------------------------------------------------------
+   The sender address. Two independent signals, and we were using neither.
+
+     minchinbury.irrigation.nsw@reece.com.au
+     ^^^^^^^^^^^ branch                ^^^^^ organisation
+
+   The LOCAL PART frequently names the branch outright — every Reece branch
+   mailbox is <locality>.irrigation.<state>@. That is often the only place the
+   branch is named in a machine-readable form, because Arrow holds the group's
+   billing address for chain accounts rather than the branch's own.
+
+   The DOMAIN names the company. Used as a gate rather than as a name probe:
+   an order from reece.com.au is a Reece order, so a candidate that isn't a
+   Reece account is very probably wrong however well its address matches.
+   That is the case here — SWIMART MINCHENBURY sits at the same suburb and
+   postcode as the delivery block and won on address alone.
+   --------------------------------------------------------------------------- */
+
+// Public mailbox providers and generic mail hostnames. These identify a mail
+// service, not a customer, so they must never gate anything.
+const GENERIC_EMAIL_DOMAINS = new Set([
+  "GMAIL", "HOTMAIL", "OUTLOOK", "YAHOO", "BIGPOND", "LIVE", "ICLOUD", "MSN",
+  "AOL", "OPTUSNET", "OPTUS", "IINET", "TPG", "INTERNODE", "WESTNET", "DODO",
+  "PROTONMAIL", "GMX", "ME", "MAC", "MAIL", "EMAIL", "WEBMAIL", "SMTP", "MX",
+  "EXCHANGE", "OUTBOUND", "SERVER", "HAYWARD",
+]);
+
+// Words that appear in a mailbox name without identifying anything: role
+// mailboxes, states, and the department words chains put in branch addresses.
+const EMAIL_LOCAL_STOP = new Set([
+  "SALES", "ORDERS", "ORDER", "INFO", "ADMIN", "ACCOUNTS", "ACCOUNT", "NOREPLY",
+  "NO", "REPLY", "DONOTREPLY", "PURCHASING", "PURCHASE", "SERVICE", "SUPPORT",
+  "ENQUIRIES", "ENQUIRY", "CONTACT", "OFFICE", "BRANCH", "STORE", "SHOP",
+  "IRRIGATION", "PLUMBING", "POOLS", "POOL", "SPA", "HVAC", "TRADE", "STOCK",
+  "INVOICES", "INVOICE", "NSW", "VIC", "QLD", "WA", "SA", "NT", "TAS", "ACT",
+  "AU", "AUS", "AUST", "AUSTRALIA", "NZ", "COM", "NET", "ORG", "CO",
+]);
+
+/** Split a mailbox local part into words. Handles the dotted, underscored and
+ *  camelCase forms all in use — "SouthPenrith.Irrigation.NSW" yields
+ *  SOUTH, PENRITH. */
+function emailLocalTokens(fromEmail: string): string[] {
+  const local = (fromEmail.split("@")[0] ?? "");
+  if (!local) return [];
+  return norm(local.replace(/([a-z0-9])([A-Z])/g, "$1 $2"))
+    .split(" ")
+    .filter((w) => w.length > 2 && !EMAIL_LOCAL_STOP.has(w) && !/^\d+$/.test(w));
+}
+
+/** The organisation-identifying labels of the sender's domain. */
+function emailDomainTokens(fromEmail: string): string[] {
+  const domain = (fromEmail.split("@")[1] ?? "");
+  if (!domain) return [];
+  return norm(domain.replace(/\./g, " "))
+    .split(" ")
+    .filter((w) => w.length > 2 && !GENERIC_EMAIL_DOMAINS.has(w) && !EMAIL_LOCAL_STOP.has(w));
+}
+
 /* Parsing the address of every account is the expensive part, and it depends
    only on the customer file — not on the order being matched. Doing it per
    order would mean ~3,000 accounts re-parsed for every email in the queue.
@@ -265,16 +323,34 @@ function resolveCustomer(
   const { entries, addrIdf, nameIdf, phoneOwners, addressOwners } =
     buildCustomerIndex(customerNames, customerProfiles);
 
-  const domainToken = norm((fromEmail.split("@")[1] ?? "").split(".")[0] ?? "");
   // Weight a token appearing exactly once in the file would carry. Used to
   // judge how distinctive a name match is, independent of file size.
   const uniqueTokenIdf = Math.log(entries.length + 1) + 0.1;
 
-  // Probe tokens are the same for every candidate, so tokenise once.
-  const probeTokenSets = [companyGuess, fromName, domainToken]
+  const localTokens = emailLocalTokens(fromEmail);
+  const domainTokens = emailDomainTokens(fromEmail);
+
+  // The mailbox name is a name probe in its own right — for a chain branch it
+  // is often the only machine-readable statement of WHICH branch this is.
+  // The domain is deliberately NOT a name probe: as one word it used to score
+  // 0.50 against the shortest matching account and pick the wrong branch. It
+  // gates instead, below.
+  const probeTokenSets = [companyGuess, fromName]
     .filter(Boolean)
     .map((p) => [...new Set(nameTokens(p as string))])
     .filter((t) => t.length > 0);
+
+  // How many accounts the sender's domain points at. A domain that matches
+  // nothing in the customer file (a third-party system such as an order-
+  // management SaaS) tells us nothing and must not gate. A domain matching
+  // almost everything isn't discriminating either.
+  const domainOwners = new Map<string, number>();
+  for (const t of domainTokens) {
+    let n = 0;
+    for (const e of entries) if (e.nameToks.includes(t)) n++;
+    if (n > 0 && n < entries.length * 0.4) domainOwners.set(t, n);
+  }
+  const domainIdentifiesOrg = domainOwners.size > 0;
 
   const scored: { code: string; name: string; score: number; why: string }[] = [];
 
@@ -376,6 +452,26 @@ function resolveCustomer(
       }
     }
 
+    /* ---- 3b. Mailbox name as a BRANCH identifier.
+
+       Scored separately rather than as another name probe, because the name
+       score rewards covering a lot of the account name and that is the wrong
+       shape here. The sender display name "Reece Irrigation & Pools" covers
+       three of the four words in "REECE IRRIGATION & POOLS COFFS", so Coffs
+       out-scored every other branch on every Reece order — IRRIGATION and
+       POOLS are rare in Arrow (two accounts carry them) so IDF rates them
+       highly, even though they are generic in the sender's own name.
+
+       A single distinctive token shared between the mailbox name and the
+       account name is the stronger and cleaner signal: minchinbury.irrigation
+       .nsw@ against REECE MINCHINBURY. Weighted purely by how rare that token
+       is, so a mailbox called sales@ or a common word carries nothing. ----- */
+    let mailboxFit = 0;
+    for (const t of localTokens) {
+      if (!nameToks.includes(t)) continue;
+      mailboxFit = Math.max(mailboxFit, Math.min(1, nameIdf(t) / uniqueTokenIdf));
+    }
+
     /* ---- 4. Combine.
 
        Address evidence is worth only as much as it narrows the field. Arrow
@@ -403,14 +499,46 @@ function resolveCustomer(
       why += ` (address shared by ${sharedBy})`;
     }
 
-    // Whichever evidence is stronger leads; the other corroborates.
-    const strong = Math.max(effectiveAddr, nameFit);
-    const weak = Math.min(effectiveAddr, nameFit);
-    let score = Math.min(1, strong + weak * 0.15);
-    if (nameFit > effectiveAddr && nameFit > 0.2) {
+    // Whichever evidence is strongest leads; the others corroborate.
+    const signals = [effectiveAddr, nameFit, mailboxFit];
+    const strong = Math.max(...signals);
+    const rest = signals.reduce((a, b) => a + b, 0) - strong;
+    let score = Math.min(1, strong + rest * 0.15);
+    if (strong === mailboxFit && mailboxFit > 0.2) {
+      why = why ? `mailbox name + ${why}` : "mailbox name";
+    } else if (mailboxFit > 0.2) {
+      why += " + mailbox name";
+    } else if (nameFit > effectiveAddr && nameFit > 0.2) {
       why = why ? `name + ${why}` : "name match";
     } else if (nameFit > 0.2 && effectiveAddr > 0) {
       why += " + name";
+    }
+
+    /* ---- 5. Sender domain, as an organisation gate.
+
+       Applied only when the domain actually names accounts in the customer
+       file — a third-party sender (an order-management SaaS, a freight desk)
+       matches nothing and must leave the score alone rather than penalise
+       every candidate equally.
+
+       Where it does apply, it is decisive about the COMPANY and silent about
+       the branch: an order from reece.com.au belongs to a Reece account, so a
+       same-suburb account belonging to someone else is wrong however well its
+       address matches. That is exactly the SWIMART MINCHENBURY case — Arrow
+       holds Swimart's real Minchinbury address and Reece's Burwood billing
+       address, so address evidence favoured the wrong company outright.
+
+       A penalty rather than a hard exclusion, because a customer can legit-
+       imately order from a parent or agent's domain. ---------------------- */
+    if (domainIdentifiesOrg) {
+      const onDomain = domainTokens.some((t) => domainOwners.has(t) && nameToks.includes(t));
+      if (onDomain) {
+        score = Math.min(1, score + 0.2);
+        why = why ? `${why} + sender domain` : "sender domain";
+      } else {
+        score *= 0.45;
+        why = why ? `${why} (not a ${[...domainOwners.keys()][0]} account)` : "";
+      }
     }
 
     if (score > 0) scored.push({ code, name, score, why });
