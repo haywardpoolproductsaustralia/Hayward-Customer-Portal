@@ -11,6 +11,11 @@ const fmtMoney = (n: number) =>
 const POLL_MS = 7_000;
 const HEARTBEAT_MS = 5 * 60_000;
 
+/** The list API attaches the matched account's Arrow address to each record.
+ *  Not stored on the record itself — the record is a snapshot of the email,
+ *  while the account's address can change under it. */
+type IntakeRow = IntakeRecord & { accountAddress?: string | null };
+
 type Toast = { text: string; tone: "info" | "warn" } | null;
 
 // YYYY-MM-DD in Melbourne time, so date filters line up with the times shown
@@ -38,7 +43,7 @@ const fmtTime = (ms: number) =>
   });
 
 export default function OrderInboxQueue({ meId, meName }: { meId: string; meName: string }) {
-  const [orders, setOrders] = useState<IntakeRecord[]>([]);
+  const [orders, setOrders] = useState<IntakeRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showKeyed, setShowKeyed] = useState(false);
@@ -408,7 +413,7 @@ export default function OrderInboxQueue({ meId, meName }: { meId: string; meName
 function OrderRow({
   order, meId, busy, open, copiedKey, onToggle, onAct, onAccept, onCopy,
 }: {
-  order: IntakeRecord;
+  order: IntakeRow;
   meId: string;
   busy: boolean;
   open: boolean;
@@ -524,7 +529,29 @@ function OrderRow({
               </span>
             </div>
           )}
-          {order.deliverTo && <p className="mb-3 text-sm text-slate-600"><span className="text-slate-400">To:</span> {order.deliverTo}</p>}
+          {/* Two addresses, deliberately side by side: where this order is
+              going, and what Arrow holds for the debtor it was matched to.
+              Seeing both is how an agent catches a wrong match without opening
+              another screen. They often differ legitimately — chain branches
+              carry the group's billing address in Arrow, so every Reece branch
+              reads Burwood 3125 — which is why the second is labelled as the
+              account's address rather than presented as a conflict. */}
+          {(order.deliverTo || order.accountAddress) && (
+            <div className="mb-3 grid gap-1 text-sm text-slate-600 sm:grid-cols-2">
+              {order.deliverTo && (
+                <p className="min-w-0">
+                  <span className="text-slate-400">Ship to:</span>{" "}
+                  <span className="break-words">{order.deliverTo}</span>
+                </p>
+              )}
+              {order.accountAddress && (
+                <p className="min-w-0">
+                  <span className="text-slate-400">Account address:</span>{" "}
+                  <span className="break-words text-slate-500">{order.accountAddress}</span>
+                </p>
+              )}
+            </div>
+          )}
 
           {order.seenInArrow && (
             <p className={`mb-3 inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-sm ${
@@ -675,7 +702,7 @@ function Pill({ children, className }: { children: React.ReactNode; className: s
 function QuickView({
   orders, meId, copiedKey, onCopy, onAccept,
 }: {
-  orders: IntakeRecord[];
+  orders: IntakeRow[];
   meId: string;
   copiedKey: string | null;
   onCopy: (text: string, key: string) => void;
@@ -715,14 +742,16 @@ function QuickView({
   const th = "border border-slate-300 bg-slate-100 px-2 py-1.5 text-left font-semibold text-slate-700 whitespace-nowrap";
   const td = "border border-slate-300 px-2 py-1 align-top text-slate-700";
 
-  const HEADERS = ["Customer", "Debtor", "PO", "Received", "SKU", "Qty", "Arrow qty", "Unit $", "Line $", "Status", "In Arrow", "Keyed by", "Description"];
+  const HEADERS = ["Customer", "Debtor", "Account address", "PO", "Received", "Ship to", "SKU", "Qty", "Arrow qty", "Unit $", "Line $", "Status", "In Arrow", "Keyed by", "Description"];
 
   // Array-of-arrays used for BOTH the TSV copy and the real .xlsx export.
   const aoa = rows.map((r) => [
     custOf(r.o),
     r.o.debtorCode ?? "",
+    r.o.accountAddress ?? "",
     r.o.poRef ?? "",
     fmtTime(r.o.receivedAt),
+    r.o.deliverTo ?? "",
     r.l.sku ?? "",
     r.l.qty ?? "",
     arrowQtyOf(r.o) ?? "",
@@ -736,7 +765,7 @@ function QuickView({
 
   function exportXlsx() {
     const ws = XLSX.utils.aoa_to_sheet([HEADERS, ...aoa]);
-    ws["!cols"] = [{ wch: 22 }, { wch: 8 }, { wch: 12 }, { wch: 18 }, { wch: 16 }, { wch: 5 }, { wch: 9 }, { wch: 9 }, { wch: 9 }, { wch: 18 }, { wch: 12 }, { wch: 14 }, { wch: 50 }];
+    ws["!cols"] = [{ wch: 22 }, { wch: 8 }, { wch: 34 }, { wch: 12 }, { wch: 18 }, { wch: 34 }, { wch: 16 }, { wch: 5 }, { wch: 9 }, { wch: 9 }, { wch: 9 }, { wch: 18 }, { wch: 12 }, { wch: 14 }, { wch: 50 }];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "au-orders");
     XLSX.writeFile(wb, `au-orders-${new Date().toISOString().slice(0, 10)}.xlsx`);
