@@ -711,6 +711,82 @@ function Pill({ children, className }: { children: React.ReactNode; className: s
   return <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ${className}`}>{children}</span>;
 }
 
+/**
+ * A horizontal scrollbar ABOVE the content it scrolls, kept in sync with the
+ * real one below.
+ *
+ * The Quick view table is far wider than the screen — Description is the last
+ * column and sits well off to the right — so the browser's own scrollbar sits
+ * at the BOTTOM of a long table. Reaching it means scrolling to the end of the
+ * rows, dragging right, then scrolling back up. This puts a second, linked
+ * scrollbar at the top, and pins it just below the dashboard header (which is
+ * itself sticky at top-0) so it stays reachable however far down the rows you
+ * are, rather than sliding out of view or hiding underneath the header.
+ *
+ * Implemented as a proxy: an empty div whose width matches the table's real
+ * scrollWidth, so the browser gives it a scrollbar of the right proportions.
+ * Scroll position is mirrored both ways, guarded by a flag so the two don't
+ * drive each other in a loop.
+ */
+function TopScrollbar({ children }: { children: React.ReactNode }) {
+  const topRef = useRef<HTMLDivElement>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const syncing = useRef(false);
+  const [contentWidth, setContentWidth] = useState(0);
+
+  useEffect(() => {
+    const body = bodyRef.current;
+    if (!body) return;
+    const measure = () => setContentWidth(body.scrollWidth);
+    measure();
+    // Observe the table itself, not just its container: the container's width
+    // never changes when columns or rows do, so watching it alone would leave
+    // the proxy the wrong length after a filter or a reload.
+    const ro = new ResizeObserver(measure);
+    ro.observe(body);
+    if (body.firstElementChild) ro.observe(body.firstElementChild);
+    window.addEventListener("resize", measure);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", measure);
+    };
+  }, [children]);
+
+  const mirror = (from: HTMLDivElement | null, to: HTMLDivElement | null) => {
+    if (!from || !to || syncing.current) return;
+    syncing.current = true;
+    to.scrollLeft = from.scrollLeft;
+    requestAnimationFrame(() => { syncing.current = false; });
+  };
+
+  return (
+    <>
+      {/* Force the scrollbar to be visible and grabbable. Overlay scrollbars
+          would otherwise hide it entirely on some platforms, leaving an empty
+          strip that looks broken. */}
+      <style>{`
+        .top-scroll-proxy { scrollbar-width: thin; }
+        .top-scroll-proxy::-webkit-scrollbar { height: 12px; }
+        .top-scroll-proxy::-webkit-scrollbar-thumb {
+          background: #94a3b8; border-radius: 6px;
+        }
+        .top-scroll-proxy::-webkit-scrollbar-track { background: #f1f5f9; border-radius: 6px; }
+      `}</style>
+      <div
+        ref={topRef}
+        onScroll={() => mirror(topRef.current, bodyRef.current)}
+        className="top-scroll-proxy sticky top-[3.25rem] z-20 overflow-x-auto overflow-y-hidden bg-white pb-1 shadow-sm"
+        aria-hidden="true"
+      >
+        <div style={{ width: contentWidth, height: 1 }} />
+      </div>
+      <div ref={bodyRef} onScroll={() => mirror(bodyRef.current, topRef.current)} className="overflow-x-auto">
+        {children}
+      </div>
+    </>
+  );
+}
+
 function QuickView({
   orders, meId, copiedKey, onCopy, onAccept,
 }: {
@@ -798,7 +874,7 @@ function QuickView({
         </button>
       </div>
 
-      <div className="overflow-x-auto">
+      <TopScrollbar>
         <table className="text-xs" style={{ borderCollapse: "collapse" }}>
           <thead>
             <tr>
@@ -897,7 +973,7 @@ function QuickView({
             </tr>
           </tfoot>
         </table>
-      </div>
+      </TopScrollbar>
     </div>
   );
 }
