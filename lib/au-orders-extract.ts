@@ -302,6 +302,22 @@ function buildCustomerIndex(
   return index;
 }
 
+/** Locality words from the order: the delivery block and mailbox name, with
+ *  street types, states and TRADE/department words removed. What is left is the
+ *  suburb, plus the odd street name that harmlessly matches nothing. Stripping
+ *  the trade words is what makes the join below work — "Irrigation" and "Pools"
+ *  appear in both the delivery block and two Arrow account names, and left in
+ *  they match the wrong branch. */
+function localityTokens(orderAddressText: string | null, localTokens: string[]): string[] {
+  const fromAddress = norm(orderAddressText ?? "")
+    .split(" ")
+    .filter(
+      (w) =>
+        w.length > 2 && !ADDRESS_STOP.has(w) && !EMAIL_LOCAL_STOP.has(w) && !/^\d+$/.test(w)
+    );
+  return [...new Set([...fromAddress, ...localTokens.filter((t) => !EMAIL_LOCAL_STOP.has(t))])];
+}
+
 function resolveCustomer(
   companyGuess: string | null,
   fromName: string | null,
@@ -335,10 +351,31 @@ function resolveCustomer(
   // The domain is deliberately NOT a name probe: as one word it used to score
   // 0.50 against the shortest matching account and pick the wrong branch. It
   // gates instead, below.
-  const probeTokenSets = [companyGuess, fromName]
-    .filter(Boolean)
-    .map((p) => [...new Set(nameTokens(p as string))])
-    .filter((t) => t.length > 0);
+  /* Name probes, WEIGHTED by how order-specific each one is.
+
+     The delivery block is a name probe as well as an address one: on a chain PO
+     it opens with the ship-to branch — "Irrigation & Pools Minchinbury (2104),
+     10 Grex Avenue, Minchinbury NSW 2770" — and for a chain that is the one
+     place in the document that names the branch. Feeding it only into address
+     matching compared it against REECE MINCHINBURY's registered address, which
+     is head office in Burwood, so the branch name was never looked at.
+
+     The sender display name gets the LOWEST weight, and that is the important
+     part. "Reece Irrigation & Pools" is a property of the mailbox — identical on
+     every Reece order from every branch — so it can identify the company but
+     never the branch. Unweighted it beat order-specific evidence, because
+     IRRIGATION and POOLS happen to be rare in Arrow (only Coffs 210164 and
+     Campsie 210161 carry them) and IDF therefore rated them highly. IDF over the
+     customer file is the wrong prior for a word that is generic on the order
+     side; the weighting corrects for that. */
+  const probeTokenSets = [
+    { text: orderAddressText, weight: 1.0 },  // per-order, names the ship-to branch
+    { text: companyGuess, weight: 0.85 },     // extracted, but often the group letterhead
+    { text: fromName, weight: 0.7 },          // per-mailbox, constant across branches
+  ]
+    .filter((p) => p.text)
+    .map((p) => ({ toks: [...new Set(nameTokens(p.text as string))], weight: p.weight }))
+    .filter((p) => p.toks.length > 0);
 
   // How many accounts the sender's domain points at. A domain that matches
   // nothing in the customer file (a third-party system such as an order-
@@ -351,6 +388,58 @@ function resolveCustomer(
     if (n > 0 && n < entries.length * 0.4) domainOwners.set(t, n);
   }
   const domainIdentifiesOrg = domainOwners.size > 0;
+
+  /* ---- DETERMINISTIC JOIN: sender domain x suburb ------------------------
+
+     The domain says which company; the suburb says which branch. Where exactly
+     one account's name carries both, that IS the account and no scoring is
+     needed — reece.com.au + MINCHINBURY has one answer in the whole file.
+
+     Runs first because it is exact where the scorer is probabilistic, and it is
+     the shape the data actually has: chain branches are named "<COMPANY>
+     <LOCALITY>" in Arrow. It only claims a result when the answer is UNIQUE —
+     two matches (POOLWERX BATHURST and POOLWERX BATHURST (THORNBERRY)) means the
+     join cannot separate them either, so it stands down and lets the scorer rank
+     them with candidates shown.
+
+     Two passes, MAILBOX FIRST. The mailbox names the branch that PLACED the
+     order; the delivery block names where it ships, which is usually the same
+     branch but not always — a drop-ship to a job site would otherwise join to
+     whichever branch happens to share that suburb.
+
+     Truncated names are handled: a name at Arrow's char(30) cap has its final
+     token prefix-matched, so REECE IRRIGATION & POOLS CAMPB still joins to
+     CAMPBELLTOWN. */
+  if (domainIdentifiesOrg) {
+    const joinOn = (localities: string[]) =>
+      entries.filter((e) => {
+        if (customerProfiles[e.code]?.deleted) return false;
+        if (!domainTokens.some((t) => domainOwners.has(t) && e.nameToks.includes(t))) return false;
+        return localities.some(
+          (t) =>
+            e.nameToks.includes(t) ||
+            (e.stub !== null && e.stub.length >= 4 && t.length > e.stub.length && t.startsWith(e.stub))
+        );
+      });
+
+    const passes: [string[], string][] = [
+      [localTokens.filter((t) => !EMAIL_LOCAL_STOP.has(t)), "sender domain + mailbox suburb"],
+      [localityTokens(orderAddressText, []), "sender domain + delivery suburb"],
+    ];
+
+    for (const [localities, why] of passes) {
+      if (localities.length === 0) continue;
+      const joined = joinOn(localities);
+      if (joined.length !== 1) continue;
+      const hit = joined[0];
+      return {
+        code: hit.code,
+        name: hit.name,
+        confidence: "high",
+        candidates: [{ code: hit.code, name: hit.name, score: 1, why }],
+      };
+    }
+  }
 
   const scored: { code: string; name: string; score: number; why: string }[] = [];
 
@@ -423,7 +512,7 @@ function resolveCustomer(
     let nameFit = 0;
     if (nameToks.length) {
       const nameWeight = nameToks.reduce((s, t) => s + nameIdf(t), 0);
-      for (const pToks of probeTokenSets) {
+      for (const { toks: pToks, weight: probeWeightFactor } of probeTokenSets) {
         let shared = 0;
         let bestSharedIdf = 0;
         for (const t of pToks) {
@@ -448,7 +537,7 @@ function resolveCustomer(
         // token's weight against the weight of a token unique in the file.
         const distinctiveness = Math.min(1, bestSharedIdf / uniqueTokenIdf);
 
-        nameFit = Math.max(nameFit, coverage * distinctiveness);
+        nameFit = Math.max(nameFit, coverage * distinctiveness * probeWeightFactor);
       }
     }
 
