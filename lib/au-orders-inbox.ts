@@ -275,3 +275,117 @@ export async function acceptSuggestion(
   await redis.hset(itemKey(id), { data: JSON.stringify(data) });
   return { ok: true };
 }
+
+/* ---------------------------------------------------------------------------
+   Re-resolve the debtor on records already in the queue.
+
+   The debtor is decided once, at ingest, so improving the matcher does nothing
+   for orders already sitting on the page — the fix ships and the wrong codes
+   stay on screen. This re-runs the customer match over the stored fields and
+   writes back only debtorCode / debtorName / debtorCandidates. Extraction is
+   NOT re-run: SKUs, quantities, prices and line matches are untouched.
+
+   Records already keyed are skipped. An agent has acted on those, and Arrow is
+   now the record of what happened — silently rewriting the debtor underneath a
+   completed order would misrepresent history rather than correct it.
+
+   The debtor+PO duplicate key is rebuilt for anything that moves, because that
+   key is derived from the debtor: a record ingested under the wrong code was
+   registered under the wrong dupe key, so re-resolving without re-registering
+   would leave duplicate detection blind.
+   --------------------------------------------------------------------------- */
+
+export interface ReResolveChange {
+  id: string;
+  poRef: string | null;
+  fromEmail: string;
+  before: { code: string | null; name: string | null };
+  after: { code: string | null; name: string | null; why?: string };
+  status: IntakeStatus;
+}
+
+export interface ReResolveSummary {
+  examined: number;
+  changed: number;
+  unchanged: number;
+  skippedKeyed: number;
+  committed: boolean;
+  changes: ReResolveChange[];
+}
+
+export async function reResolveIntake(
+  resolveFn: (rec: {
+    fromEmail: string;
+    fromName: string | null;
+    deliverTo: string | null;
+    contact: string | null;
+  }) => { code: string | null; name: string | null; confidence: "high" | "low"; candidates: { code: string; name: string; score: number; why: string }[] },
+  opts: { commit?: boolean; includeKeyed?: boolean } = {}
+): Promise<ReResolveSummary> {
+  const ids = await redis.zrange<string[]>(INDEX, 0, -1, { rev: true });
+  const summary: ReResolveSummary = {
+    examined: 0,
+    changed: 0,
+    unchanged: 0,
+    skippedKeyed: 0,
+    committed: !!opts.commit,
+    changes: [],
+  };
+  if (ids.length === 0) return summary;
+
+  const pipe = redis.pipeline();
+  ids.forEach((id) => pipe.hgetall(itemKey(id)));
+  const rows = (await pipe.exec()) as Array<Record<string, unknown> | null>;
+
+  for (let i = 0; i < ids.length; i++) {
+    const id = ids[i];
+    const h = rows[i];
+    if (!h || Object.keys(h).length === 0) continue;
+
+    if (h.status === "keyed" && !opts.includeKeyed) {
+      summary.skippedKeyed++;
+      continue;
+    }
+    summary.examined++;
+
+    const data = (typeof h.data === "string" ? JSON.parse(h.data as string) : h.data) as IntakeData;
+
+    const next = resolveFn({
+      fromEmail: data.fromEmail,
+      fromName: data.fromName ?? null,
+      deliverTo: data.deliverTo ?? null,
+      contact: data.contact ?? null,
+    });
+
+    if (next.code === data.debtorCode) {
+      summary.unchanged++;
+      continue;
+    }
+
+    summary.changed++;
+    summary.changes.push({
+      id,
+      poRef: data.poRef ?? null,
+      fromEmail: data.fromEmail,
+      before: { code: data.debtorCode ?? null, name: data.debtorName ?? null },
+      after: { code: next.code, name: next.name, why: next.candidates[0]?.why },
+      status: (h.status as IntakeStatus) ?? "new",
+    });
+
+    if (!opts.commit) continue;
+
+    const prevCode = data.debtorCode;
+    data.debtorCode = next.code;
+    data.debtorName = next.name;
+    data.debtorCandidates = next.confidence === "high" ? [] : next.candidates;
+    await redis.hset(itemKey(id), { data: JSON.stringify(data) });
+
+    // Rebuild the duplicate key, which is derived from the debtor.
+    if (data.poRef) {
+      if (prevCode) await redis.del(dupeKey(prevCode, data.poRef));
+      if (next.code) await redis.set(dupeKey(next.code, data.poRef), id, { nx: true });
+    }
+  }
+
+  return summary;
+}
