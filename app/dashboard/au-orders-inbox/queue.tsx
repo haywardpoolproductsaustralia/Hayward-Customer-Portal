@@ -44,6 +44,13 @@ export default function OrderInboxQueue({ meId, meName }: { meId: string; meName
   const [showKeyed, setShowKeyed] = useState(false);
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   const [toast, setToast] = useState<Toast>(null);
+  // Debtor re-resolve: preview first, apply second. Never a single button.
+  const [reResolve, setReResolve] = useState<null | {
+    changed: number; unchanged: number; skippedKeyed: number; committed: boolean;
+    changes: { id: string; poRef: string | null; before: { code: string | null; name: string | null };
+               after: { code: string | null; name: string | null; why?: string } }[];
+  }>(null);
+  const [reResolveBusy, setReResolveBusy] = useState(false);
   const [queue, setQueue] = useState<{ pending: number; failed: number; failedTail?: string[] } | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
   const [view, setView] = useState<"cards" | "quick">("cards");
@@ -80,6 +87,32 @@ export default function OrderInboxQueue({ meId, meName }: { meId: string; meName
   }, [load]);
 
   useEffect(() => { load(); }, [showKeyed, load]);
+
+  // Re-run the customer match over records already queued. The debtor is
+  // decided at ingest, so a matcher improvement leaves everything already on
+  // the page showing the old answer. Extraction is not re-run — only the
+  // debtor changes.
+  async function runReResolve(commit: boolean) {
+    setReResolveBusy(true);
+    try {
+      const res = await fetch("/api/au-orders-inbox/re-resolve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ commit }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setToast({ text: data.error ?? "Re-resolve failed.", tone: "warn" }); return; }
+      setReResolve(data);
+      if (commit) {
+        setToast({ text: `${data.changed} debtor${data.changed === 1 ? "" : "s"} updated.`, tone: "info" });
+        await load();
+      }
+    } catch {
+      setToast({ text: "Re-resolve failed.", tone: "warn" });
+    } finally {
+      setReResolveBusy(false);
+    }
+  }
 
   // Keep my own claims alive while I'm working them.
   useEffect(() => {
@@ -209,11 +242,73 @@ export default function OrderInboxQueue({ meId, meName }: { meId: string; meName
             <input type="checkbox" checked={showKeyed} onChange={(e) => setShowKeyed(e.target.checked)} />
             Show keyed
           </label>
+          <button
+            onClick={() => runReResolve(false)}
+            disabled={reResolveBusy}
+            title="Re-run the customer match over orders already in the queue. Shows what would change before anything is written."
+            className="rounded-md border border-slate-300 px-3 py-1.5 font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+          >
+            {reResolveBusy ? "Checking…" : "Re-check debtors"}
+          </button>
           <button onClick={load} className="rounded-md border border-slate-300 px-3 py-1.5 font-medium text-slate-700 hover:bg-slate-50">
             Refresh
           </button>
         </div>
       </header>
+
+      {reResolve && (
+        <div className="mb-4 rounded-lg border border-sky-200 bg-sky-50 p-3 text-sm">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="font-medium text-sky-900">
+                {reResolve.committed ? "Debtors updated" : "Re-check preview — nothing written yet"}
+              </p>
+              <p className="mt-0.5 text-sky-800">
+                {reResolve.changed} would change · {reResolve.unchanged} already correct
+                {reResolve.skippedKeyed > 0 && ` · ${reResolve.skippedKeyed} already keyed, left alone`}
+              </p>
+            </div>
+            <button onClick={() => setReResolve(null)} className="p-1 rounded hover:bg-sky-100">
+              <X className="h-4 w-4 text-sky-700" />
+            </button>
+          </div>
+
+          {reResolve.changes.length > 0 && (
+            <div className="mt-2 max-h-56 overflow-y-auto rounded border border-sky-200 bg-white">
+              <table className="w-full text-xs">
+                <tbody>
+                  {reResolve.changes.map((c) => (
+                    <tr key={c.id} className="border-b border-slate-100 last:border-0">
+                      <td className="px-2 py-1.5 font-mono text-slate-500">{c.poRef ?? "—"}</td>
+                      <td className="px-2 py-1.5 text-slate-500 line-through">
+                        {c.before.code ?? "unresolved"} {c.before.name ?? ""}
+                      </td>
+                      <td className="px-2 py-1.5 text-slate-400">→</td>
+                      <td className="px-2 py-1.5 font-medium text-slate-900">
+                        {c.after.code ?? "unresolved"} {c.after.name ?? ""}
+                      </td>
+                      <td className="px-2 py-1.5 text-slate-400">{c.after.why ?? ""}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {!reResolve.committed && reResolve.changed > 0 && (
+            <div className="mt-2 flex items-center gap-3">
+              <button
+                onClick={() => runReResolve(true)}
+                disabled={reResolveBusy}
+                className="rounded-md bg-sky-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-sky-800 disabled:opacity-50"
+              >
+                {reResolveBusy ? "Applying…" : `Apply ${reResolve.changed} change${reResolve.changed === 1 ? "" : "s"}`}
+              </button>
+              <span className="text-xs text-sky-800">Check the list above first — this rewrites the queue.</span>
+            </div>
+          )}
+        </div>
+      )}
 
       {queue && (queue.pending > 0 || queue.failed > 0) && (
         <div className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
