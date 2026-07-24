@@ -512,6 +512,18 @@ function OrderRow({
             )}
             {order.deliverBy && <span><span className="text-slate-400">Deliver by:</span> {order.deliverBy}</span>}
             {order.contact && <span><span className="text-slate-400">Contact:</span> {order.contact}</span>}
+            {/* The sender is now the strongest matching signal — the mailbox
+                name identifies the branch and the domain identifies the
+                company — so showing it lets an agent see the evidence the
+                debtor was matched on, and gives them the string to search the
+                mailbox with if they need the original email. */}
+            {order.fromEmail && (
+              <span className="inline-flex items-center gap-1">
+                <span className="text-slate-400">From:</span>
+                <span className="break-all">{order.fromEmail}</span>
+                <CopyBtn value={order.fromEmail} k={`${order.id}-from`} copiedKey={copiedKey} onCopy={onCopy} />
+              </span>
+            )}
           </div>
 
           {(order.debtorCandidates ?? []).length > 0 && (
@@ -742,13 +754,14 @@ function QuickView({
   const th = "border border-slate-300 bg-slate-100 px-2 py-1.5 text-left font-semibold text-slate-700 whitespace-nowrap";
   const td = "border border-slate-300 px-2 py-1 align-top text-slate-700";
 
-  const HEADERS = ["Customer", "Debtor", "Account address", "PO", "Received", "Ship to", "SKU", "Qty", "Arrow qty", "Unit $", "Line $", "Status", "In Arrow", "Keyed by", "Description"];
+  const HEADERS = ["Customer", "Debtor", "Account address", "From", "PO", "Received", "Ship to", "SKU", "Qty", "Arrow qty", "Unit $", "Line $", "Status", "In Arrow", "Keyed by", "Description"];
 
   // Array-of-arrays used for BOTH the TSV copy and the real .xlsx export.
   const aoa = rows.map((r) => [
     custOf(r.o),
     r.o.debtorCode ?? "",
     r.o.accountAddress ?? "",
+    r.o.fromEmail ?? "",
     r.o.poRef ?? "",
     fmtTime(r.o.receivedAt),
     r.o.deliverTo ?? "",
@@ -765,7 +778,7 @@ function QuickView({
 
   function exportXlsx() {
     const ws = XLSX.utils.aoa_to_sheet([HEADERS, ...aoa]);
-    ws["!cols"] = [{ wch: 22 }, { wch: 8 }, { wch: 34 }, { wch: 12 }, { wch: 18 }, { wch: 34 }, { wch: 16 }, { wch: 5 }, { wch: 9 }, { wch: 9 }, { wch: 9 }, { wch: 18 }, { wch: 12 }, { wch: 14 }, { wch: 50 }];
+    ws["!cols"] = [{ wch: 22 }, { wch: 8 }, { wch: 34 }, { wch: 32 }, { wch: 12 }, { wch: 18 }, { wch: 34 }, { wch: 16 }, { wch: 5 }, { wch: 9 }, { wch: 9 }, { wch: 9 }, { wch: 18 }, { wch: 12 }, { wch: 14 }, { wch: 50 }];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "au-orders");
     XLSX.writeFile(wb, `au-orders-${new Date().toISOString().slice(0, 10)}.xlsx`);
