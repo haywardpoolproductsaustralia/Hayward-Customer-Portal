@@ -744,6 +744,44 @@ export type IntakeResult =
   | { ok: true; id?: string; skipped?: string }
   | { ok: false; error: string };
 
+/* ---------------------------------------------------------------------------
+   Re-resolving records that are already in the queue.
+
+   The debtor is decided once, at ingest. When the matcher improves, everything
+   already queued keeps whatever the old version decided — so a fix ships and
+   the wrong codes stay on screen. This re-runs ONLY the customer match, from
+   the fields already stored on the record, and never calls the extraction
+   model: SKUs, quantities and prices are left exactly as they are.
+
+   companyGuess and branchRef are extraction outputs that were never persisted,
+   so they are unavailable here. That costs less than it sounds: companyGuess is
+   typically the group letterhead ("Reece Australia Pty Ltd"), which is what was
+   pulling matches to the wrong branch in the first place. The delivery block,
+   contact and sender address — the signals that actually decide it — are all
+   stored.
+   --------------------------------------------------------------------------- */
+export interface ReResolveInput {
+  fromEmail: string;
+  fromName: string | null;
+  deliverTo: string | null;
+  contact: string | null;
+}
+
+export function reResolveCustomer(
+  rec: ReResolveInput,
+  customerNames: Record<string, string>,
+  customerProfiles: Record<string, AddressProfile>
+) {
+  return resolveCustomer(
+    null, // companyGuess not persisted — see above
+    rec.fromName ?? null,
+    rec.fromEmail,
+    [rec.deliverTo, rec.contact].filter(Boolean).join(" ") || null,
+    customerNames,
+    customerProfiles
+  );
+}
+
 export async function processRawIntake(body: IngestBody): Promise<IntakeResult> {
   if (!process.env.ANTHROPIC_API_KEY) {
     return { ok: false, error: "ANTHROPIC_API_KEY not configured" };
