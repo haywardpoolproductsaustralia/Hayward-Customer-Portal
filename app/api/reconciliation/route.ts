@@ -15,6 +15,8 @@ export interface ReconResponse {
   meta: {
     generatedAt: string;
     shipmentReceivedAt: string | null;
+    arrowGeneratedAt: string | null;
+    as400UploadedAt: string | null;
     arrowLines: number;
     as400Rows: number;
     shipmentRows: number;
@@ -30,7 +32,8 @@ export async function GET() {
     return NextResponse.json({ error: "Reconciliation is only available to internal staff" }, { status: 403 });
   }
 
-  const { arrow, as400Idx, shipIdx, counts, shipmentReceivedAt } = await getReconInputs();
+  const { arrow, as400Idx, shipIdx, counts, shipmentReceivedAt, arrowGeneratedAt, as400UploadedAt } =
+    await getReconInputs();
   const lines = reconcile(arrow, as400Idx, shipIdx);
   const summary = summarize(lines);
 
@@ -40,6 +43,8 @@ export async function GET() {
     meta: {
       generatedAt: new Date().toISOString(),
       shipmentReceivedAt,
+      arrowGeneratedAt,
+      as400UploadedAt,
       arrowLines: counts.arrow,
       as400Rows: counts.as400,
       shipmentRows: counts.shipment,
