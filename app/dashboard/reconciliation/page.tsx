@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import type { ReconResponse } from '@/app/api/reconciliation/route';
 import type { ReconLine } from '@/lib/recon/reconcile';
+import As400Upload from './As400Upload';
 
 type Head = ReconLine['head'];
 
@@ -202,6 +203,8 @@ export default function ReconciliationPage() {
           <div>{data.meta.arrowLines} Arrow · {data.meta.as400Rows} AS400 · {data.meta.shipmentRows} shipment</div>
         </div>
       </div>
+
+      <As400Upload uploadedAt={data.meta.as400UploadedAt} rows={data.meta.as400Rows} />
 
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
         <Stat label="PO lines" value={s.total} />
