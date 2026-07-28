@@ -29,6 +29,7 @@ export interface ArrowLine {
   qtyReceived: number;   // net across Arrow's partial-receipt splits
   qtyOutstanding: number;
   requestedDate: string | null; // what WE asked for (line, else header)
+  orderDate?: string | null;    // when the PO was raised
 }
 
 export interface As400Row {
@@ -66,7 +67,14 @@ export interface ReconLine {
   arrowStock: string;
   supplierSku: string;
   description: string | null;
+  creditor: string | null;
+  supplier: string;           // resolved supplier name
   qtyOrdered: number;
+  qtyReceived: number;
+  qtyOutstanding: number;
+  orderDate: string | null;
+  requestedDate: string | null;
+  received: boolean;          // true once any qty has been received
 
   as400: As400Row | null;
   shipment: ShipmentLine | null;
@@ -78,6 +86,13 @@ export interface ReconLine {
   etaKind: EtaKind;
   daysLate: number | null; // container/actual vs. what we requested; null if unknown
 }
+
+const SUPPLIER_NAMES: Record<string, string> = {
+  "17100": "Hayward US Inc",
+  "17200": "Hayward Wuxi",
+  "17115": "Hayward (17115)",
+  "17125": "Hayward (17125)",
+};
 
 const daysBetween = (a: string, b: string) =>
   Math.round((new Date(a).getTime() - new Date(b).getTime()) / 86_400_000);
@@ -153,7 +168,15 @@ export function reconcileLine(
 
   return {
     po: a.po, line: a.line, arrowStock: a.arrowStock, supplierSku: a.supplierSku,
-    description: a.description, qtyOrdered: a.qtyOrdered,
+    description: a.description,
+    creditor: a.creditor ?? null,
+    supplier: (a.creditor && SUPPLIER_NAMES[a.creditor]) || a.creditor || "",
+    qtyOrdered: a.qtyOrdered,
+    qtyReceived: a.qtyReceived,
+    qtyOutstanding: a.qtyOutstanding,
+    orderDate: a.orderDate ?? null,
+    requestedDate: a.requestedDate ?? null,
+    received: a.qtyReceived > 0,
     as400, shipment, shipmentCount: cands.length,
     head, flags, eta, etaKind, daysLate,
   };
