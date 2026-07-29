@@ -40,7 +40,7 @@ interface StockInfo {
 
 const STATUS: Record<string, { label: string; icon: typeof CheckCircle2; className: string }> = {
   C: { label: 'Completed', icon: CheckCircle2, className: 'bg-ink/5 text-ink/50' },
-  A: { label: 'Active', icon: Clock, className: 'bg-wave/10 text-wave' },
+  A: { label: 'In Progress', icon: Clock, className: 'bg-wave/10 text-wave' },
   X: { label: 'Cancelled', icon: XCircle, className: 'bg-coral/10 text-coral' },
   B: { label: 'Backordered', icon: PauseCircle, className: 'bg-amber/10 text-amber' },
   H: { label: 'On hold', icon: PauseCircle, className: 'bg-amber/10 text-amber' },
@@ -353,14 +353,14 @@ export default function OrdersPage() {
 
       <div className="rounded-2xl bg-white border border-ink/10 shadow-soft p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
         <SearchableSelect
-          label="Hayward order #"
+          label="Hayward packing slip"
           placeholder="e.g. 445822"
           options={orderNoOptions}
           value={orderNoSearch}
           onChange={setOrderNoSearch}
         />
         <SearchableSelect
-          label="Your order #"
+          label="Customer order #"
           placeholder="e.g. 228031499"
           options={customerOrderNoOptions}
           value={customerOrderNoSearch}
@@ -439,7 +439,7 @@ export default function OrdersPage() {
             <thead>
               <tr className="sticky top-0 z-10 bg-foam/90 backdrop-blur text-left text-[10px] uppercase tracking-tight text-ink/45 divide-x divide-ink/10 [&>th]:px-2 [&>th]:py-2.5 [&>th]:font-semibold [&>th]:break-words border-b border-ink/10">
                 <th className="w-[7%]">Order #</th>
-                <th className="w-[7%]">Your order #</th>
+                <th className="w-[7%]">Customer order #</th>
                 {isHeadOffice && <th className="w-[13%]">Branch</th>}
                 <th className="w-[7%]">Order date</th>
                 <th className="w-[7%]">Est. delivery</th>
