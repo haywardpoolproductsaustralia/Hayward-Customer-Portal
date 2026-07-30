@@ -119,7 +119,11 @@ export async function GET() {
     }));
 
     // newest activity first
-    enriched.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+   const statusRank = (s: string) => ({ Open: 0, Pending: 1, Resolved: 2, Closed: 3 } as Record<string, number>)[s] ?? 4;
+enriched.sort((a, b) => {
+  const r = statusRank(a.status) - statusRank(b.status);
+  return r !== 0 ? r : new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+});
 
     return NextResponse.json({
       count: enriched.length,
