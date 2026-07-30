@@ -5,11 +5,21 @@
 // Lists the logged-in customer's warranty tickets (those with a Packing Slip
 // Number in Freshdesk) and, for each product on the linked sales order, its
 // live stock position: available now, on backorder, and next inbound ETA.
-// Data comes from GET /api/warranty-tickets.
+// Includes a search box that filters by Freshdesk ticket number, packing slip
+// number, or SKU code. Data comes from GET /api/warranty-tickets.
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { ShieldCheck, ExternalLink, PackageCheck, PackageX, Truck, Loader2 } from 'lucide-react';
+import {
+  ShieldCheck,
+  ExternalLink,
+  PackageCheck,
+  PackageX,
+  Truck,
+  Loader2,
+  Search,
+  X,
+} from 'lucide-react';
 
 const FRESHDESK_PORTAL = 'hayward-supportdesk.freshdesk.com';
 
@@ -81,6 +91,7 @@ export default function WarrantyTicketsPage() {
   const [tickets, setTickets] = useState<WarrantyTicket[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [query, setQuery] = useState('');
 
   useEffect(() => {
     fetch('/api/warranty-tickets')
@@ -90,9 +101,21 @@ export default function WarrantyTicketsPage() {
       .finally(() => setLoading(false));
   }, []);
 
+  // Filter by Freshdesk ticket number, packing slip number, or SKU code.
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return tickets;
+    return tickets.filter(
+      (t) =>
+        String(t.ticketId).includes(q) ||
+        (t.packingSlip || '').toLowerCase().includes(q) ||
+        (t.lines || []).some((l) => (l.sku || '').toLowerCase().includes(q))
+    );
+  }, [tickets, query]);
+
   return (
     <div className="max-w-5xl">
-      <div className="mb-8 flex items-start justify-between gap-4">
+      <div className="mb-6 flex items-start justify-between gap-4">
         <div>
           <h1 className="flex items-center gap-2 text-xl font-semibold text-ink">
             <ShieldCheck className="h-5 w-5 text-wave" />
@@ -113,6 +136,35 @@ export default function WarrantyTicketsPage() {
         </Link>
       </div>
 
+      {/* Search */}
+      <div className="mb-6">
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink/40" />
+          <input
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search by ticket number, packing slip, or SKU…"
+            className="w-full rounded-xl border border-ink/10 bg-white py-2.5 pl-10 pr-10 text-sm text-ink shadow-soft outline-none transition focus:border-wave/40"
+          />
+          {query && (
+            <button
+              type="button"
+              onClick={() => setQuery('')}
+              aria-label="Clear search"
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-ink/40 transition hover:text-ink"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          )}
+        </div>
+        {!loading && !error && query && (
+          <p className="mt-2 text-xs text-ink/50">
+            Showing {filtered.length} of {tickets.length} tickets
+          </p>
+        )}
+      </div>
+
       {loading && (
         <div className="flex items-center gap-2 text-sm text-ink/50">
           <Loader2 className="h-4 w-4 animate-spin" /> Loading your warranty jobs…
@@ -129,13 +181,19 @@ export default function WarrantyTicketsPage() {
         </div>
       )}
 
+      {!loading && !error && tickets.length > 0 && filtered.length === 0 && (
+        <div className="rounded-2xl border border-ink/10 bg-white p-8 text-center text-sm text-ink/50 shadow-soft">
+          No warranty tickets match “{query}”.
+        </div>
+      )}
+
       <div className="space-y-4">
-        {tickets.map((t) => (
+        {filtered.map((t) => (
           <div key={t.ticketId} className="rounded-2xl border border-ink/10 bg-white shadow-soft">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-ink/5 px-5 py-4">
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
-                  <span className="truncate text-sm font-semibold text-ink">{t.subject}</span>
+                  <span className="truncate text-sm font-semibold text-ink">{t.subject || `Ticket #${t.ticketId}`}</span>
                   <StatusPill status={t.status} />
                 </div>
                 <div className="mt-0.5 text-xs text-ink/50">
