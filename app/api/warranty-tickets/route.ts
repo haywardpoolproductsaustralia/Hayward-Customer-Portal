@@ -3,12 +3,13 @@
 // Warranty tickets for the logged-in account, each line enriched with the LIVE
 // stock snapshot (on-hand, backordered, on-order + ETA).
 //
-//   Hayward staff (aggregate org)  -> every matched ticket  (warranty:tickets:all)
-//   Every other company            -> only their own        (warranty:tickets:group:{groupKey})
+// The sync writes ONE key, warranty:tickets:all (every matched ticket, each
+// carrying its customerCode). We scope it here per login:
+//   Hayward staff (aggregate org) -> all of it
+//   every other company           -> only tickets whose customerCode is theirs
 //
-// Keys are written by portal-sync/sync-warranty-tickets.js. Stock is joined
-// here at read time; incoming/ETA is read from incoming:all (same as /api/stock)
-// so a stock-sync rewrite can't wipe it.
+// Stock is joined at read time; incoming/ETA comes from incoming:all (same as
+// /api/stock) so a stock-sync rewrite can't wipe it.
 
 import { NextResponse } from 'next/server';
 import { getCustomerAccess } from '@/lib/access';
@@ -66,26 +67,15 @@ export async function GET() {
   }
 
   try {
-    // 1) Which tickets does this login see?
-    let tickets: any[] = [];
+    // 1) Load the all-tickets snapshot, then scope to this login.
+    const all = (await getJSON<any[]>('warranty:tickets:all')) ?? [];
 
+    let tickets: any[];
     if (access.isAggregate) {
-      // Hayward staff: every matched warranty ticket, in one read.
-      tickets = (await getJSON<any[]>('warranty:tickets:all')) ?? [];
+      tickets = all; // Hayward staff see everything
     } else {
-      // Every other company: only their own tickets.
-      const rollup = await getJSON<any[]>(`warranty:tickets:group:${access.groupKey}`);
-      if (rollup) {
-        tickets = rollup;
-      } else if (access.customerCodes.length) {
-        const CHUNK = 500;
-        for (let i = 0; i < access.customerCodes.length; i += CHUNK) {
-          const chunk = access.customerCodes.slice(i, i + CHUNK);
-          const keys = chunk.map((c) => `warranty:tickets:${c}`);
-          const res = await redis.mget<(string | null)[]>(...keys);
-          for (const r of res) tickets.push(...parseArray(r));
-        }
-      }
+      const codes = new Set(access.customerCodes);
+      tickets = all.filter((t) => codes.has(t.customerCode)); // own tickets only
     }
 
     if (tickets.length === 0) {
@@ -142,11 +132,6 @@ export async function GET() {
 }
 
 // --- helpers ---------------------------------------------------------------
-function parseArray(raw: unknown): any[] {
-  if (!raw) return [];
-  const v = typeof raw === 'string' ? safeJson(raw) : raw;
-  return Array.isArray(v) ? v : [];
-}
 function parseObject(raw: unknown): any {
   if (!raw) return null;
   return typeof raw === 'string' ? safeJson(raw) : raw;
