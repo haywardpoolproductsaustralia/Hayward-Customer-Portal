@@ -13,7 +13,7 @@ const NAV_ITEMS = [
   { href: '/dashboard/orders', label: 'Orders', icon: Receipt },
   { href: '/dashboard/pricing', label: 'Pricing', icon: Tag },
   { href: '/dashboard/manuals', label: 'Manuals', icon: BookOpen },
- // { href: '/dashboard/support', label: 'Warranty', icon: ShieldCheck },
+ { href: '/dashboard/warranty', label: 'Warranty', icon: ShieldCheck },
   ];
 
 const STAFF_ONLY_NAV_ITEMS = [
