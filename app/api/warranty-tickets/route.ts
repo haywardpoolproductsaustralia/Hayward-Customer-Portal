@@ -1,14 +1,14 @@
 // app/api/warranty-tickets/route.ts
 //
-// Returns the logged-in customer's warranty tickets (those carrying a Packing
-// Slip Number in Freshdesk), each with its Arrow order lines enriched with the
-// LIVE stock snapshot: on-hand, backordered, and incoming ETA.
+// Warranty tickets for the logged-in account, each line enriched with the LIVE
+// stock snapshot (on-hand, backordered, on-order + ETA).
 //
-// warranty:tickets:{code} and warranty:tickets:group:{groupKey} are written by
-// portal-sync/sync-warranty-tickets.js (slip + order lines, no stock). Stock is
-// joined here at read time. Incoming/ETA is read from incoming:all (the same
-// key /api/stock reads) rather than stock.incoming, so a stock-sync rewrite
-// can't wipe it.
+//   Hayward staff (aggregate org)  -> every matched ticket  (warranty:tickets:all)
+//   Every other company            -> only their own        (warranty:tickets:group:{groupKey})
+//
+// Keys are written by portal-sync/sync-warranty-tickets.js. Stock is joined
+// here at read time; incoming/ETA is read from incoming:all (same as /api/stock)
+// so a stock-sync rewrite can't wipe it.
 
 import { NextResponse } from 'next/server';
 import { getCustomerAccess } from '@/lib/access';
@@ -50,11 +50,11 @@ function summariseStock(stock: StockEntry | null, incoming: IncomingInfo | undef
   return {
     onHand,
     allocated,
-    available, // free-to-sell
+    available,
     backordered,
-    onOrder: inc?.onOrderQty || 0, // qty on open supplier POs
-    nextEta: inc?.nextEta || null, // when the next inbound delivery is due
-    deliveries: inc?.deliveries || [], // full [{ eta, qty }] schedule
+    onOrder: inc?.onOrderQty || 0,
+    nextEta: inc?.nextEta || null,
+    deliveries: inc?.deliveries || [],
     inStock: available > 0,
   };
 }
@@ -66,21 +66,25 @@ export async function GET() {
   }
 
   try {
-    // 1) Gather this login's warranty tickets.
-    //    Prefer the pre-built group rollup (one read); fall back to per-code.
+    // 1) Which tickets does this login see?
     let tickets: any[] = [];
 
-    const rollup = await getJSON<any[]>(`warranty:tickets:group:${access.groupKey}`);
-    if (rollup) {
-      tickets = rollup;
-    } else if (access.customerCodes.length) {
-      // chunked mget so an aggregate login (every code) can't overrun a request
-      const CHUNK = 500;
-      for (let i = 0; i < access.customerCodes.length; i += CHUNK) {
-        const chunk = access.customerCodes.slice(i, i + CHUNK);
-        const keys = chunk.map((c) => `warranty:tickets:${c}`);
-        const res = await redis.mget<(string | null)[]>(...keys);
-        for (const r of res) tickets.push(...parseArray(r));
+    if (access.isAggregate) {
+      // Hayward staff: every matched warranty ticket, in one read.
+      tickets = (await getJSON<any[]>('warranty:tickets:all')) ?? [];
+    } else {
+      // Every other company: only their own tickets.
+      const rollup = await getJSON<any[]>(`warranty:tickets:group:${access.groupKey}`);
+      if (rollup) {
+        tickets = rollup;
+      } else if (access.customerCodes.length) {
+        const CHUNK = 500;
+        for (let i = 0; i < access.customerCodes.length; i += CHUNK) {
+          const chunk = access.customerCodes.slice(i, i + CHUNK);
+          const keys = chunk.map((c) => `warranty:tickets:${c}`);
+          const res = await redis.mget<(string | null)[]>(...keys);
+          for (const r of res) tickets.push(...parseArray(r));
+        }
       }
     }
 
@@ -102,7 +106,7 @@ export async function GET() {
       ticketId: t.ticketId,
       subject: t.subject,
       status: statusLabel(t.status),
-      packingSlip: t.packingSlip, // = sales order number
+      packingSlip: t.packingSlip,
       customerCode: t.customerCode,
       createdAt: t.createdAt,
       updatedAt: t.updatedAt,
@@ -118,12 +122,13 @@ export async function GET() {
       })),
     }));
 
-    // newest activity first
-   const statusRank = (s: string) => ({ Open: 0, Pending: 1, Resolved: 2, Closed: 3 } as Record<string, number>)[s] ?? 4;
-enriched.sort((a, b) => {
-  const r = statusRank(a.status) - statusRank(b.status);
-  return r !== 0 ? r : new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-});
+    // Open/Pending first, then newest-logged within each status.
+    const statusRank = (s: string) =>
+      ({ Open: 0, Pending: 1, Resolved: 2, Closed: 3 } as Record<string, number>)[s] ?? 4;
+    enriched.sort((a, b) => {
+      const r = statusRank(a.status) - statusRank(b.status);
+      return r !== 0 ? r : new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    });
 
     return NextResponse.json({
       count: enriched.length,
