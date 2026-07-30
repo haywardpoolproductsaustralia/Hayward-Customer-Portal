@@ -4,7 +4,7 @@
 //
 // Lists the logged-in customer's warranty tickets (those with a Packing Slip
 // Number in Freshdesk) and, for each product on the linked sales order, its
-// live stock position: available now, on backorder, and next inbound ETA.
+// live stock position: available now, plus what's on order and when it's due.
 // Includes a search box that filters by Freshdesk ticket number, packing slip
 // number, or SKU code. Data comes from GET /api/warranty-tickets.
 
@@ -23,11 +23,16 @@ import {
 
 const FRESHDESK_PORTAL = 'hayward-supportdesk.freshdesk.com';
 
+interface Delivery {
+  eta: string | null;
+  qty: number;
+}
 interface LineStock {
   available: number;
   backordered: number;
   onOrder: number;
   nextEta: string | null;
+  deliveries: Delivery[];
   inStock: boolean;
 }
 interface Line {
@@ -61,29 +66,48 @@ function StatusPill({ status }: { status: string }) {
   return <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${tone}`}>{status}</span>;
 }
 
-function StockBadge({ stock }: { stock: LineStock }) {
-  if (stock.inStock) {
-    return (
-      <span className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">
-        <PackageCheck className="h-3.5 w-3.5" />
-        {stock.available} in stock
-      </span>
-    );
-  }
-  if (stock.onOrder > 0) {
-    const eta = fmtDate(stock.nextEta);
-    return (
-      <span className="inline-flex items-center gap-1.5 rounded-lg bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700">
-        <Truck className="h-3.5 w-3.5" />
-        {stock.onOrder} on the way{eta ? ` · ETA ${eta}` : ' · ETA TBC'}
-      </span>
-    );
-  }
+// Availability chip + (independently) an "on order / ETA" chip whenever there's
+// incoming supply, so an in-stock item still shows what's arriving next. If
+// there are multiple inbound deliveries, each is listed with its date.
+function StockCell({ stock }: { stock: LineStock }) {
+  const nextEta = fmtDate(stock.nextEta);
+  const deliveries = (stock.deliveries || []).filter((d) => d.qty > 0);
+  const showSchedule = deliveries.length > 1;
+
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-lg bg-rose-50 px-2.5 py-1 text-xs font-medium text-rose-700">
-      <PackageX className="h-3.5 w-3.5" />
-      On backorder
-    </span>
+    <div className="flex shrink-0 flex-col items-end gap-1">
+      {/* availability now */}
+      {stock.inStock ? (
+        <span className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">
+          <PackageCheck className="h-3.5 w-3.5" />
+          {stock.available} in stock
+        </span>
+      ) : (
+        <span className="inline-flex items-center gap-1.5 rounded-lg bg-rose-50 px-2.5 py-1 text-xs font-medium text-rose-700">
+          <PackageX className="h-3.5 w-3.5" />
+          {stock.onOrder > 0 ? 'Out of stock' : 'On backorder'}
+        </span>
+      )}
+
+      {/* incoming supply — shown regardless of in-stock state */}
+      {stock.onOrder > 0 && (
+        <span className="inline-flex items-center gap-1.5 rounded-lg bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700">
+          <Truck className="h-3.5 w-3.5" />
+          {stock.onOrder} on order{nextEta ? ` · ETA ${nextEta}` : ' · ETA TBC'}
+        </span>
+      )}
+
+      {/* full inbound schedule when more than one delivery is expected */}
+      {showSchedule && (
+        <div className="text-right text-[11px] leading-tight text-ink/40">
+          {deliveries.map((d, i) => (
+            <div key={i}>
+              {d.qty} · {fmtDate(d.eta) || 'date TBC'}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -225,7 +249,7 @@ export default function WarrantyTicketsPage() {
                       {l.qtyBackordered > 0 ? ` · ${l.qtyBackordered} backordered on this job` : ''}
                     </div>
                   </div>
-                  <StockBadge stock={l.stock} />
+                  <StockCell stock={l.stock} />
                 </div>
               ))}
             </div>
