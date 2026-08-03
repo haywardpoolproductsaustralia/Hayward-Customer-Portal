@@ -5,6 +5,37 @@ import type { IntakeRecord, IntakeLine } from "@/lib/au-orders-inbox";
 import { Copy, Check, ChevronRight, ExternalLink, Lock, Download, X } from "lucide-react";
 import * as XLSX from "xlsx";
 
+/** SKUs pick up stray spacing on the way through email extraction; Arrow keeps
+ *  them space-free in a char() column. Both sides of the match normalise the
+ *  same way, so keep this identical to normSku() in portal-sync. */
+const skuKey = (s: string | null | undefined) =>
+  String(s ?? "").trim().toUpperCase().replace(/\s+/g, "");
+
+/** Arrow's qty for ONE email line. Null means Arrow has no such SKU on the
+ *  order — which is a real finding, not missing data. */
+function arrowQtyForLine(o: IntakeRecord, l: IntakeLine): number | null {
+  if (!o.seenInArrow || !o.arrowLines) return null;
+  const k = skuKey(l.sku);
+  if (!k) return null;
+  const q = o.arrowLines[k];
+  return q === undefined ? null : q;
+}
+
+/** Per-line reconciliation for one order. `absent` counts SKUs the email has
+ *  that Arrow doesn't; `differs` counts SKUs present on both at other quantities. */
+function arrowLineMatch(o: IntakeRecord) {
+  const total = o.lines.length;
+  let matched = 0;
+  let absent = 0;
+  for (const l of o.lines) {
+    const a = arrowQtyForLine(o, l);
+    if (a === null) absent++;
+    else if (a === (l.qty ?? 0)) matched++;
+  }
+  return { matched, total, absent, differs: total - matched - absent };
+}
+
+
 const fmtMoney = (n: number) =>
   n.toLocaleString("en-AU", { style: "currency", currency: "AUD" });
 
@@ -430,8 +461,11 @@ function OrderRow({
   // Quantity check against Arrow. Matched on debtor + customer PO by the sync;
   // arrowTotalQty is the summed qty of that Arrow order (null = not captured yet).
   const intakeQty = order.lines.reduce((s, l) => s + (l.qty ?? 0), 0);
-  const arrowQtyKnown = order.seenInArrow && order.arrowTotalQty != null;
-  const qtyMatch = arrowQtyKnown && order.arrowTotalQty === intakeQty;
+  // Per-SKU now, not order-level: an order whose totals happen to agree can
+  // still have two lines keyed against the wrong stock codes.
+  const arrowQtyKnown = order.seenInArrow && order.arrowLines != null;
+  const lineMatch = arrowLineMatch(order);
+  const qtyMatch = arrowQtyKnown && lineMatch.total > 0 && lineMatch.matched === lineMatch.total;
   const stop = (e: React.MouseEvent) => e.stopPropagation();
 
   return (
@@ -467,9 +501,9 @@ function OrderRow({
             {order.extractionConfidence === "low" && <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-800">Check</span>}
             {order.seenInArrow && (
               qtyMatch ? (
-                <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-xs font-medium text-emerald-700">✓ On Arrow · qty match</span>
+                <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-xs font-medium text-emerald-700">✓ On Arrow · all {lineMatch.total} lines match</span>
               ) : arrowQtyKnown ? (
-                <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-800">On Arrow · qty differs</span>
+                <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-800">On Arrow · {lineMatch.matched}/{lineMatch.total} lines match</span>
               ) : (
                 <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-xs font-medium text-emerald-700">In Arrow</span>
               )
@@ -571,9 +605,11 @@ function OrderRow({
             }`}>
               <Check className="h-4 w-4" />
               {qtyMatch
-                ? "Showing on Arrow — quantities match"
+                ? `Showing on Arrow — all ${lineMatch.total} lines match`
                 : arrowQtyKnown
-                ? `Showing on Arrow — quantities differ (Arrow ${order.arrowTotalQty} / email ${intakeQty})`
+                ? `Showing on Arrow — ${lineMatch.matched} of ${lineMatch.total} lines match` +
+                  (lineMatch.differs ? `, ${lineMatch.differs} at a different qty` : "") +
+                  (lineMatch.absent ? `, ${lineMatch.absent} not on the Arrow order` : "")
                 : "Showing on Arrow"}
               {order.arrowOrderNo ? ` as ${order.arrowOrderNo}` : ""}
               {order.arrowEnteredBy ? ` · entered by ${order.arrowEnteredBy}` : ""}
@@ -805,27 +841,27 @@ function QuickView({
   const custOf = (o: IntakeRecord) => o.debtorName ?? o.fromName ?? o.fromEmail ?? "";
   const statusOf = (o: IntakeRecord) => {
     if (o.seenInArrow) {
-      if (o.arrowTotalQty != null) {
-        const iq = o.lines.reduce((s, l) => s + (l.qty ?? 0), 0);
-        return o.arrowTotalQty === iq ? "On Arrow (qty match)" : "On Arrow (qty differs)";
+      if (o.arrowLines != null) {
+        const m = arrowLineMatch(o);
+        return m.matched === m.total
+          ? `On Arrow (all ${m.total} lines match)`
+          : `On Arrow (${m.matched}/${m.total} lines match)`;
       }
       return "In Arrow";
     }
     return o.status === "keyed" ? "Keyed" : o.status === "claimed" ? "Claimed" : "New";
   };
   const inArrowOf = (o: IntakeRecord) => (o.seenInArrow ? (o.arrowOrderNo ?? "yes") : "");
-  // Qty as entered on the matching Arrow sales order (order-level, so it
-  // repeats down the denormalised line rows the same way PO/Debtor do).
-  const emailQtyOf = (o: IntakeRecord) => o.lines.reduce((s, l) => s + (l.qty ?? 0), 0);
-  const arrowQtyOf = (o: IntakeRecord) => (o.seenInArrow ? o.arrowTotalQty : null);
+  // Arrow qty is now resolved per SKU, so each denormalised row carries the
+  // quantity for its OWN line rather than repeating one order total downward.
   const keyedByOf = (o: IntakeRecord) => (o.status === "keyed" ? (o.keyedByName ?? "") : "");
 
   // One row per line item — denormalised, like an Excel export
   const rows = orders.flatMap((o) => o.lines.map((l, li) => ({ o, l, li })));
   const totalQty = rows.reduce((s, r) => s + (r.l.qty ?? 0), 0);
   const grand = rows.reduce((s, r) => s + lineRev(r.l), 0);
-  // Arrow qty is order-level, so sum it once per order, not once per row.
-  const arrowTotal = orders.reduce((s, o) => s + (arrowQtyOf(o) ?? 0), 0);
+  // Per-row now, so it sums like any other line column.
+  const arrowTotal = rows.reduce((s, r) => s + (arrowQtyForLine(r.o, r.l) ?? 0), 0);
 
   const th = "border border-slate-300 bg-slate-100 px-2 py-1.5 text-left font-semibold text-slate-700 whitespace-nowrap";
   const td = "border border-slate-300 px-2 py-1 align-top text-slate-700";
@@ -843,7 +879,7 @@ function QuickView({
     r.o.deliverTo ?? "",
     r.l.sku ?? "",
     r.l.qty ?? "",
-    arrowQtyOf(r.o) ?? "",
+    arrowQtyForLine(r.o, r.l) ?? "",
     r.l.claimedPrice != null ? Number(r.l.claimedPrice) : "",
     Number(lineRev(r.l).toFixed(2)),
     statusOf(r.o),
@@ -929,21 +965,23 @@ function QuickView({
                 <td className={`${td} text-right tabular-nums`}>{r.l.qty ?? ""}</td>
                 <td
                   className={`${td} text-right tabular-nums ${
-                    arrowQtyOf(r.o) == null
+                    arrowQtyForLine(r.o, r.l) == null
                       ? "text-slate-400"
-                      : arrowQtyOf(r.o) === emailQtyOf(r.o)
+                      : arrowQtyForLine(r.o, r.l) === (r.l.qty ?? 0)
                       ? "text-emerald-700"
                       : "font-semibold text-amber-700"
                   }`}
                   title={
-                    arrowQtyOf(r.o) == null
-                      ? r.o.seenInArrow
-                        ? "Order is in Arrow but the qty hasn't been captured by the sync yet"
-                        : "Not yet in Arrow"
-                      : `Arrow ${arrowQtyOf(r.o)} vs email ${emailQtyOf(r.o)}`
+                    arrowQtyForLine(r.o, r.l) == null
+                      ? !r.o.seenInArrow
+                        ? "Not yet in Arrow"
+                        : r.o.arrowLines == null
+                        ? "Order is in Arrow but its lines haven't been captured by the sync yet"
+                        : `Arrow order ${r.o.arrowOrderNo ?? ""} has no line for ${r.l.sku ?? "this SKU"}`
+                      : `Arrow ${arrowQtyForLine(r.o, r.l)} vs email ${r.l.qty ?? 0} for ${r.l.sku ?? ""}`
                   }
                 >
-                  {arrowQtyOf(r.o) ?? "—"}
+                  {arrowQtyForLine(r.o, r.l) ?? "—"}
                 </td>
                 <td className={`${td} text-right tabular-nums text-slate-500`}>
                   {r.l.claimedPrice != null ? r.l.claimedPrice.toFixed(2) : ""}
