@@ -501,11 +501,11 @@ function OrderRow({
             {order.extractionConfidence === "low" && <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-800">Check</span>}
             {order.seenInArrow && (
               qtyMatch ? (
-                <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-xs font-medium text-emerald-700">✓ On Arrow · all {lineMatch.total} lines match</span>
+                <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-xs font-medium text-emerald-700">✓ Entered on Arrow · all {lineMatch.total} lines match</span>
               ) : arrowQtyKnown ? (
-                <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-800">On Arrow · {lineMatch.matched}/{lineMatch.total} lines match</span>
+                <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-800">Entered on Arrow · {lineMatch.matched}/{lineMatch.total} lines match</span>
               ) : (
-                <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-xs font-medium text-emerald-700">In Arrow</span>
+                <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-xs font-medium text-emerald-700">Entered on Arrow</span>
               )
             )}
           </div>
@@ -605,12 +605,12 @@ function OrderRow({
             }`}>
               <Check className="h-4 w-4" />
               {qtyMatch
-                ? `Showing on Arrow — all ${lineMatch.total} lines match`
+                ? `Entered on Arrow — all ${lineMatch.total} lines match`
                 : arrowQtyKnown
-                ? `Showing on Arrow — ${lineMatch.matched} of ${lineMatch.total} lines match` +
+                ? `Entered on Arrow — ${lineMatch.matched} of ${lineMatch.total} lines match` +
                   (lineMatch.differs ? `, ${lineMatch.differs} at a different qty` : "") +
                   (lineMatch.absent ? `, ${lineMatch.absent} not on the Arrow order` : "")
-                : "Showing on Arrow"}
+                : "Entered on Arrow"}
               {order.arrowOrderNo ? ` as ${order.arrowOrderNo}` : ""}
               {order.arrowEnteredBy ? ` · entered by ${order.arrowEnteredBy}` : ""}
               {order.seenInArrowAt ? ` · ${fmtTime(order.seenInArrowAt)}` : ""}
@@ -844,10 +844,10 @@ function QuickView({
       if (o.arrowLines != null) {
         const m = arrowLineMatch(o);
         return m.matched === m.total
-          ? `On Arrow (all ${m.total} lines match)`
-          : `On Arrow (${m.matched}/${m.total} lines match)`;
+          ? `Entered on Arrow (all ${m.total} lines match)`
+          : `Entered on Arrow (${m.matched}/${m.total} lines match)`;
       }
-      return "In Arrow";
+      return "Entered on Arrow";
     }
     return o.status === "keyed" ? "Keyed" : o.status === "claimed" ? "Claimed" : "New";
   };
