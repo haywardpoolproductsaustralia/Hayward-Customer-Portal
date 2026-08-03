@@ -71,6 +71,28 @@ export interface IntakeRecord extends IntakeData {
   arrowOrderNo: string | null;     // Hayward's order number once it's in Arrow
   arrowEnteredBy: string | null;   // Arrow operator who entered it (if SORMAST records it)
   arrowTotalQty: number | null;    // summed qty of the matched Arrow order (for qty-match check)
+  /** Per-SKU quantities on the matched Arrow order, keyed by normalised SKU
+   *  (uppercased, whitespace stripped) so it lines up with what extraction
+   *  produced. Null until the sync has captured the order's lines. */
+  arrowLines: Record<string, number> | null;
+}
+
+/** Upstash deserializes on read: a value written with JSON.stringify comes back
+ *  as an object, not the string it went in as. Accept either, and drop anything
+ *  that isn't a clean sku -> number map rather than letting NaN reach the UI. */
+function parseArrowLines(v: unknown): Record<string, number> | null {
+  if (v === undefined || v === null || v === "") return null;
+  let raw: unknown = v;
+  if (typeof v === "string") {
+    try { raw = JSON.parse(v); } catch { return null; }
+  }
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const out: Record<string, number> = {};
+  for (const [sku, qty] of Object.entries(raw as Record<string, unknown>)) {
+    const n = Number(qty);
+    if (sku && Number.isFinite(n)) out[sku] = n;
+  }
+  return Object.keys(out).length > 0 ? out : null;
 }
 
 const itemKey = (id: string) => `soq:${id}`;
@@ -97,6 +119,7 @@ function rowToRecord(id: string, h: Record<string, unknown>): IntakeRecord {
     arrowOrderNo: (h.arrowOrderNo as string) || null,
     arrowEnteredBy: (h.arrowEnteredBy as string) || null,
     arrowTotalQty: num(h.arrowTotalQty),
+    arrowLines: parseArrowLines(h.arrowLines),
   };
 }
 
@@ -158,6 +181,7 @@ export async function createIntake(data: IntakeData): Promise<string> {
     arrowOrderNo: "",
     arrowEnteredBy: "",
     arrowTotalQty: "",
+    arrowLines: "",
   });
   await redis.zadd(INDEX, { score: data.receivedAt, member: id });
   await redis.set(msgKey(data.internetMessageId), id);
