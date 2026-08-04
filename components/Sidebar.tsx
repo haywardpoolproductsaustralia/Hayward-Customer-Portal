@@ -6,6 +6,7 @@ import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import { Boxes, Receipt, Tag, BookOpen, Menu, X, Home, Sparkles, Warehouse, TrendingUp, Inbox, UserSearch, ShieldCheck, GitCompareArrows, ShoppingCart } from 'lucide-react';
 import { PORTAL_ORDERS_ENABLED } from '@/lib/features';
+import { isPageHidden } from '@/lib/page-visibility';
 
 const NAV_ITEMS = [
   { href: '/dashboard', label: 'Home', icon: Home },
@@ -13,8 +14,8 @@ const NAV_ITEMS = [
   { href: '/dashboard/orders', label: 'Orders', icon: Receipt },
   { href: '/dashboard/pricing', label: 'Pricing', icon: Tag },
   { href: '/dashboard/manuals', label: 'Manuals', icon: BookOpen },
-// { href: '/dashboard/warranty', label: 'Warranty', icon: ShieldCheck },
-  ];
+  { href: '/dashboard/warranty', label: 'Warranty', icon: ShieldCheck },
+];
 
 const STAFF_ONLY_NAV_ITEMS = [
   // Portal orders is hidden while PORTAL_ORDERS_ENABLED is false. Kept in the
@@ -33,13 +34,21 @@ const STAFF_ONLY_NAV_ITEMS = [
 function NavLinks({
   pathname,
   isAggregate,
+  groupKey,
   onNavigate,
 }: {
   pathname: string;
   isAggregate: boolean;
+  groupKey?: string | null;
   onNavigate?: () => void;
 }) {
-  const items = isAggregate ? [...NAV_ITEMS, ...STAFF_ONLY_NAV_ITEMS] : NAV_ITEMS;
+  const base = isAggregate ? [...NAV_ITEMS, ...STAFF_ONLY_NAV_ITEMS] : NAV_ITEMS;
+
+  // Per-group hiding (lib/page-visibility.ts). This only removes the LINK -
+  // the page and its API route enforce the same rule server-side, since a
+  // hidden link is still a reachable URL.
+  const items = base.filter((item) => !isPageHidden(item.href, groupKey, isAggregate));
+
   return (
     <nav className="flex flex-col gap-1">
       {items.map((item) => {
@@ -67,7 +76,18 @@ function NavLinks({
 // Warehouse, Forecast) - these only show for the Hayward aggregate org.
 // app/dashboard/layout.tsx passes it through, and other components
 // (CustomerPicker) key off it too.
-export function SidebarNav({ isAggregate = false }: { isAggregate?: boolean }) {
+//
+// groupKey is the customer-group key from lib/access.ts, passed through for
+// per-group page hiding (e.g. Reece doesn't get Warranty). It's separate from
+// isAggregate on purpose: Hayward's org contains every group's codes, so any
+// code-based test would hide staff pages too.
+export function SidebarNav({
+  isAggregate = false,
+  groupKey = null,
+}: {
+  isAggregate?: boolean;
+  groupKey?: string | null;
+}) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
 
@@ -91,7 +111,12 @@ export function SidebarNav({ isAggregate = false }: { isAggregate?: boolean }) {
                 <X className="h-5 w-5 text-ink/60" />
               </button>
             </div>
-            <NavLinks pathname={pathname} isAggregate={isAggregate} onNavigate={() => setOpen(false)} />
+            <NavLinks
+              pathname={pathname}
+              isAggregate={isAggregate}
+              groupKey={groupKey}
+              onNavigate={() => setOpen(false)}
+            />
           </div>
           <div className="flex-1 bg-ink/40" onClick={() => setOpen(false)} />
         </div>
@@ -102,7 +127,7 @@ export function SidebarNav({ isAggregate = false }: { isAggregate?: boolean }) {
         <div className="px-2 mb-8">
           <Image src="/hayward-logo.png" alt="Hayward" width={140} height={32} className="h-8 w-auto" priority />
         </div>
-        <NavLinks pathname={pathname} isAggregate={isAggregate} />
+        <NavLinks pathname={pathname} isAggregate={isAggregate} groupKey={groupKey} />
       </aside>
     </>
   );
