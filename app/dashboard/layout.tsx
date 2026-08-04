@@ -30,7 +30,8 @@ export default async function DashboardLayout({
   return (
     <SelectedCustomerProvider>
       <div className="min-h-screen bg-foam">
-        <SidebarNav isAggregate={access?.isAggregate} />
+        {/* groupKey drives per-group page hiding in the nav (lib/page-visibility.ts). */}
+        <SidebarNav isAggregate={access?.isAggregate} groupKey={access?.groupKey ?? null} />
 
         <div className="lg:pl-60">
           <header className="sticky top-0 z-20 bg-white/80 backdrop-blur border-b border-ink/10">
