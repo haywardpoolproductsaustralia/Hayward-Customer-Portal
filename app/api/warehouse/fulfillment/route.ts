@@ -3,8 +3,9 @@ import { getCustomerAccess } from '@/lib/access';
 import { redis, getJSON } from '@/lib/redis';
 import { computePrice, findRuleForSku, PricingRule } from '@/lib/pricing';
 export const runtime = 'nodejs';
-   export const dynamic = 'force-dynamic';
-   export const maxDuration = 60;
+export const dynamic = 'force-dynamic';
+export const maxDuration = 60;
+
 interface OrderLine {
   orderNo: string;
   customerOrderNo: string | null;
@@ -122,13 +123,26 @@ export async function GET() {
   }
 
   const uniqueCodes = [...new Set(openLines.map((l) => l.customerCode))];
-  const priceTypeValues = await Promise.all(
-    uniqueCodes.map((code) => redis.get<string>(`customerPriceType:${code}`))
-  );
+
+  // One MGET instead of one REST round-trip per customer code. For the
+  // Hayward aggregate org this was ~50+ separate calls on every page load.
+  const priceTypeValues = uniqueCodes.length
+    ? await redis.mget<(string | number | null)[]>(
+        ...uniqueCodes.map((code) => `customerPriceType:${code}`)
+      )
+    : [];
+
   const priceTypeByCode = new Map<string, string>();
   uniqueCodes.forEach((code, i) => {
     const pt = priceTypeValues[i];
-    if (pt) priceTypeByCode.set(code, pt.trim());
+    // Price types are written to Redis as plain strings, but Upstash's client
+    // auto-parses JSON-looking values on read — a numeric type like "10" comes
+    // back as the number 10. Coerce before trimming, or this throws a
+    // TypeError and 500s the whole page. (Real case: customer 210033.)
+    //
+    // The old `if (pt)` guard also silently dropped a legitimate price type
+    // of 0; the explicit null/empty check keeps it.
+    if (pt != null && pt !== '') priceTypeByCode.set(code, String(pt).trim());
   });
 
   const uniquePriceTypes = [...new Set(priceTypeByCode.values())];
