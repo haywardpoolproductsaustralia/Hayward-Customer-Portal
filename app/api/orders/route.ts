@@ -58,16 +58,20 @@ export async function GET(req: NextRequest) {
   // value for them - which is why they surfaced as nonsensical "ordered" numbers
   // (e.g. 348,000). Customers only need real product lines.
   lines = lines.filter((l) => (l.sku ?? '').trim() !== '');
-
-  // If a representative code was requested and it's in the allowed set,
-  // resolve its group name and filter to all codes in that group.
-  if (requestedCode && access.customerCodes.includes(requestedCode) && codeToGroup) {
-    const targetGroup = codeToGroup[requestedCode];
-    if (targetGroup) {
-      lines = lines.filter((l) => codeToGroup[l.customerCode] === targetGroup);
-    }
+// If a representative code was requested and it's in the allowed set, filter
+  // to it: codes in a configured group filter to the whole group, codes in no
+  // group filter to themselves.
+  //
+  // The old `if (targetGroup)` guard wrapped the filter, so an account with no
+  // codeToGroup entry fell through with NO filter applied — the page then
+  // returned every order in the file while showing that one customer's name at
+  // the top. The ungrouped fallback is now explicit.
+  if (requestedCode && access.customerCodes.includes(requestedCode)) {
+    const targetGroup = codeToGroup?.[requestedCode];
+    lines = targetGroup
+      ? lines.filter((l) => codeToGroup?.[l.customerCode] === targetGroup)
+      : lines.filter((l) => l.customerCode === requestedCode);
   }
-
   const orders = lines.map((o) => ({
     ...o,
     statusLabel: STATUS_LABELS[o.statusFlag] ?? o.statusFlag,
