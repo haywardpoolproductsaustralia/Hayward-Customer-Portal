@@ -515,19 +515,35 @@ function OrderRow({
             {order.duplicateOf && <span className="rounded bg-rose-100 px-1.5 py-0.5 text-xs font-medium text-rose-700">Duplicate</span>}
             {order.extractionConfidence === "low" && <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-800">Check</span>}
             {order.seenInArrow && (
-              qtyMatch ? (
-                <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-xs font-medium text-emerald-700">
-                  ✓ Entered on Arrow{arrowNo && <> as <span className="font-mono">{arrowNo}</span></>} · all {lineMatch.total} lines match
-                </span>
-              ) : arrowQtyKnown ? (
-                <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-800">
-                  Entered on Arrow{arrowNo && <> as <span className="font-mono">{arrowNo}</span></>} · {lineMatch.matched}/{lineMatch.total} lines match
-                </span>
-              ) : (
-                <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-xs font-medium text-emerald-700">
-                  Entered on Arrow{arrowNo && <> as <span className="font-mono">{arrowNo}</span></>}
-                </span>
-              )
+              <>
+                {qtyMatch ? (
+                  <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-xs font-medium text-emerald-700">
+                    ✓ Entered on Arrow · all {lineMatch.total} lines match
+                  </span>
+                ) : arrowQtyKnown ? (
+                  <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-800">
+                    Entered on Arrow · {lineMatch.matched}/{lineMatch.total} lines match
+                  </span>
+                ) : (
+                  <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-xs font-medium text-emerald-700">
+                    Entered on Arrow
+                  </span>
+                )}
+                {/* The Hayward sales order number gets its own high-contrast box
+                    rather than sitting inside the badge text — it is the thing
+                    agents copy into Arrow, so it has to be findable at a glance
+                    down a long queue. Absent only if the sync flagged the match
+                    before it captured the number. */}
+                {arrowNo && (
+                  <span
+                    title={`Hayward sales order ${arrowNo}`}
+                    className="inline-flex items-center gap-1.5 rounded-md bg-wave px-2.5 py-1 leading-none text-white shadow-sm ring-1 ring-deep/20"
+                  >
+                    <span className="text-[10px] font-semibold uppercase tracking-widest text-white/80">SO</span>
+                    <span className="font-mono text-sm font-bold tracking-tight">{arrowNo}</span>
+                  </span>
+                )}
+              </>
             )}
           </div>
           <p className="mt-0.5 text-xs text-slate-400">
