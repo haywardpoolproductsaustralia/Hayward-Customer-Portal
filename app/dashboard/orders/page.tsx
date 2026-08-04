@@ -435,7 +435,8 @@ export default function OrdersPage() {
         </div>
       ) : (
         <div className="rounded-2xl border border-ink/10 bg-white shadow-soft overflow-hidden">
-          <table className="w-full table-fixed text-sm border-collapse">
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[1200px] table-fixed text-sm border-collapse">
             <thead>
               <tr className="sticky top-0 z-10 bg-foam/90 backdrop-blur text-left text-[10px] uppercase tracking-tight text-ink/45 divide-x divide-ink/10 [&>th]:px-2 [&>th]:py-2.5 [&>th]:font-semibold [&>th]:break-words border-b border-ink/10">
                 <th className="w-[7%]">Order #</th>
@@ -498,6 +499,7 @@ export default function OrdersPage() {
               })}
             </tbody>
           </table>
+          </div>
         </div>
       )}
     </div>
