@@ -103,6 +103,7 @@ const msgKey = (msgId: string) => `soq:msg:${msgId}`;
 function rowToRecord(id: string, h: Record<string, unknown>): IntakeRecord {
   const data = (typeof h.data === "string" ? JSON.parse(h.data) : h.data) as IntakeData;
   const num = (v: unknown) => (v === undefined || v === null || v === "" ? null : Number(v));
+  const str = (v: unknown) => (v === undefined || v === null || v === "" ? null : String(v).trim() || null);
   return {
     id,
     ...data,
@@ -116,8 +117,12 @@ function rowToRecord(id: string, h: Record<string, unknown>): IntakeRecord {
     keyedAt: num(h.keyedAt),
     seenInArrow: h.seenInArrow === "1" || h.seenInArrow === 1,
     seenInArrowAt: num(h.seenInArrowAt),
-    arrowOrderNo: (h.arrowOrderNo as string) || null,
-    arrowEnteredBy: (h.arrowEnteredBy as string) || null,
+    // Upstash infers types on read: an Arrow order number like "118462" comes
+    // back as a NUMBER, not the string it was written as. The `as string` cast
+    // this used to carry was a compile-time fiction, and any .trim() downstream
+    // threw at runtime. Coerce here so the record's declared types are honest.
+    arrowOrderNo: str(h.arrowOrderNo),
+    arrowEnteredBy: str(h.arrowEnteredBy),
     arrowTotalQty: num(h.arrowTotalQty),
     arrowLines: parseArrowLines(h.arrowLines),
   };
