@@ -92,15 +92,18 @@ export async function getCustomerAccess(): Promise<CustomerAccess | null> {
   // every code in the group, resolved live from what the sync job cached.
   let customerCodes = (await getJSON<string[]>(`group:${group.groupKey}:codes`)) ?? [];
 
-  // Aggregate orgs (Hayward) fall back to reading all codes from codeToGroup
-  // when group:Hayward:codes hasn't been populated yet (e.g. customer-groups.json
-  // on AZ-Grey hasn't been updated, or sync hasn't run since the Hayward group
-  // was added). codeToGroup has every real code already, so this is equivalent.
+  // Aggregate orgs (Hayward) fall back to the full account list when
+  // group:Hayward:codes hasn't been populated yet — e.g. sync hasn't run since
+  // the Hayward group was added.
+  //
+  // Reads customerNames, not codeToGroup. codeToGroup only holds codes that
+  // belong to a configured group, so the old fallback capped Hayward staff at
+  // the configured accounts — the same blind spot that hid the au-orders
+  // customers. customerNames is every account in DRSMAST.
   if (customerCodes.length === 0 && group.isAggregate) {
-    const codeToGroup = await getJSON<Record<string, string>>('codeToGroup');
-    if (codeToGroup) customerCodes = Object.keys(codeToGroup);
+    const names = await getJSON<Record<string, string>>('customerNames');
+    if (names) customerCodes = Object.keys(names);
   }
-
   return {
     groupName: group.displayName,
     groupKey: group.groupKey,
