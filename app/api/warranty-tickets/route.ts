@@ -7,12 +7,19 @@
 // carrying its customerCode). We scope it here per login:
 //   Hayward staff (aggregate org) -> all of it
 //   every other company           -> only tickets whose customerCode is theirs
+//   groups in HIDDEN_PAGES        -> 403, nothing at all
+//
+// That last case is the same rule the nav and the page enforce
+// (lib/page-visibility.ts). It lives here too because hiding a link and
+// redirecting a page still leaves this endpoint returning JSON to anyone with
+// a session who knows the URL.
 //
 // Stock is joined at read time; incoming/ETA comes from incoming:all (same as
 // /api/stock) so a stock-sync rewrite can't wipe it.
 
 import { NextResponse } from 'next/server';
 import { getCustomerAccess } from '@/lib/access';
+import { isPageHidden } from '@/lib/page-visibility';
 import { redis, getJSON } from '@/lib/redis';
 
 export const dynamic = 'force-dynamic';
@@ -64,6 +71,11 @@ export async function GET() {
   const access = await getCustomerAccess();
   if (!access) {
     return NextResponse.json({ error: 'No organization selected' }, { status: 403 });
+  }
+
+  // This group has the warranty page turned off (see lib/page-visibility.ts).
+  if (isPageHidden('/dashboard/warranty', access.groupKey, access.isAggregate)) {
+    return NextResponse.json({ error: 'Not available for this account' }, { status: 403 });
   }
 
   try {
