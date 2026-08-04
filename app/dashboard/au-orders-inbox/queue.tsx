@@ -478,7 +478,9 @@ function OrderRow({
   // Hayward's sales order number from the matched Arrow order. Arrow stores it
   // in a char() column, so trim before showing; blank means the sync flagged
   // the match before it captured the number.
-  const arrowNo = order.arrowOrderNo?.trim() || null;
+  // lib/au-orders-inbox.ts already coerces this to a string, but Upstash's
+  // type inference has burned this codebase before — guard rather than trust.
+  const arrowNo = String(order.arrowOrderNo ?? "").trim() || null;
   const stop = (e: React.MouseEvent) => e.stopPropagation();
 
   return (
