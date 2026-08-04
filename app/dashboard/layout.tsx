@@ -5,6 +5,7 @@ import { getJSON } from '@/lib/redis';
 import { SidebarNav } from '@/components/Sidebar';
 import { SelectedCustomerProvider } from '@/components/SelectedCustomerContext';
 import { CustomerPicker } from '@/components/CustomerPicker';
+import { MainContainer } from '@/components/MainContainer';
 
 interface SyncMeta {
   lastRunAt: string;
@@ -64,7 +65,7 @@ export default async function DashboardLayout({
             </div>
           )}
 
-          <main className="px-4 sm:px-8 py-8 max-w-6xl">{children}</main>
+          <MainContainer>{children}</MainContainer>
         </div>
       </div>
     </SelectedCustomerProvider>
