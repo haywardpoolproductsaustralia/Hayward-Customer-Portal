@@ -2,7 +2,9 @@ import { NextResponse } from 'next/server';
 import { getCustomerAccess } from '@/lib/access';
 import { redis, getJSON } from '@/lib/redis';
 import { computePrice, findRuleForSku, PricingRule } from '@/lib/pricing';
-
+export const runtime = 'nodejs';
+   export const dynamic = 'force-dynamic';
+   export const maxDuration = 60;
 interface OrderLine {
   orderNo: string;
   customerOrderNo: string | null;
