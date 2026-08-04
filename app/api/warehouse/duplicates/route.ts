@@ -85,15 +85,21 @@ export async function GET() {
 
   const lines = rawLines ?? [];
 
-  // Batch-fetch price types for every unique customer code in the flagged set
+  // Batch-fetch price types for every unique customer code in the flagged set.
+  // One MGET instead of one REST round-trip per customer code.
   const uniqueCodes = [...new Set(lines.map((l) => l.customerCode))];
-  const priceTypeValues = await Promise.all(
-    uniqueCodes.map((code) => redis.get<string>(`customerPriceType:${code}`))
-  );
+  const priceTypeValues = uniqueCodes.length
+    ? await redis.mget<(string | number | null)[]>(
+        ...uniqueCodes.map((code) => `customerPriceType:${code}`)
+      )
+    : [];
+
   const priceTypeByCode = new Map<string, string>();
   uniqueCodes.forEach((code, i) => {
     const pt = priceTypeValues[i];
-    if (pt) priceTypeByCode.set(code, pt.trim());
+    // Same hazard as the fulfillment route: Upstash auto-parses a numeric
+    // price type like "10" into the number 10, and pt.trim() then throws.
+    if (pt != null && pt !== '') priceTypeByCode.set(code, String(pt).trim());
   });
 
   const uniquePriceTypes = [...new Set(priceTypeByCode.values())];
