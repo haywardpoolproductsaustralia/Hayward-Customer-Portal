@@ -96,6 +96,10 @@ export default function OrderInboxQueue({ meId, meName }: { meId: string; meName
   const [fCode, setFCode] = useState("");
   const [fName, setFName] = useState("");
   const [fPo, setFPo] = useState("");
+  // Hayward's own order number, set by portal-sync once the order is matched in
+  // Arrow. Only populated on items that have been keyed and picked up by the
+  // sync — searching it on an unmatched item will (correctly) find nothing.
+  const [fArrow, setFArrow] = useState("");
   const [fFrom, setFFrom] = useState("");
   const [fTo, setFTo] = useState("");
   const showKeyedRef = useRef(showKeyed);
@@ -228,8 +232,8 @@ export default function OrderInboxQueue({ meId, meName }: { meId: string; meName
   const active = orders.filter((o) => o.status !== "keyed");
   const mine = active.filter((o) => o.claimedBy === meId).length;
 
-  const filtersOn = !!(fCode || fName || fPo || fFrom || fTo);
-  const clearFilters = () => { setFCode(""); setFName(""); setFPo(""); setFFrom(""); setFTo(""); };
+  const filtersOn = !!(fCode || fName || fPo || fArrow || fFrom || fTo);
+  const clearFilters = () => { setFCode(""); setFName(""); setFPo(""); setFArrow(""); setFFrom(""); setFTo(""); };
 
   const visible = orders.filter((o) => {
     if (fCode && !loose(o.debtorCode).includes(loose(fCode))) return false;
@@ -238,6 +242,7 @@ export default function OrderInboxQueue({ meId, meName }: { meId: string; meName
       if (!hay.includes(loose(fName))) return false;
     }
     if (fPo && !loose(o.poRef).includes(loose(fPo))) return false;
+    if (fArrow && !loose(o.arrowOrderNo).includes(loose(fArrow))) return false;
     if (fFrom || fTo) {
       const d = melbDay(o.receivedAt);
       if (fFrom && d < fFrom) return false;
@@ -362,7 +367,7 @@ export default function OrderInboxQueue({ meId, meName }: { meId: string; meName
       )}
 
       <div className="mb-4 rounded-lg border border-slate-200 bg-slate-50/70 p-3">
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
           <div>
             <label className={labelCls} htmlFor="f-code">Customer code</label>
             <input id="f-code" value={fCode} onChange={(e) => setFCode(e.target.value)} placeholder="200225" className={fieldCls} />
@@ -374,6 +379,10 @@ export default function OrderInboxQueue({ meId, meName }: { meId: string; meName
           <div>
             <label className={labelCls} htmlFor="f-po">Customer PO</label>
             <input id="f-po" value={fPo} onChange={(e) => setFPo(e.target.value)} placeholder="PO012365-1" className={fieldCls} />
+          </div>
+          <div>
+            <label className={labelCls} htmlFor="f-arrow">Hayward order no.</label>
+            <input id="f-arrow" value={fArrow} onChange={(e) => setFArrow(e.target.value)} placeholder="118462" className={fieldCls} />
           </div>
           <div>
             <label className={labelCls} htmlFor="f-from">Received from</label>
@@ -466,6 +475,10 @@ function OrderRow({
   const arrowQtyKnown = order.seenInArrow && order.arrowLines != null;
   const lineMatch = arrowLineMatch(order);
   const qtyMatch = arrowQtyKnown && lineMatch.total > 0 && lineMatch.matched === lineMatch.total;
+  // Hayward's sales order number from the matched Arrow order. Arrow stores it
+  // in a char() column, so trim before showing; blank means the sync flagged
+  // the match before it captured the number.
+  const arrowNo = order.arrowOrderNo?.trim() || null;
   const stop = (e: React.MouseEvent) => e.stopPropagation();
 
   return (
@@ -501,11 +514,17 @@ function OrderRow({
             {order.extractionConfidence === "low" && <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-800">Check</span>}
             {order.seenInArrow && (
               qtyMatch ? (
-                <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-xs font-medium text-emerald-700">✓ Entered on Arrow · all {lineMatch.total} lines match</span>
+                <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-xs font-medium text-emerald-700">
+                  ✓ Entered on Arrow{arrowNo && <> as <span className="font-mono">{arrowNo}</span></>} · all {lineMatch.total} lines match
+                </span>
               ) : arrowQtyKnown ? (
-                <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-800">Entered on Arrow · {lineMatch.matched}/{lineMatch.total} lines match</span>
+                <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-800">
+                  Entered on Arrow{arrowNo && <> as <span className="font-mono">{arrowNo}</span></>} · {lineMatch.matched}/{lineMatch.total} lines match
+                </span>
               ) : (
-                <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-xs font-medium text-emerald-700">Entered on Arrow</span>
+                <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-xs font-medium text-emerald-700">
+                  Entered on Arrow{arrowNo && <> as <span className="font-mono">{arrowNo}</span></>}
+                </span>
               )
             )}
           </div>
