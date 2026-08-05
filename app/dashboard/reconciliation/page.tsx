@@ -413,6 +413,8 @@ export default function ReconciliationPage() {
   const [search,     setSearch]     = useState('');
   const [uploadingA4, setUploadingA4] = useState(false);
   const [uploadingShip, setUploadingShip] = useState(false);
+  const [showParamount,    setShowParamount]    = useState(false);
+  const [showFlowControl,  setShowFlowControl]  = useState(false);
 
   useEffect(() => {
     Promise.all([
@@ -477,6 +479,9 @@ export default function ReconciliationPage() {
 
   const filtered = useMemo(() => {
     let r = rows;
+    // Exclude Paramount (stock category PR) and Flow Control (17300) by default
+    if (!showParamount)   r = r.filter((x) => !(x.arrowStock?.startsWith('PR-') || (x.description ?? '').toUpperCase().includes('PARAMOUNT')));
+    if (!showFlowControl) r = r.filter((x) => x.creditor !== '17300');
     if (tab === 'exceptions')   r = r.filter((x) => x.status === 'missing' || x.lateVsRequest);
     if (tab === 'not_received') r = r.filter((x) => x.status === 'not_received');
     if (tab === 'in_transit')   r = r.filter((x) => x.status === 'in_transit');
@@ -499,7 +504,7 @@ export default function ReconciliationPage() {
       );
     }
     return r;
-  }, [rows, tab, search]);
+  }, [rows, tab, search, showParamount, showFlowControl]);
 
   const stats = useMemo(() => ({
     total:      rows.length,
@@ -590,6 +595,29 @@ export default function ReconciliationPage() {
             </button>
           ))}
         </div>
+        {/* Stock group toggles */}
+        <div className="ml-auto flex gap-2">
+          <button
+            onClick={() => setShowParamount((v) => !v)}
+            className={`rounded-lg px-3 py-1.5 text-xs font-medium border transition-colors ${
+              showParamount
+                ? 'bg-purple-600 text-white border-purple-600'
+                : 'bg-white text-slate-500 border-slate-200 hover:border-purple-400 hover:text-purple-600'
+            }`}
+          >
+            {showParamount ? '✓' : '+'} Paramount
+          </button>
+          <button
+            onClick={() => setShowFlowControl((v) => !v)}
+            className={`rounded-lg px-3 py-1.5 text-xs font-medium border transition-colors ${
+              showFlowControl
+                ? 'bg-orange-500 text-white border-orange-500'
+                : 'bg-white text-slate-500 border-slate-200 hover:border-orange-400 hover:text-orange-600'
+            }`}
+          >
+            {showFlowControl ? '✓' : '+'} Flow Control
+          </button>
+        </div>
       </div>
 
       {/* ── Table ── */}
@@ -649,10 +677,11 @@ export default function ReconciliationPage() {
           >
             <div id="top-scroll-inner" style={{ height: '1px' }} />
           </div>
-          {/* Actual scrollable table */}
+          {/* Actual scrollable table — fixed height so thead stays locked while tbody scrolls */}
           <div
             id="bottom-scroll"
-            className="overflow-x-auto"
+            className="overflow-x-auto overflow-y-auto"
+            style={{ maxHeight: 'calc(100vh - 220px)' }}
             onScroll={(e) => {
               const top = document.getElementById('top-scroll');
               if (top) top.scrollLeft = (e.target as HTMLDivElement).scrollLeft;
@@ -833,6 +862,28 @@ export default function ReconciliationPage() {
       <p className="text-xs text-ink/40">
         {filtered.length.toLocaleString()} of {rows.length.toLocaleString()} lines shown
       </p>
+
+      {/* ── Upload banners — bottom of page ── */}
+      <div className="grid gap-3 lg:grid-cols-2 pt-4 border-t border-slate-100">
+        <UploadBanner
+          label="AS400 data"
+          sublabel="manual until Snowflake service account is live"
+          hint="Run the AS400 query in Snowsight, download as CSV, and drop it here. Columns: PO, ITEM, AS400_ORD, AS400_SHPD, ETA, SHIP_DATE, SHIP_TO_NAME, SHIP_TO_CITY, SHIP_TO_STATE, SHIP_TO_COUNTRY, SHIP_TO_POSTCODE, US_SO_NUMBER."
+          meta={as400Meta.rows > 0 ? `${as400Meta.rows.toLocaleString()} lines · ${fmtMeta(as400Meta.uploadedAt) ?? ''} · ${as400Meta.filename ?? ''}` : 'not uploaded'}
+          uploading={uploadingA4}
+          accept=".csv"
+          onFile={handleAs400File}
+        />
+        <UploadBanner
+          label="CDS-Net shipment file"
+          sublabel="Shipment Activity by Container · NoReply@cds-net.com"
+          hint='Save the "Shipment Activity by Container" Excel attachment from your daily CDS-Net email and drop it here. AU/NZ rows are filtered automatically by destination port.'
+          meta={shipMeta.rows > 0 ? `${shipMeta.rows.toLocaleString()} AU/NZ lines · ${fmtMeta(shipMeta.receivedAt) ?? ''} · ${shipMeta.filename ?? ''}` : 'not uploaded'}
+          uploading={uploadingShip}
+          accept=".xlsx,.xls"
+          onFile={handleShipFile}
+        />
+      </div>
     </div>
   );
 }
