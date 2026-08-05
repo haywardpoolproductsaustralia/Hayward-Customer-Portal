@@ -666,20 +666,16 @@ export default function ReconciliationPage() {
             <thead>
               {/* ── Group label row ── */}
               <tr className="text-[11px] font-bold uppercase tracking-widest">
-                {/* Arrow AU — solid green */}
-                <th colSpan={8} className="bg-emerald-600 px-3 py-2 text-white border-r border-emerald-700">
+                <th colSpan={8} style={{ background: '#059669', color: 'white', padding: '6px 12px', borderRight: '2px solid white' }}>
                   ↗ Arrow AU
                 </th>
-                {/* AS400 USA — solid amber */}
-                <th colSpan={4} className="bg-amber-500 px-3 py-2 text-white border-r border-amber-600">
+                <th colSpan={4} style={{ background: '#f59e0b', color: 'white', padding: '6px 12px', borderRight: '2px solid white' }}>
                   ⚙ AS400 · USA
                 </th>
-                {/* Delivery Address — solid sky */}
-                <th colSpan={5} className="bg-sky-500 px-3 py-2 text-white border-r border-sky-600">
+                <th colSpan={5} style={{ background: '#0ea5e9', color: 'white', padding: '6px 12px', borderRight: '2px solid white' }}>
                   📍 Delivery address
                 </th>
-                {/* CDS-Net Shipment — solid violet */}
-                <th colSpan={6} className="bg-violet-600 px-3 py-2 text-white">
+                <th colSpan={6} style={{ background: '#7c3aed', color: 'white', padding: '6px 12px' }}>
                   🚢 CDS-Net · Shipment
                 </th>
               </tr>
