@@ -550,39 +550,59 @@ export default function ReconciliationPage() {
         <div className="py-16 text-center text-sm text-slate-400">Loading…</div>
       ) : (
         <div className="w-full overflow-x-auto rounded-xl border border-slate-200 bg-white">
-          <table className="w-full min-w-[1700px] text-left text-xs">
+          <table className="w-full text-left text-xs" style={{ minWidth: '1800px' }}>
             <thead>
-              <tr className="border-b border-slate-100 bg-slate-50 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                {/* Arrow */}
-                <th className="sticky left-0 z-10 bg-slate-50 px-3 py-3 whitespace-nowrap">Stock code</th>
-                <th className="px-3 py-3 whitespace-nowrap">Supplier SKU</th>
-                <th className="px-3 py-3 whitespace-nowrap">Description</th>
-                <th className="px-3 py-3 whitespace-nowrap">PO</th>
-                <th className="px-3 py-3 whitespace-nowrap">Order date</th>
-                <th className="px-3 py-3 whitespace-nowrap">ETA Arrow</th>
-                <th className="px-3 py-3 text-right whitespace-nowrap">ORD</th>
-                <th className="px-3 py-3 text-right whitespace-nowrap">RCVD</th>
+              {/* ── Group label row ── */}
+              <tr className="border-b border-slate-100 text-[10px] font-bold uppercase tracking-widest">
+                {/* Arrow AU — green tint */}
+                <th colSpan={8} className="bg-emerald-50 px-3 py-1.5 text-emerald-700 border-r border-emerald-200">
+                  Arrow AU
+                </th>
+                {/* AS400 USA — amber tint */}
+                <th colSpan={4} className="bg-amber-50 px-3 py-1.5 text-amber-700 border-r border-amber-200">
+                  AS400 · USA
+                </th>
+                {/* Delivery Address — blue tint */}
+                <th colSpan={5} className="bg-sky-50 px-3 py-1.5 text-sky-700 border-r border-sky-200">
+                  Delivery address
+                </th>
+                {/* CDS-Net Shipment — purple tint */}
+                <th colSpan={6} className="bg-violet-50 px-3 py-1.5 text-violet-700">
+                  CDS-Net · Shipment
+                </th>
+              </tr>
+              {/* ── Column headers ── */}
+              <tr className="border-b border-slate-100 text-[11px] font-semibold uppercase tracking-wide">
+                {/* Arrow AU */}
+                <th className="sticky left-0 z-10 bg-emerald-50 px-3 py-2.5 whitespace-nowrap text-emerald-800">Stock code</th>
+                <th className="bg-emerald-50 px-3 py-2.5 whitespace-nowrap text-emerald-800">Supplier SKU</th>
+                <th className="bg-emerald-50 px-3 py-2.5 whitespace-nowrap text-emerald-800">Description</th>
+                <th className="bg-emerald-50 px-3 py-2.5 whitespace-nowrap text-emerald-800">PO</th>
+                <th className="bg-emerald-50 px-3 py-2.5 whitespace-nowrap text-emerald-800">Order date</th>
+                <th className="bg-emerald-50 px-3 py-2.5 whitespace-nowrap text-emerald-800">ETA Arrow</th>
+                <th className="bg-emerald-50 px-3 py-2.5 text-right whitespace-nowrap text-emerald-800">Ordered</th>
+                <th className="bg-emerald-50 px-3 py-2.5 text-right whitespace-nowrap text-emerald-800 border-r border-emerald-200">Received</th>
                 {/* AS400 */}
-                <th className="border-l border-slate-200 px-3 py-3 text-right whitespace-nowrap">AS400 ENT</th>
-                <th className="px-3 py-3 text-right whitespace-nowrap">AS400 SHPD</th>
-                <th className="px-3 py-3 whitespace-nowrap">AS400 ETA</th>
-                <th className="px-3 py-3 whitespace-nowrap">US SO#</th>
+                <th className="bg-amber-50 px-3 py-2.5 text-right whitespace-nowrap text-amber-800">ENT</th>
+                <th className="bg-amber-50 px-3 py-2.5 text-right whitespace-nowrap text-amber-800">SHPD</th>
+                <th className="bg-amber-50 px-3 py-2.5 whitespace-nowrap text-amber-800">ETA</th>
+                <th className="bg-amber-50 px-3 py-2.5 whitespace-nowrap text-amber-800 border-r border-amber-200">US SO#</th>
                 {/* Delivery address */}
-                <th className="border-l border-blue-100 bg-blue-50/60 px-3 py-3 whitespace-nowrap">Ship to</th>
-                <th className="bg-blue-50/60 px-3 py-3 whitespace-nowrap">City</th>
-                <th className="bg-blue-50/60 px-3 py-3 whitespace-nowrap">State</th>
-                <th className="bg-blue-50/60 px-3 py-3 whitespace-nowrap">Postcode</th>
-                <th className="bg-blue-50/60 px-3 py-3 whitespace-nowrap">Addr OK?</th>
+                <th className="bg-sky-50 px-3 py-2.5 whitespace-nowrap text-sky-800">Ship to</th>
+                <th className="bg-sky-50 px-3 py-2.5 whitespace-nowrap text-sky-800">City</th>
+                <th className="bg-sky-50 px-3 py-2.5 whitespace-nowrap text-sky-800">State</th>
+                <th className="bg-sky-50 px-3 py-2.5 whitespace-nowrap text-sky-800">Postcode</th>
+                <th className="bg-sky-50 px-3 py-2.5 whitespace-nowrap text-sky-800 border-r border-sky-200">Addr OK?</th>
                 {/* Shipment */}
-                <th className="border-l border-slate-200 px-3 py-3 text-right whitespace-nowrap">On water</th>
-                <th className="px-3 py-3 whitespace-nowrap">Container</th>
-                <th className="px-3 py-3 whitespace-nowrap">Vessel</th>
-                <th className="px-3 py-3 whitespace-nowrap">Container ETA</th>
-                <th className="px-3 py-3 whitespace-nowrap">Supplier</th>
-                <th className="px-3 py-3 whitespace-nowrap">Status</th>
+                <th className="bg-violet-50 px-3 py-2.5 text-right whitespace-nowrap text-violet-800">On water</th>
+                <th className="bg-violet-50 px-3 py-2.5 whitespace-nowrap text-violet-800">Container</th>
+                <th className="bg-violet-50 px-3 py-2.5 whitespace-nowrap text-violet-800">Vessel</th>
+                <th className="bg-violet-50 px-3 py-2.5 whitespace-nowrap text-violet-800">Cont. ETA</th>
+                <th className="bg-violet-50 px-3 py-2.5 whitespace-nowrap text-violet-800">Supplier</th>
+                <th className="bg-violet-50 px-3 py-2.5 whitespace-nowrap text-violet-800">Status</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-50">
+            <tbody className="divide-y divide-slate-100">
               {filtered.length === 0 ? (
                 <tr>
                   <td colSpan={23} className="py-12 text-center text-slate-400">
@@ -592,42 +612,43 @@ export default function ReconciliationPage() {
               ) : (
                 filtered.map((r, i) => {
                   const addr = addrMatch(r);
+                  const rowBase = r.lateVsRequest ? 'bg-red-50/30' : '';
                   return (
                     <tr
                       key={`${r.po}-${r.arrowStock}-${i}`}
-                      className={`hover:bg-slate-50 ${r.lateVsRequest ? 'bg-red-50/40' : ''}`}
+                      className={`${rowBase} hover:brightness-[0.97] transition-colors`}
                     >
-                      {/* Arrow */}
-                      <td className="sticky left-0 z-10 bg-white px-3 py-2.5 font-mono text-[11px] whitespace-nowrap">
+                      {/* Arrow AU — very faint green */}
+                      <td className="sticky left-0 z-10 bg-emerald-50/40 px-3 py-2 font-mono text-[11px] whitespace-nowrap text-slate-800">
                         {r.arrowStock}
                       </td>
-                      <td className="px-3 py-2.5 font-mono text-[11px] whitespace-nowrap">{r.supplierSku || '—'}</td>
-                      <td className="max-w-[180px] truncate px-3 py-2.5 text-slate-700" title={r.description ?? ''}>{r.description ?? '—'}</td>
-                      <td className="px-3 py-2.5 whitespace-nowrap">
+                      <td className="bg-emerald-50/40 px-3 py-2 font-mono text-[11px] whitespace-nowrap text-slate-600">{r.supplierSku || '—'}</td>
+                      <td className="bg-emerald-50/40 max-w-[200px] truncate px-3 py-2 text-slate-700" title={r.description ?? ''}>{r.description ?? '—'}</td>
+                      <td className="bg-emerald-50/40 px-3 py-2 whitespace-nowrap">
                         <Link href={`/dashboard/reconciliation?po=${r.po}`} className="font-semibold text-wave hover:underline">{r.po}</Link>
                       </td>
-                      <td className="px-3 py-2.5 whitespace-nowrap text-slate-500">{fmt(r.orderDate)}</td>
-                      <td className="px-3 py-2.5 whitespace-nowrap">
+                      <td className="bg-emerald-50/40 px-3 py-2 whitespace-nowrap text-slate-500">{fmt(r.orderDate)}</td>
+                      <td className="bg-emerald-50/40 px-3 py-2 whitespace-nowrap text-slate-700">
                         {fmt(r.requestedDate)}
                         {r.lateVsRequest && <span className="ml-1 text-red-500" title="Late vs requested date">⚠</span>}
                       </td>
-                      <td className="px-3 py-2.5 text-right font-semibold">{r.qtyOrdered}</td>
-                      <td className="px-3 py-2.5 text-right text-slate-500">{r.qtyReceived}</td>
-                      {/* AS400 */}
-                      <td className="border-l border-slate-100 px-3 py-2.5 text-right">
+                      <td className="bg-emerald-50/40 px-3 py-2 text-right font-semibold text-slate-800">{r.qtyOrdered}</td>
+                      <td className="bg-emerald-50/40 px-3 py-2 text-right text-slate-500 border-r border-emerald-100">{r.qtyReceived}</td>
+                      {/* AS400 — very faint amber */}
+                      <td className="bg-amber-50/40 px-3 py-2 text-right">
                         {r.as400Ord === 0
                           ? <span className="font-semibold text-red-600">missing</span>
-                          : r.as400Ord}
+                          : <span className="text-slate-800">{r.as400Ord}</span>}
                       </td>
-                      <td className="px-3 py-2.5 text-right">{r.as400Shpd || '—'}</td>
-                      <td className="px-3 py-2.5 whitespace-nowrap text-slate-500">{fmt(r.as400Eta)}</td>
-                      <td className="px-3 py-2.5 font-mono text-[11px] text-slate-500">{r.usSoNumber ?? '—'}</td>
-                      {/* Delivery address */}
-                      <td className="border-l border-blue-100 bg-blue-50/20 max-w-[140px] truncate px-3 py-2.5" title={r.shipToName ?? ''}>{r.shipToName ?? '—'}</td>
-                      <td className="bg-blue-50/20 px-3 py-2.5 whitespace-nowrap">{r.shipToCity ?? '—'}</td>
-                      <td className="bg-blue-50/20 px-3 py-2.5">{r.shipToState ?? '—'}</td>
-                      <td className="bg-blue-50/20 px-3 py-2.5">{r.shipToPostcode ?? '—'}</td>
-                      <td className="bg-blue-50/20 px-3 py-2.5">
+                      <td className="bg-amber-50/40 px-3 py-2 text-right text-slate-700">{r.as400Shpd || '—'}</td>
+                      <td className="bg-amber-50/40 px-3 py-2 whitespace-nowrap text-slate-500">{fmt(r.as400Eta)}</td>
+                      <td className="bg-amber-50/40 px-3 py-2 font-mono text-[11px] text-slate-500 border-r border-amber-100">{r.usSoNumber ?? '—'}</td>
+                      {/* Delivery address — very faint blue */}
+                      <td className="bg-sky-50/40 px-3 py-2 max-w-[140px] truncate text-slate-700" title={r.shipToName ?? ''}>{r.shipToName ?? '—'}</td>
+                      <td className="bg-sky-50/40 px-3 py-2 whitespace-nowrap text-slate-700">{r.shipToCity ?? '—'}</td>
+                      <td className="bg-sky-50/40 px-3 py-2 text-slate-600">{r.shipToState ?? '—'}</td>
+                      <td className="bg-sky-50/40 px-3 py-2 text-slate-600">{r.shipToPostcode ?? '—'}</td>
+                      <td className="bg-sky-50/40 px-3 py-2 border-r border-sky-100">
                         {r.as400Ord === 0 ? (
                           <span className="text-slate-300">—</span>
                         ) : addr === 'ok' ? (
@@ -638,19 +659,19 @@ export default function ReconciliationPage() {
                           <span className="text-slate-400">?</span>
                         )}
                       </td>
-                      {/* Shipment */}
-                      <td className="border-l border-slate-100 px-3 py-2.5 text-right">
+                      {/* CDS-Net shipment — very faint purple */}
+                      <td className="bg-violet-50/40 px-3 py-2 text-right">
                         {r.onWater > 0
-                          ? <span className="font-semibold text-blue-600">{r.onWater}</span>
+                          ? <span className="font-semibold text-violet-700">{r.onWater}</span>
                           : <span className="text-slate-300">—</span>}
                       </td>
-                      <td className="px-3 py-2.5 font-mono text-[11px] whitespace-nowrap">{r.container ?? '—'}</td>
-                      <td className="px-3 py-2.5 whitespace-nowrap">{r.vessel ?? '—'}</td>
-                      <td className="px-3 py-2.5 whitespace-nowrap">{fmt(r.containerEta)}</td>
-                      <td className="px-3 py-2.5 whitespace-nowrap text-slate-500">
+                      <td className="bg-violet-50/40 px-3 py-2 font-mono text-[11px] whitespace-nowrap text-slate-600">{r.container ?? '—'}</td>
+                      <td className="bg-violet-50/40 px-3 py-2 whitespace-nowrap text-slate-700">{r.vessel ?? '—'}</td>
+                      <td className="bg-violet-50/40 px-3 py-2 whitespace-nowrap text-slate-700">{fmt(r.containerEta)}</td>
+                      <td className="bg-violet-50/40 px-3 py-2 whitespace-nowrap text-slate-500">
                         {creditorName[r.creditor ?? ''] ?? r.creditor ?? '—'}
                       </td>
-                      <td className="px-3 py-2.5">{statusBadge(r.status)}</td>
+                      <td className="bg-violet-50/40 px-3 py-2">{statusBadge(r.status)}</td>
                     </tr>
                   );
                 })
