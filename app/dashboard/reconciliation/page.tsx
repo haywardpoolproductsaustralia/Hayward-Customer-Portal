@@ -5,14 +5,14 @@
 // the top mirror div and the bottom table scroll container.
 const SCROLLBAR_STYLE = `
   #top-scroll::-webkit-scrollbar,
-  #bottom-scroll::-webkit-scrollbar { height: 14px; }
+  #bottom-scroll::-webkit-scrollbar { height: 28px; }
   #top-scroll::-webkit-scrollbar-track,
   #bottom-scroll::-webkit-scrollbar-track { background: #f1f5f9; border-radius: 99px; }
   #top-scroll::-webkit-scrollbar-thumb,
   #bottom-scroll::-webkit-scrollbar-thumb {
     background: #94a3b8;
     border-radius: 99px;
-    border: 3px solid #f1f5f9;
+    border: 5px solid #f1f5f9;
     min-width: 80px;
   }
   #top-scroll::-webkit-scrollbar-thumb:hover,
@@ -489,9 +489,13 @@ export default function ReconciliationPage() {
         x.arrowStock.toLowerCase().includes(q) ||
         x.supplierSku.toLowerCase().includes(q) ||
         (x.description ?? '').toLowerCase().includes(q) ||
+        (x.creditor ?? '').toLowerCase().includes(q) ||
+        (creditorName[x.creditor ?? ''] ?? '').toLowerCase().includes(q) ||
         (x.usSoNumber ?? '').toLowerCase().includes(q) ||
         (x.container ?? '').toLowerCase().includes(q) ||
-        (x.vessel ?? '').toLowerCase().includes(q),
+        (x.vessel ?? '').toLowerCase().includes(q) ||
+        (x.shipToName ?? '').toLowerCase().includes(q) ||
+        (x.shipToCity ?? '').toLowerCase().includes(q),
       );
     }
     return r;
@@ -534,67 +538,21 @@ export default function ReconciliationPage() {
             {shipMeta.rows > 0     && <span>· {shipMeta.rows} shipment lines</span>}
           </div>
         </div>
-        <button
-          onClick={() => {
-            const headers = [
-              'Stock Code','Supplier SKU','Description','PO','Order Date','ETA Arrow',
-              'Ordered','Received','AS400 ENT','AS400 SHPD','AS400 Order Date','AS400 ETA','US SO#',
-              'Ship To','City','State','Postcode','Addr OK',
-              'On Water','Container','Vessel','Container ETA','Supplier','Status'
-            ];
-            const escape = (v: any) => `"${String(v ?? '').replace(/"/g, '""')}"`;
-            const addrOk = (r: ReconRow) => {
-              if (!r.shipToCity) return '?';
-              const city = r.shipToCity.toLowerCase();
-              return ['dandenong','victoria','melbourne','sydney','brisbane','perth','adelaide'].some(c => city.includes(c)) ? '✓ AU' : '⚠ Check';
-            };
-            const csvRows = filtered.map(r => [
-              r.arrowStock, r.supplierSku, r.description ?? '', r.po,
-              r.orderDate ?? '', r.requestedDate ?? '',
-              r.qtyOrdered, r.qtyReceived,
-              r.as400Ord === 0 ? 'missing' : r.as400Ord, r.as400Shpd, r.as400OrderDate ?? '', r.as400Eta ?? '', r.usSoNumber ?? '',
-              r.shipToName ?? '', r.shipToCity ?? '', r.shipToState ?? '', r.shipToPostcode ?? '', addrOk(r),
-              r.onWater, r.container ?? '', r.vessel ?? '', r.containerEta ?? '',
-              creditorName[r.creditor ?? ''] ?? r.creditor ?? '', r.status
-            ].map(escape).join(','));
-            const csv = [headers.map(escape).join(','), ...csvRows].join('\n');
-            const blob = new Blob([csv], { type: 'text/csv' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url; a.download = `recon-${new Date().toISOString().slice(0,10)}.csv`;
-            a.click(); URL.revokeObjectURL(url);
-          }}
-          className="flex items-center gap-2 rounded-xl border border-ink/10 bg-white px-4 py-2.5 text-sm font-medium shadow-soft hover:border-wave/30 transition-colors"
-        >
-          <svg className="h-4 w-4 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
-          Export to Excel
-        </button>
       </div>
 
-      {/* ── Upload banners ── */}
-      <div className="grid gap-3 lg:grid-cols-2">
-        <UploadBanner
-          label="AS400 data"
-          sublabel="manual until Snowflake service account is live"
-          hint="Run the AS400 query in Snowsight, download as CSV, and drop it here. Columns: PO, ITEM, AS400_ORD, AS400_SHPD, ETA, SHIP_DATE, SHIP_TO_NAME, SHIP_TO_CITY, SHIP_TO_STATE, SHIP_TO_COUNTRY, SHIP_TO_POSTCODE, US_SO_NUMBER."
-          meta={as400Meta.rows > 0 ? `${as400Meta.rows.toLocaleString()} lines · ${fmtMeta(as400Meta.uploadedAt) ?? ''} · ${as400Meta.filename ?? ''}` : 'not uploaded'}
-          uploading={uploadingA4}
-          accept=".csv"
-          onFile={handleAs400File}
-        />
-        <UploadBanner
-          label="CDS-Net shipment file"
-          sublabel="Shipment Activity by Container · NoReply@cds-net.com"
-          hint='Save the "Shipment Activity by Container" Excel attachment from your daily CDS-Net email and drop it here. AU/NZ rows are filtered automatically by destination port.'
-          meta={shipMeta.rows > 0 ? `${shipMeta.rows.toLocaleString()} AU/NZ lines · ${fmtMeta(shipMeta.receivedAt) ?? ''} · ${shipMeta.filename ?? ''}` : 'not uploaded'}
-          uploading={uploadingShip}
-          accept=".xlsx,.xls"
-          onFile={handleShipFile}
-        />
-      </div>
-
-      {/* ── KPI cards ── */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+      {/* ── KPI cards — hidden when scrolled (sticky bar takes over) ── */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-5 transition-all duration-200 overflow-hidden"
+           style={{ maxHeight: '120px' }}
+           ref={(el) => {
+             if (!el) return;
+             const onScroll = () => {
+               el.style.maxHeight = window.scrollY > 80 ? '0px' : '120px';
+               el.style.opacity = window.scrollY > 80 ? '0' : '1';
+               el.style.marginBottom = window.scrollY > 80 ? '-1.5rem' : '';
+             };
+             window.addEventListener('scroll', onScroll, { passive: true });
+           }}
+      >
         {[
           { label: 'PO Lines',        value: stats.total,      color: 'text-ink' },
           { label: 'Exceptions',      value: stats.exceptions,  color: 'text-amber-600' },
@@ -609,13 +567,13 @@ export default function ReconciliationPage() {
         ))}
       </div>
 
-      {/* ── Filter row ── */}
-      <div className="flex flex-wrap items-center gap-2">
+      {/* ── Filter row — sticky below dashboard header ── */}
+      <div className="sticky top-0 z-30 -mx-8 bg-white/95 backdrop-blur px-8 py-3 border-b border-slate-100 shadow-sm flex flex-wrap items-center gap-2">
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search PO, SKU, container, vessel…"
-          className="w-80 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm shadow-sm outline-none focus:border-wave focus:ring-2 focus:ring-wave/20"
+          placeholder="Search PO, SKU, description, supplier code or name…"
+          className="w-96 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm shadow-sm outline-none focus:border-wave focus:ring-2 focus:ring-wave/20"
         />
         <div className="flex flex-wrap gap-1">
           {tabs.map((t) => (
@@ -638,7 +596,47 @@ export default function ReconciliationPage() {
       {loading ? (
         <div className="py-16 text-center text-sm text-slate-400">Loading…</div>
       ) : (
-        <div className="rounded-2xl border border-ink/10 bg-white shadow-soft overflow-hidden">
+        <>
+          {/* Export button — right-aligned above table */}
+          <div className="flex justify-end mb-2">
+            <button
+              onClick={() => {
+                const headers = [
+                  'PO','Status','Type','Stock Code','Supplier SKU','Description','Order Date','ETA Arrow',
+                  'Ordered','Received','Arrow PO Ref','AS400 ENT','AS400 SHPD','AS400 Order Date','AS400 ETA','US SO#',
+                  'Ship To','City','State','Postcode','Addr OK',
+                  'On Water','Container','Vessel','Container ETA','Supplier'
+                ];
+                const escape = (v: any) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+                const addrOk = (r: ReconRow) => {
+                  if (!r.shipToCity) return '?';
+                  const city = r.shipToCity.toLowerCase();
+                  return ['dandenong','victoria','melbourne','sydney','brisbane','perth','adelaide'].some(c => city.includes(c)) ? 'AU' : 'Check';
+                };
+                const csvRows = filtered.map(r => [
+                  r.po, r.status, HAYWARD_CREDITORS.has(r.creditor ?? '') ? 'Hayward' : '3rd Party',
+                  r.arrowStock, r.supplierSku, r.description ?? '', r.orderDate ?? '', r.requestedDate ?? '',
+                  r.qtyOrdered, r.qtyReceived,
+                  r.as400Ord > 0 ? r.po : '', r.as400Ord === 0 ? 'missing' : r.as400Ord, r.as400Shpd,
+                  r.as400OrderDate ?? '', r.as400Eta ?? '', r.usSoNumber ?? '',
+                  r.shipToName ?? '', r.shipToCity ?? '', r.shipToState ?? '', r.shipToPostcode ?? '', addrOk(r),
+                  r.onWater, r.container ?? '', r.vessel ?? '', r.containerEta ?? '',
+                  creditorName[r.creditor ?? ''] ?? r.creditor ?? ''
+                ].map(escape).join(','));
+                const csv = [headers.map(escape).join(','), ...csvRows].join('\n');
+                const blob = new Blob([csv], { type: 'text/csv' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url; a.download = `recon-${new Date().toISOString().slice(0,10)}.csv`;
+                a.click(); URL.revokeObjectURL(url);
+              }}
+              className="flex items-center gap-2 rounded-xl border border-ink/10 bg-white px-4 py-2 text-sm font-medium shadow-soft hover:border-wave/30 transition-colors"
+            >
+              <svg className="h-4 w-4 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+              Export to Excel
+            </button>
+          </div>
+          <div className="rounded-2xl border border-ink/10 bg-white shadow-soft overflow-hidden">
           {/* Top scrollbar mirror — synced to bottom scroll */}
           <div
             id="top-scroll"
@@ -700,10 +698,10 @@ export default function ReconciliationPage() {
             </colgroup>
             <thead className="sticky top-0 z-20">
               <tr className="text-[11px] font-bold uppercase tracking-widest">
-                <th colSpan={3} style={{ background: '#334155', color: 'white', padding: '6px 12px', borderRight: '2px solid white' }}>
+                <th colSpan={3} style={{ background: '#334155', color: 'white', padding: '6px 12px', borderRight: '2px solid white', position: 'sticky', left: 0, zIndex: 11 }}>
                   Order
                 </th>
-                <th colSpan={7} style={{ background: '#059669', color: 'white', padding: '6px 12px', borderRight: '2px solid white' }}>
+                <th colSpan={7} style={{ background: '#059669', color: 'white', padding: '6px 12px', borderRight: '2px solid white', position: 'sticky', left: '255px', zIndex: 11 }}>
                   Arrow AU
                 </th>
                 <th colSpan={6} style={{ background: '#f59e0b', color: 'white', padding: '6px 12px', borderRight: '2px solid white' }}>
@@ -719,14 +717,14 @@ export default function ReconciliationPage() {
               <tr className="border-b border-slate-200 text-[11px] font-semibold uppercase tracking-wide">
                 <th className="sticky left-0 z-10 bg-slate-800 px-3 py-2.5 whitespace-nowrap text-white">PO</th>
                 <th className="sticky bg-slate-700 px-3 py-2.5 whitespace-nowrap text-white" style={{ left: '75px' }}>Status</th>
-                <th className="sticky bg-slate-600 px-3 py-2.5 whitespace-nowrap text-white border-r-2 border-slate-500" style={{ left: '165px' }}>Type</th>
-                <th className="bg-emerald-100 px-3 py-2.5 whitespace-nowrap text-emerald-900">Stock code</th>
-                <th className="bg-emerald-100 px-3 py-2.5 whitespace-nowrap text-emerald-900">Supplier SKU</th>
-                <th className="bg-emerald-100 px-3 py-2.5 whitespace-nowrap text-emerald-900">Description</th>
-                <th className="bg-emerald-100 px-3 py-2.5 whitespace-nowrap text-emerald-900">Order date</th>
-                <th className="bg-emerald-100 px-3 py-2.5 whitespace-nowrap text-emerald-900">ETA Arrow</th>
-                <th className="bg-emerald-100 px-3 py-2.5 text-right whitespace-nowrap text-emerald-900">Ordered</th>
-                <th className="bg-emerald-100 px-3 py-2.5 text-right whitespace-nowrap text-emerald-900 border-r-2 border-emerald-300">Received</th>
+                <th className="sticky bg-slate-600 px-3 py-2.5 whitespace-nowrap text-white border-r border-slate-500" style={{ left: '165px' }}>Type</th>
+                <th className="sticky bg-emerald-200 px-3 py-2.5 whitespace-nowrap text-emerald-900" style={{ left: '255px' }}>Stock code</th>
+                <th className="sticky bg-emerald-200 px-3 py-2.5 whitespace-nowrap text-emerald-900" style={{ left: '385px' }}>Supplier SKU</th>
+                <th className="sticky bg-emerald-200 px-3 py-2.5 whitespace-nowrap text-emerald-900" style={{ left: '505px' }}>Description</th>
+                <th className="sticky bg-emerald-200 px-3 py-2.5 whitespace-nowrap text-emerald-900" style={{ left: '705px' }}>Order date</th>
+                <th className="sticky bg-emerald-200 px-3 py-2.5 whitespace-nowrap text-emerald-900" style={{ left: '805px' }}>ETA Arrow</th>
+                <th className="sticky bg-emerald-200 px-3 py-2.5 text-right whitespace-nowrap text-emerald-900" style={{ left: '905px' }}>Ordered</th>
+                <th className="sticky bg-emerald-200 px-3 py-2.5 text-right whitespace-nowrap text-emerald-900 border-r-2 border-emerald-400" style={{ left: '980px' }}>Received</th>
                 <th className="bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900">Arrow PO ref</th>
                 <th className="bg-amber-100 px-3 py-2.5 text-right whitespace-nowrap text-amber-900">ENT</th>
                 <th className="bg-amber-100 px-3 py-2.5 text-right whitespace-nowrap text-amber-900">SHPD</th>
@@ -767,19 +765,19 @@ export default function ReconciliationPage() {
                       <td className="sticky bg-slate-800 px-3 py-2" style={{ left: '75px' }}>
                         {statusBadge(r.status)}
                       </td>
-                      <td className="sticky bg-slate-700 px-3 py-2 border-r-2 border-slate-600" style={{ left: '165px' }}>
+                      <td className="sticky bg-slate-700 px-3 py-2 border-r border-slate-600" style={{ left: '165px' }}>
                         {supplierTypeBadge(r.creditor)}
                       </td>
-                      <td className="bg-emerald-50 px-3 py-2 font-mono text-[11px] whitespace-nowrap text-slate-800">{r.arrowStock}</td>
-                      <td className="bg-emerald-50 px-3 py-2 font-mono text-[11px] whitespace-nowrap text-slate-700">{r.supplierSku || '—'}</td>
-                      <td className="bg-emerald-50 px-3 py-2 text-slate-800" title={r.description ?? ''}>{r.description ?? '—'}</td>
-                      <td className="bg-emerald-50 px-3 py-2 whitespace-nowrap text-slate-500">{fmt(r.orderDate)}</td>
-                      <td className="bg-emerald-50 px-3 py-2 whitespace-nowrap text-slate-700">
+                      <td className="sticky bg-emerald-50 px-3 py-2 font-mono text-[11px] whitespace-nowrap text-slate-800" style={{ left: '255px' }}>{r.arrowStock}</td>
+                      <td className="sticky bg-emerald-50 px-3 py-2 font-mono text-[11px] whitespace-nowrap text-slate-700" style={{ left: '385px' }}>{r.supplierSku || '—'}</td>
+                      <td className="sticky bg-emerald-50 px-3 py-2 text-slate-800" style={{ left: '505px' }} title={r.description ?? ''}>{r.description ?? '—'}</td>
+                      <td className="sticky bg-emerald-50 px-3 py-2 whitespace-nowrap text-slate-500" style={{ left: '705px' }}>{fmt(r.orderDate)}</td>
+                      <td className="sticky bg-emerald-50 px-3 py-2 whitespace-nowrap text-slate-700" style={{ left: '805px' }}>
                         {fmt(r.requestedDate)}
                         {r.lateVsRequest && <span className="ml-1 text-red-500" title="Late vs requested date">&#x26A0;</span>}
                       </td>
-                      <td className="bg-emerald-50 px-3 py-2 text-right font-bold text-emerald-900">{r.qtyOrdered}</td>
-                      <td className="bg-emerald-50 px-3 py-2 text-right text-slate-600 border-r-2 border-emerald-200">{r.qtyReceived}</td>
+                      <td className="sticky bg-emerald-50 px-3 py-2 text-right font-bold text-emerald-900" style={{ left: '905px' }}>{r.qtyOrdered}</td>
+                      <td className="sticky bg-emerald-50 px-3 py-2 text-right text-slate-600 border-r-2 border-emerald-300" style={{ left: '980px' }}>{r.qtyReceived}</td>
                       <td className="bg-amber-50 px-3 py-2 whitespace-nowrap font-mono text-[11px]">
                         {r.as400Ord === 0
                           ? <span className="text-red-400">—</span>
@@ -829,6 +827,7 @@ export default function ReconciliationPage() {
           </table>
           </div>
         </div>
+        </>
       )}
 
       <p className="text-xs text-ink/40">
