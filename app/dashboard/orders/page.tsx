@@ -482,11 +482,11 @@ export default function ReconciliationPage() {
   ];
 
   return (
-    <div className="flex min-h-0 flex-col py-6" style={{ width: '100vw', marginLeft: 'calc(-1 * (100vw - 100%) / 2)', paddingLeft: '1.5rem', paddingRight: '0.5rem' }}>
+    <div className="space-y-6">
       <style dangerouslySetInnerHTML={{ __html: SCROLLBAR_STYLE }} />
 
       {/* ── Header ── */}
-      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="flex items-center gap-2 text-2xl font-bold text-ink">
             <span className="text-wave">⚓</span> Order Reconciliation &amp; ETA
@@ -501,7 +501,7 @@ export default function ReconciliationPage() {
       </div>
 
       {/* ── Upload banners ── */}
-      <div className="mb-4 grid gap-3 lg:grid-cols-2">
+      <div className="grid gap-3 lg:grid-cols-2">
         <UploadBanner
           label="AS400 data"
           sublabel="manual until Snowflake service account is live"
@@ -523,7 +523,7 @@ export default function ReconciliationPage() {
       </div>
 
       {/* ── KPI cards ── */}
-      <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-5">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
         {[
           { label: 'PO Lines',        value: stats.total,      color: 'text-ink' },
           { label: 'Exceptions',      value: stats.exceptions,  color: 'text-amber-600' },
@@ -539,7 +539,7 @@ export default function ReconciliationPage() {
       </div>
 
       {/* ── Filter row ── */}
-      <div className="mb-3 flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
@@ -567,11 +567,11 @@ export default function ReconciliationPage() {
       {loading ? (
         <div className="py-16 text-center text-sm text-slate-400">Loading…</div>
       ) : (
-        <div className="w-full rounded-xl border border-slate-200 bg-white">
-          {/* Top scrollbar mirror — synced to bottom via JS */}
+        <div className="rounded-2xl border border-ink/10 bg-white shadow-soft overflow-hidden">
+          {/* Top scrollbar mirror — synced to bottom scroll */}
           <div
             id="top-scroll"
-            className="overflow-x-auto rounded-t-xl"
+            className="overflow-x-auto"
             style={{ height: '18px' }}
             onScroll={(e) => {
               const bottom = document.getElementById('bottom-scroll');
@@ -583,19 +583,16 @@ export default function ReconciliationPage() {
           {/* Actual scrollable table */}
           <div
             id="bottom-scroll"
-            className="overflow-x-auto rounded-b-xl"
-            style={{ scrollbarWidth: 'auto' }}
+            className="overflow-x-auto"
             onScroll={(e) => {
               const top = document.getElementById('top-scroll');
               if (top) top.scrollLeft = (e.target as HTMLDivElement).scrollLeft;
-              // Keep top-scroll-inner width in sync
               const inner = document.getElementById('top-scroll-inner');
               const tbl = (e.target as HTMLDivElement).querySelector('table');
               if (inner && tbl) inner.style.width = tbl.scrollWidth + 'px';
             }}
             ref={(el) => {
               if (!el) return;
-              // Init inner width on mount
               const inner = document.getElementById('top-scroll-inner');
               const tbl = el.querySelector('table');
               if (inner && tbl) inner.style.width = tbl.scrollWidth + 'px';
@@ -729,11 +726,11 @@ export default function ReconciliationPage() {
               )}
             </tbody>
           </table>
-          </div>{/* end bottom-scroll */}
+          </div>
         </div>
       )}
 
-      <p className="mt-3 text-xs text-slate-400">
+      <p className="text-xs text-ink/40">
         {filtered.length.toLocaleString()} of {rows.length.toLocaleString()} lines shown
       </p>
     </div>
