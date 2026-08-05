@@ -482,7 +482,7 @@ export default function ReconciliationPage() {
   ];
 
   return (
-    <div className="flex min-h-0 w-full flex-col pl-4 pr-2 py-6">
+    <div className="flex min-h-0 flex-col py-6 pl-6 pr-2" style={{ width: 'calc(100% + 3rem)', marginLeft: '-1.5rem' }}>
       <style dangerouslySetInnerHTML={{ __html: SCROLLBAR_STYLE }} />
 
       {/* ── Header ── */}
@@ -601,7 +601,7 @@ export default function ReconciliationPage() {
               if (inner && tbl) inner.style.width = tbl.scrollWidth + 'px';
             }}
           >
-          <table className="w-full text-left text-xs" style={{ minWidth: '1800px', tableLayout: 'auto' }}>
+          <table className="w-full text-left text-xs" style={{ minWidth: '1600px', tableLayout: 'fixed' }}>
             <thead>
               {/* ── Group label row ── */}
               <tr className="border-b border-slate-100 text-[10px] font-bold uppercase tracking-widest">
