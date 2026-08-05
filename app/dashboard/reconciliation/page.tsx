@@ -46,6 +46,7 @@ type As400Line = {
   item: string;
   as400Ord: number;
   as400Shpd: number;
+  as400OrderDate: string | null;
   eta: string | null;
   shipDate: string | null;
   shipToName: string | null;
@@ -73,6 +74,7 @@ type ShipLine = {
 type ReconRow = ArrowLine & {
   as400Ord: number;
   as400Shpd: number;
+  as400OrderDate: string | null;
   as400Eta: string | null;
   shipDate: string | null;
   shipToName: string | null;
@@ -138,32 +140,53 @@ function addrMatch(row: ReconRow): 'ok' | 'warn' | 'unknown' {
 }
 
 // ---------------------------------------------------------------------------
-// Parse AS400 CSV (columns: PO, ITEM, AS400_ORD, AS400_SHPD, ETA, SHIP_DATE,
-// SHIP_TO_NAME, SHIP_TO_CITY, SHIP_TO_STATE, SHIP_TO_COUNTRY, SHIP_TO_POSTCODE,
-// US_SO_NUMBER)
+// Parse AS400 CSV — handles quoted fields containing commas correctly.
 // ---------------------------------------------------------------------------
+
+function parseCsvLine(line: string): string[] {
+  const cols: string[] = [];
+  let cur = '';
+  let inQuote = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') {
+      if (inQuote && line[i + 1] === '"') { cur += '"'; i++; }
+      else inQuote = !inQuote;
+    } else if (ch === ',' && !inQuote) {
+      cols.push(cur.trim()); cur = '';
+    } else {
+      cur += ch;
+    }
+  }
+  cols.push(cur.trim());
+  return cols;
+}
 
 function parseAs400Csv(text: string): As400Line[] {
   const lines = text.trim().split('\n');
   if (lines.length < 2) return [];
-  const hdr = lines[0].split(',').map((h) => h.trim().toLowerCase().replace(/"/g, ''));
+  const hdr = parseCsvLine(lines[0]).map((h) => h.toLowerCase().replace(/"/g, ''));
   const idx = (n: string) => hdr.indexOf(n);
   const c = {
     po: idx('po'), item: idx('item'),
     ord: idx('as400_ord'), shpd: idx('as400_shpd'),
+    as400OrderDate: idx('as400_order_date'),
     eta: idx('eta'), shipDate: idx('ship_date'),
     name: idx('ship_to_name'), city: idx('ship_to_city'),
     state: idx('ship_to_state'), country: idx('ship_to_country'),
     postcode: idx('ship_to_postcode'), so: idx('us_so_number'),
   };
   return lines.slice(1).flatMap((line) => {
-    const cols = line.split(',').map((v) => v.trim().replace(/^"|"$/g, ''));
+    if (!line.trim()) return [];
+    const cols = parseCsvLine(line);
     const po = cols[c.po];
     if (!po || !/^\d{6}$/.test(po)) return [];
     return [{
-      po, item: cols[c.item] ?? '',
+      po,
+      item: cols[c.item] ?? '',
       as400Ord: Number(cols[c.ord]) || 0,
       as400Shpd: Number(cols[c.shpd]) || 0,
+      as400OrderDate: cols[c.as400OrderDate] || null,
       eta: cols[c.eta] || null,
       shipDate: cols[c.shipDate] || null,
       shipToName: cols[c.name] || null,
@@ -303,6 +326,7 @@ function reconcile(arrow: ArrowLine[], as400: As400Line[], ship: ShipLine[]): Re
     return {
       ...a,
       as400Ord, as400Shpd,
+      as400OrderDate: a4?.as400OrderDate ?? null,
       as400Eta:      a4?.eta        ?? null,
       shipDate:      a4?.shipDate   ?? null,
       shipToName:    a4?.shipToName    ?? null,
@@ -502,7 +526,7 @@ export default function ReconciliationPage() {
           onClick={() => {
             const headers = [
               'Stock Code','Supplier SKU','Description','PO','Order Date','ETA Arrow',
-              'Ordered','Received','AS400 ENT','AS400 SHPD','AS400 ETA','US SO#',
+              'Ordered','Received','AS400 ENT','AS400 SHPD','AS400 Order Date','AS400 ETA','US SO#',
               'Ship To','City','State','Postcode','Addr OK',
               'On Water','Container','Vessel','Container ETA','Supplier','Status'
             ];
@@ -516,7 +540,7 @@ export default function ReconciliationPage() {
               r.arrowStock, r.supplierSku, r.description ?? '', r.po,
               r.orderDate ?? '', r.requestedDate ?? '',
               r.qtyOrdered, r.qtyReceived,
-              r.as400Ord === 0 ? 'missing' : r.as400Ord, r.as400Shpd, r.as400Eta ?? '', r.usSoNumber ?? '',
+              r.as400Ord === 0 ? 'missing' : r.as400Ord, r.as400Shpd, r.as400OrderDate ?? '', r.as400Eta ?? '', r.usSoNumber ?? '',
               r.shipToName ?? '', r.shipToCity ?? '', r.shipToState ?? '', r.shipToPostcode ?? '', addrOk(r),
               r.onWater, r.container ?? '', r.vessel ?? '', r.containerEta ?? '',
               creditorName[r.creditor ?? ''] ?? r.creditor ?? '', r.status
@@ -633,87 +657,84 @@ export default function ReconciliationPage() {
               if (inner && tbl) inner.style.width = tbl.scrollWidth + 'px';
             }}
           >
-          <table className="w-full text-left text-xs" style={{ minWidth: '2200px', tableLayout: 'auto', borderCollapse: 'collapse' }}>
+          <table className="w-full text-left text-xs" style={{ minWidth: '2400px', tableLayout: 'auto', borderCollapse: 'collapse' }}>
             <colgroup>
-              {/* Arrow AU */}
-              <col style={{ minWidth: '130px' }} />{/* Stock code */}
-              <col style={{ minWidth: '120px' }} />{/* Supplier SKU */}
-              <col style={{ minWidth: '200px' }} />{/* Description */}
-              <col style={{ minWidth: '80px' }}  />{/* PO */}
-              <col style={{ minWidth: '100px' }} />{/* Order date */}
-              <col style={{ minWidth: '100px' }} />{/* ETA Arrow */}
-              <col style={{ minWidth: '75px' }}  />{/* Ordered */}
-              <col style={{ minWidth: '75px' }}  />{/* Received */}
-              {/* AS400 */}
-              <col style={{ minWidth: '70px' }}  />{/* ENT */}
-              <col style={{ minWidth: '70px' }}  />{/* SHPD */}
-              <col style={{ minWidth: '100px' }} />{/* ETA */}
-              <col style={{ minWidth: '130px' }} />{/* US SO# */}
-              {/* Delivery address */}
-              <col style={{ minWidth: '160px' }} />{/* Ship to */}
-              <col style={{ minWidth: '130px' }} />{/* City */}
-              <col style={{ minWidth: '90px' }}  />{/* State */}
-              <col style={{ minWidth: '80px' }}  />{/* Postcode */}
-              <col style={{ minWidth: '80px' }}  />{/* Addr OK */}
-              {/* Shipment */}
-              <col style={{ minWidth: '80px' }}  />{/* On water */}
-              <col style={{ minWidth: '130px' }} />{/* Container */}
-              <col style={{ minWidth: '160px' }} />{/* Vessel */}
-              <col style={{ minWidth: '110px' }} />{/* Cont ETA */}
-              <col style={{ minWidth: '120px' }} />{/* Supplier */}
-              <col style={{ minWidth: '90px' }}  />{/* Status */}
+              <col style={{ minWidth: '75px' }}  />
+              <col style={{ minWidth: '90px' }}  />
+              <col style={{ minWidth: '130px' }} />
+              <col style={{ minWidth: '120px' }} />
+              <col style={{ minWidth: '200px' }} />
+              <col style={{ minWidth: '100px' }} />
+              <col style={{ minWidth: '100px' }} />
+              <col style={{ minWidth: '75px' }}  />
+              <col style={{ minWidth: '75px' }}  />
+              <col style={{ minWidth: '90px' }}  />
+              <col style={{ minWidth: '70px' }}  />
+              <col style={{ minWidth: '70px' }}  />
+              <col style={{ minWidth: '100px' }} />
+              <col style={{ minWidth: '100px' }} />
+              <col style={{ minWidth: '130px' }} />
+              <col style={{ minWidth: '160px' }} />
+              <col style={{ minWidth: '130px' }} />
+              <col style={{ minWidth: '90px' }}  />
+              <col style={{ minWidth: '80px' }}  />
+              <col style={{ minWidth: '80px' }}  />
+              <col style={{ minWidth: '80px' }}  />
+              <col style={{ minWidth: '130px' }} />
+              <col style={{ minWidth: '160px' }} />
+              <col style={{ minWidth: '110px' }} />
+              <col style={{ minWidth: '120px' }} />
             </colgroup>
             <thead>
-              {/* ── Group label row ── */}
               <tr className="text-[11px] font-bold uppercase tracking-widest">
-                <th colSpan={8} style={{ background: '#059669', color: 'white', padding: '6px 12px', borderRight: '2px solid white' }}>
-                  ↗ Arrow AU
+                <th colSpan={2} style={{ background: '#334155', color: 'white', padding: '6px 12px', borderRight: '2px solid white' }}>
+                  Order
                 </th>
-                <th colSpan={4} style={{ background: '#f59e0b', color: 'white', padding: '6px 12px', borderRight: '2px solid white' }}>
-                  ⚙ AS400 · USA
+                <th colSpan={7} style={{ background: '#059669', color: 'white', padding: '6px 12px', borderRight: '2px solid white' }}>
+                  Arrow AU
+                </th>
+                <th colSpan={6} style={{ background: '#f59e0b', color: 'white', padding: '6px 12px', borderRight: '2px solid white' }}>
+                  AS400 · USA
                 </th>
                 <th colSpan={5} style={{ background: '#0ea5e9', color: 'white', padding: '6px 12px', borderRight: '2px solid white' }}>
-                  📍 Delivery address
+                  Delivery address
                 </th>
-                <th colSpan={6} style={{ background: '#7c3aed', color: 'white', padding: '6px 12px' }}>
-                  🚢 CDS-Net · Shipment
+                <th colSpan={5} style={{ background: '#7c3aed', color: 'white', padding: '6px 12px' }}>
+                  CDS-Net · Shipment
                 </th>
               </tr>
-              {/* ── Column headers ── */}
               <tr className="border-b border-slate-200 text-[11px] font-semibold uppercase tracking-wide">
-                {/* Arrow AU */}
-                <th className="sticky left-0 z-10 bg-emerald-100 px-3 py-2.5 whitespace-nowrap text-emerald-900">Stock code</th>
+                <th className="sticky left-0 z-10 bg-slate-800 px-3 py-2.5 whitespace-nowrap text-white">PO</th>
+                <th className="sticky bg-slate-700 px-3 py-2.5 whitespace-nowrap text-white border-r-2 border-slate-500" style={{ left: '75px' }}>Status</th>
+                <th className="bg-emerald-100 px-3 py-2.5 whitespace-nowrap text-emerald-900">Stock code</th>
                 <th className="bg-emerald-100 px-3 py-2.5 whitespace-nowrap text-emerald-900">Supplier SKU</th>
                 <th className="bg-emerald-100 px-3 py-2.5 whitespace-nowrap text-emerald-900">Description</th>
-                <th className="bg-emerald-100 px-3 py-2.5 whitespace-nowrap text-emerald-900">PO</th>
                 <th className="bg-emerald-100 px-3 py-2.5 whitespace-nowrap text-emerald-900">Order date</th>
                 <th className="bg-emerald-100 px-3 py-2.5 whitespace-nowrap text-emerald-900">ETA Arrow</th>
                 <th className="bg-emerald-100 px-3 py-2.5 text-right whitespace-nowrap text-emerald-900">Ordered</th>
                 <th className="bg-emerald-100 px-3 py-2.5 text-right whitespace-nowrap text-emerald-900 border-r-2 border-emerald-300">Received</th>
-                {/* AS400 */}
+                <th className="bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900">Arrow PO ref</th>
                 <th className="bg-amber-100 px-3 py-2.5 text-right whitespace-nowrap text-amber-900">ENT</th>
                 <th className="bg-amber-100 px-3 py-2.5 text-right whitespace-nowrap text-amber-900">SHPD</th>
+                <th className="bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900">Order date</th>
                 <th className="bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900">ETA</th>
                 <th className="bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900 border-r-2 border-amber-300">US SO#</th>
-                {/* Delivery address */}
                 <th className="bg-sky-100 px-3 py-2.5 whitespace-nowrap text-sky-900">Ship to</th>
                 <th className="bg-sky-100 px-3 py-2.5 whitespace-nowrap text-sky-900">City</th>
                 <th className="bg-sky-100 px-3 py-2.5 whitespace-nowrap text-sky-900">State</th>
                 <th className="bg-sky-100 px-3 py-2.5 whitespace-nowrap text-sky-900">Postcode</th>
                 <th className="bg-sky-100 px-3 py-2.5 whitespace-nowrap text-sky-900 border-r-2 border-sky-300">Addr OK?</th>
-                {/* Shipment */}
                 <th className="bg-violet-100 px-3 py-2.5 text-right whitespace-nowrap text-violet-900">On water</th>
                 <th className="bg-violet-100 px-3 py-2.5 whitespace-nowrap text-violet-900">Container</th>
                 <th className="bg-violet-100 px-3 py-2.5 whitespace-nowrap text-violet-900">Vessel</th>
                 <th className="bg-violet-100 px-3 py-2.5 whitespace-nowrap text-violet-900">Cont. ETA</th>
                 <th className="bg-violet-100 px-3 py-2.5 whitespace-nowrap text-violet-900">Supplier</th>
-                <th className="bg-violet-100 px-3 py-2.5 whitespace-nowrap text-violet-900">Status</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={23} className="py-12 text-center text-slate-400">
+                  <td colSpan={25} className="py-12 text-center text-slate-400">
                     No rows match the current filter.
                   </td>
                 </tr>
@@ -726,32 +747,37 @@ export default function ReconciliationPage() {
                       key={`${r.po}-${r.arrowStock}-${i}`}
                       className={`${rowBase} hover:brightness-[0.97] transition-colors`}
                     >
-                      {/* Arrow AU — green */}
-                      <td className="sticky left-0 z-10 bg-emerald-50 px-3 py-2 font-mono text-[11px] whitespace-nowrap text-slate-800">
-                        {r.arrowStock}
+                      <td className="sticky left-0 z-10 bg-slate-900 px-3 py-2 whitespace-nowrap">
+                        <Link href={`/dashboard/reconciliation?po=${r.po}`} className="font-bold text-white hover:text-wave">{r.po}</Link>
                       </td>
+                      <td className="sticky bg-slate-800 px-3 py-2 border-r-2 border-slate-600" style={{ left: '75px' }}>
+                        {statusBadge(r.status)}
+                      </td>
+                      <td className="bg-emerald-50 px-3 py-2 font-mono text-[11px] whitespace-nowrap text-slate-800">{r.arrowStock}</td>
                       <td className="bg-emerald-50 px-3 py-2 font-mono text-[11px] whitespace-nowrap text-slate-700">{r.supplierSku || '—'}</td>
                       <td className="bg-emerald-50 px-3 py-2 text-slate-800" title={r.description ?? ''}>{r.description ?? '—'}</td>
-                      <td className="bg-emerald-50 px-3 py-2 whitespace-nowrap">
-                        <Link href={`/dashboard/reconciliation?po=${r.po}`} className="font-semibold text-wave hover:underline">{r.po}</Link>
-                      </td>
                       <td className="bg-emerald-50 px-3 py-2 whitespace-nowrap text-slate-500">{fmt(r.orderDate)}</td>
                       <td className="bg-emerald-50 px-3 py-2 whitespace-nowrap text-slate-700">
                         {fmt(r.requestedDate)}
-                        {r.lateVsRequest && <span className="ml-1 text-red-500" title="Late vs requested date">⚠</span>}
+                        {r.lateVsRequest && <span className="ml-1 text-red-500" title="Late vs requested date">&#x26A0;</span>}
                       </td>
                       <td className="bg-emerald-50 px-3 py-2 text-right font-bold text-emerald-900">{r.qtyOrdered}</td>
                       <td className="bg-emerald-50 px-3 py-2 text-right text-slate-600 border-r-2 border-emerald-200">{r.qtyReceived}</td>
-                      {/* AS400 — amber */}
+                      <td className="bg-amber-50 px-3 py-2 whitespace-nowrap font-mono text-[11px]">
+                        {r.as400Ord === 0
+                          ? <span className="text-red-400">—</span>
+                          : <span className="text-green-700 font-semibold">&#10003; {r.po}</span>
+                        }
+                      </td>
                       <td className="bg-amber-50 px-3 py-2 text-right">
                         {r.as400Ord === 0
                           ? <span className="font-semibold text-red-600">missing</span>
                           : <span className="font-semibold text-amber-900">{r.as400Ord}</span>}
                       </td>
                       <td className="bg-amber-50 px-3 py-2 text-right text-amber-800">{r.as400Shpd || '—'}</td>
+                      <td className="bg-amber-50 px-3 py-2 whitespace-nowrap text-slate-600">{fmt(r.as400OrderDate)}</td>
                       <td className="bg-amber-50 px-3 py-2 whitespace-nowrap text-slate-600">{fmt(r.as400Eta)}</td>
                       <td className="bg-amber-50 px-3 py-2 font-mono text-[11px] text-slate-500 border-r-2 border-amber-200">{r.usSoNumber ?? '—'}</td>
-                      {/* Delivery address — sky blue */}
                       <td className="bg-sky-50 px-3 py-2 text-slate-700" title={r.shipToName ?? ''}>{r.shipToName ?? '—'}</td>
                       <td className="bg-sky-50 px-3 py-2 whitespace-nowrap text-slate-700">{r.shipToCity ?? '—'}</td>
                       <td className="bg-sky-50 px-3 py-2 text-slate-600">{r.shipToState ?? '—'}</td>
@@ -760,14 +786,13 @@ export default function ReconciliationPage() {
                         {r.as400Ord === 0 ? (
                           <span className="text-slate-300">—</span>
                         ) : addr === 'ok' ? (
-                          <span className="font-semibold text-green-600">✓ AU</span>
+                          <span className="font-semibold text-green-600">&#10003; AU</span>
                         ) : addr === 'warn' ? (
-                          <span className="font-semibold text-red-600" title={`Unexpected: ${r.shipToCity}, ${r.shipToState}`}>⚠ Check</span>
+                          <span className="font-semibold text-red-600" title={`Unexpected: ${r.shipToCity}, ${r.shipToState}`}>&#x26A0; Check</span>
                         ) : (
                           <span className="text-slate-400">?</span>
                         )}
                       </td>
-                      {/* CDS-Net shipment — violet */}
                       <td className="bg-violet-50 px-3 py-2 text-right">
                         {r.onWater > 0
                           ? <span className="font-bold text-violet-700">{r.onWater}</span>
@@ -779,7 +804,6 @@ export default function ReconciliationPage() {
                       <td className="bg-violet-50 px-3 py-2 whitespace-nowrap text-slate-500">
                         {creditorName[r.creditor ?? ''] ?? r.creditor ?? '—'}
                       </td>
-                      <td className="bg-violet-50 px-3 py-2">{statusBadge(r.status)}</td>
                     </tr>
                   );
                 })
