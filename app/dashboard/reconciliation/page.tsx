@@ -113,6 +113,18 @@ const creditorName: Record<string, string> = {
   '17350': 'Hayward Wuxi',
 };
 
+const HAYWARD_CREDITORS = new Set([
+  '17100', '17115', '17125', '17200', '17300', '17350',
+]);
+
+function supplierTypeBadge(creditor: string | null) {
+  if (!creditor) return <span className="text-slate-400 text-[11px]">—</span>;
+  if (HAYWARD_CREDITORS.has(creditor)) {
+    return <span className="inline-block rounded px-2 py-0.5 text-[11px] font-semibold bg-wave text-white whitespace-nowrap">Hayward</span>;
+  }
+  return <span className="inline-block rounded px-2 py-0.5 text-[11px] font-semibold bg-slate-500 text-white whitespace-nowrap">3rd Party</span>;
+}
+
 const AUNZ_PORTS = new Set([
   'melbourne','sydney','brisbane','darwin','adelaide','perth','fremantle',
   'port botany','townsville','fisherman islands',
@@ -122,11 +134,11 @@ const AUNZ_PORTS = new Set([
 
 function statusBadge(s: ReconRow['status']) {
   const map: Record<ReconRow['status'], { label: string; cls: string }> = {
-    missing:      { label: 'Missing',     cls: 'bg-red-100 text-red-700' },
-    not_received: { label: 'Not rcvd',    cls: 'bg-amber-100 text-amber-700' },
-    in_transit:   { label: 'In transit',  cls: 'bg-blue-100 text-blue-700' },
-    delivered:    { label: 'Delivered',   cls: 'bg-green-100 text-green-700' },
-    ok:           { label: 'OK',          cls: 'bg-slate-100 text-slate-600' },
+    missing:      { label: 'Missing',     cls: 'bg-red-500 text-white' },
+    not_received: { label: 'Not rcvd',    cls: 'bg-orange-400 text-white' },
+    in_transit:   { label: 'In transit',  cls: 'bg-blue-500 text-white' },
+    delivered:    { label: 'Delivered',   cls: 'bg-green-500 text-white' },
+    ok:           { label: 'OK',          cls: 'bg-slate-400 text-white' },
   };
   const { label, cls } = map[s];
   return <span className={`inline-block rounded px-2 py-0.5 text-[11px] font-semibold ${cls}`}>{label}</span>;
@@ -661,6 +673,7 @@ export default function ReconciliationPage() {
             <colgroup>
               <col style={{ minWidth: '75px' }}  />
               <col style={{ minWidth: '90px' }}  />
+              <col style={{ minWidth: '90px' }}  />{/* Supplier type */}
               <col style={{ minWidth: '130px' }} />
               <col style={{ minWidth: '120px' }} />
               <col style={{ minWidth: '200px' }} />
@@ -685,9 +698,9 @@ export default function ReconciliationPage() {
               <col style={{ minWidth: '110px' }} />
               <col style={{ minWidth: '120px' }} />
             </colgroup>
-            <thead>
+            <thead className="sticky top-0 z-20">
               <tr className="text-[11px] font-bold uppercase tracking-widest">
-                <th colSpan={2} style={{ background: '#334155', color: 'white', padding: '6px 12px', borderRight: '2px solid white' }}>
+                <th colSpan={3} style={{ background: '#334155', color: 'white', padding: '6px 12px', borderRight: '2px solid white' }}>
                   Order
                 </th>
                 <th colSpan={7} style={{ background: '#059669', color: 'white', padding: '6px 12px', borderRight: '2px solid white' }}>
@@ -705,7 +718,8 @@ export default function ReconciliationPage() {
               </tr>
               <tr className="border-b border-slate-200 text-[11px] font-semibold uppercase tracking-wide">
                 <th className="sticky left-0 z-10 bg-slate-800 px-3 py-2.5 whitespace-nowrap text-white">PO</th>
-                <th className="sticky bg-slate-700 px-3 py-2.5 whitespace-nowrap text-white border-r-2 border-slate-500" style={{ left: '75px' }}>Status</th>
+                <th className="sticky bg-slate-700 px-3 py-2.5 whitespace-nowrap text-white" style={{ left: '75px' }}>Status</th>
+                <th className="sticky bg-slate-600 px-3 py-2.5 whitespace-nowrap text-white border-r-2 border-slate-500" style={{ left: '165px' }}>Type</th>
                 <th className="bg-emerald-100 px-3 py-2.5 whitespace-nowrap text-emerald-900">Stock code</th>
                 <th className="bg-emerald-100 px-3 py-2.5 whitespace-nowrap text-emerald-900">Supplier SKU</th>
                 <th className="bg-emerald-100 px-3 py-2.5 whitespace-nowrap text-emerald-900">Description</th>
@@ -734,7 +748,7 @@ export default function ReconciliationPage() {
             <tbody className="divide-y divide-slate-100">
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={25} className="py-12 text-center text-slate-400">
+                  <td colSpan={26} className="py-12 text-center text-slate-400">
                     No rows match the current filter.
                   </td>
                 </tr>
@@ -750,8 +764,11 @@ export default function ReconciliationPage() {
                       <td className="sticky left-0 z-10 bg-slate-900 px-3 py-2 whitespace-nowrap">
                         <Link href={`/dashboard/reconciliation?po=${r.po}`} className="font-bold text-white hover:text-wave">{r.po}</Link>
                       </td>
-                      <td className="sticky bg-slate-800 px-3 py-2 border-r-2 border-slate-600" style={{ left: '75px' }}>
+                      <td className="sticky bg-slate-800 px-3 py-2" style={{ left: '75px' }}>
                         {statusBadge(r.status)}
+                      </td>
+                      <td className="sticky bg-slate-700 px-3 py-2 border-r-2 border-slate-600" style={{ left: '165px' }}>
+                        {supplierTypeBadge(r.creditor)}
                       </td>
                       <td className="bg-emerald-50 px-3 py-2 font-mono text-[11px] whitespace-nowrap text-slate-800">{r.arrowStock}</td>
                       <td className="bg-emerald-50 px-3 py-2 font-mono text-[11px] whitespace-nowrap text-slate-700">{r.supplierSku || '—'}</td>
