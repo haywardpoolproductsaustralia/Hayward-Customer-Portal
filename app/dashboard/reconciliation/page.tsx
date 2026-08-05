@@ -1,6 +1,23 @@
 'use client';
 
 // app/dashboard/reconciliation/page.tsx
+// Chunky scrollbar styles injected at runtime so they apply to both
+// the top mirror div and the bottom table scroll container.
+const SCROLLBAR_STYLE = `
+  #top-scroll::-webkit-scrollbar,
+  #bottom-scroll::-webkit-scrollbar { height: 14px; }
+  #top-scroll::-webkit-scrollbar-track,
+  #bottom-scroll::-webkit-scrollbar-track { background: #f1f5f9; border-radius: 99px; }
+  #top-scroll::-webkit-scrollbar-thumb,
+  #bottom-scroll::-webkit-scrollbar-thumb {
+    background: #94a3b8;
+    border-radius: 99px;
+    border: 3px solid #f1f5f9;
+    min-width: 80px;
+  }
+  #top-scroll::-webkit-scrollbar-thumb:hover,
+  #bottom-scroll::-webkit-scrollbar-thumb:hover { background: #64748b; }
+`;
 // Full-width PO reconciliation: Arrow AU vs AS400 (Snowflake upload) vs CDS-Net shipments.
 // Both AS400 data and CDS-Net shipment file can be uploaded directly in the browser.
 
@@ -465,7 +482,8 @@ export default function ReconciliationPage() {
   ];
 
   return (
-    <div className="flex min-h-0 w-full flex-col px-4 py-6">
+    <div className="flex min-h-0 w-full flex-col pl-4 pr-2 py-6">
+      <style dangerouslySetInnerHTML={{ __html: SCROLLBAR_STYLE }} />
 
       {/* ── Header ── */}
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
@@ -549,8 +567,41 @@ export default function ReconciliationPage() {
       {loading ? (
         <div className="py-16 text-center text-sm text-slate-400">Loading…</div>
       ) : (
-        <div className="w-full overflow-x-auto rounded-xl border border-slate-200 bg-white">
-          <table className="w-full text-left text-xs" style={{ minWidth: '1800px' }}>
+        <div className="w-full rounded-xl border border-slate-200 bg-white">
+          {/* Top scrollbar mirror — synced to bottom via JS */}
+          <div
+            id="top-scroll"
+            className="overflow-x-auto rounded-t-xl"
+            style={{ height: '18px' }}
+            onScroll={(e) => {
+              const bottom = document.getElementById('bottom-scroll');
+              if (bottom) bottom.scrollLeft = (e.target as HTMLDivElement).scrollLeft;
+            }}
+          >
+            <div id="top-scroll-inner" style={{ height: '1px' }} />
+          </div>
+          {/* Actual scrollable table */}
+          <div
+            id="bottom-scroll"
+            className="overflow-x-auto rounded-b-xl"
+            style={{ scrollbarWidth: 'auto' }}
+            onScroll={(e) => {
+              const top = document.getElementById('top-scroll');
+              if (top) top.scrollLeft = (e.target as HTMLDivElement).scrollLeft;
+              // Keep top-scroll-inner width in sync
+              const inner = document.getElementById('top-scroll-inner');
+              const tbl = (e.target as HTMLDivElement).querySelector('table');
+              if (inner && tbl) inner.style.width = tbl.scrollWidth + 'px';
+            }}
+            ref={(el) => {
+              if (!el) return;
+              // Init inner width on mount
+              const inner = document.getElementById('top-scroll-inner');
+              const tbl = el.querySelector('table');
+              if (inner && tbl) inner.style.width = tbl.scrollWidth + 'px';
+            }}
+          >
+          <table className="w-full text-left text-xs" style={{ minWidth: '1800px', tableLayout: 'auto' }}>
             <thead>
               {/* ── Group label row ── */}
               <tr className="border-b border-slate-100 text-[10px] font-bold uppercase tracking-widest">
@@ -678,6 +729,7 @@ export default function ReconciliationPage() {
               )}
             </tbody>
           </table>
+          </div>{/* end bottom-scroll */}
         </div>
       )}
 
