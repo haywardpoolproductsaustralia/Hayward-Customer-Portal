@@ -24,6 +24,7 @@ export interface ArrowLine {
   arrowStock: string;      // ARROW_STOCK_CODE
   supplierSku: string;     // SUPPLIER_SKU  (bridge key)
   description: string | null;
+  stockCategory: string;   // STOCK_CATEGORY from STKMAST (PR, WD, B2, etc)
   creditor: string | null;
   qtyOrdered: number;
   qtyReceived: number;   // net across Arrow's partial-receipt splits
@@ -67,6 +68,7 @@ export interface ReconLine {
   arrowStock: string;
   supplierSku: string;
   description: string | null;
+  stockCategory: string;          // STOCK_CATEGORY (PR, WD, B2, etc) — filterable
   creditor: string | null;
   supplier: string;           // resolved supplier name
   qtyOrdered: number;
@@ -127,7 +129,7 @@ export function reconcileLine(
     if (Math.round(a.qtyOrdered) !== Math.round(as400.orderedQty)) {
       flags.push({
         kind: "qty",
-        text: `Qty mismatch \u00b7 we ordered ${a.qtyOrdered}, supplier entered ${as400.orderedQty}`,
+        text: `Qty mismatch · we ordered ${a.qtyOrdered}, supplier entered ${as400.orderedQty}`,
         severity: "warn",
       });
     }
@@ -137,7 +139,7 @@ export function reconcileLine(
   if (a.qtyReceived > 0 && a.qtyOutstanding > 0) {
     flags.push({
       kind: "partial",
-      text: `Partially received \u00b7 ${a.qtyReceived} of ${a.qtyOrdered} in, ${a.qtyOutstanding} still due`,
+      text: `Partially received · ${a.qtyReceived} of ${a.qtyOrdered} in, ${a.qtyOutstanding} still due`,
       severity: "info",
     });
   }
@@ -169,6 +171,7 @@ export function reconcileLine(
   return {
     po: a.po, line: a.line, arrowStock: a.arrowStock, supplierSku: a.supplierSku,
     description: a.description,
+    stockCategory: a.stockCategory,
     creditor: a.creditor ?? null,
     supplier: (a.creditor && SUPPLIER_NAMES[a.creditor]) || a.creditor || "",
     qtyOrdered: a.qtyOrdered,
