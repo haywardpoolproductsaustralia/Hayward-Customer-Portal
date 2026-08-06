@@ -1,302 +1,170 @@
+// app/dashboard/catalog/page.tsx
+// -------------------------------------------------------------------------
+// Product catalog page for the Hayward B2B portal. Client component that
+// reads /api/products (Redis-backed) and renders a searchable, category-
+// filtered grid with a detail modal. Styling uses your existing Tailwind
+// design tokens (wave / deep / foam / splash / amber / ink).
+//
+// Add to nav in components/Sidebar.tsx (this one is customer-visible, so it
+// goes in the normal nav list, NOT STAFF_ONLY_NAV_ITEMS):
+//   { href: '/dashboard/catalog', label: 'Product Catalog', icon: <Grid/> }
+// -------------------------------------------------------------------------
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { Search, PackageX, Loader2, AlertCircle, Truck } from 'lucide-react';
-import { ProductDetailModal, StockEntry } from '@/components/ProductDetailModal';
-import { useSelectedCustomer } from '@/components/SelectedCustomerContext';
 
-const PAGE_SIZE = 30;
+type Stock = { onHand: number; byLocation: Record<string, any>; updatedAt?: string } | null;
+type Product = {
+  sku: string;
+  name: string;
+  image: string | null;
+  description: string | null;
+  specs: Record<string, string>;
+  category: string;
+  stock: Stock;
+};
 
-// Keyword-based, not tied to Arrow's STOCK_CATEGORY codes - those are
-// cryptic 2-character codes with no reliable name mapping we've found.
-// This matches product names instead, using the same category groupings
-// already established for the manuals library.
-const CATEGORIES: { label: string; keywords: string[] }[] = [
-  { label: 'Pumps', keywords: ['PUMP'] },
-  { label: 'Filters', keywords: ['FILTER'] },
-  { label: 'Heaters', keywords: ['HEAT'] },
-  { label: 'Cleaners', keywords: ['CLEANER', 'TIGERSHARK', 'AQUANAUT', 'TRACVAC', 'POWERSHARK', 'NAVIGATOR', 'POOLVAC', 'ROBOTIC'] },
-  { label: 'Automation', keywords: ['CHLORINAT', 'AQUARITE', 'OMNILOGIC', 'SALT', 'PLUG'] },
-];
-
-interface PriceInfo {
-  listPrice: number | null;
-  price: number | null;
-  discountPercent: number | null;
-}
-
-function formatMoney(value: number | null) {
-  if (value == null) return null;
-  return new Intl.NumberFormat('en-AU', { style: 'currency', currency: 'AUD' }).format(value);
-}
-
-function shortDate(value: string | null | undefined) {
-  if (!value) return '';
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return '';
-  return d.toLocaleDateString('en-AU', { day: 'numeric', month: 'short', timeZone: 'Australia/Sydney' });
-}
-
-function totalOnHand(byLocation?: StockEntry['byLocation']) {
-  if (!byLocation) return 0;
-  return Object.values(byLocation).reduce((sum, loc) => sum + (loc.onHand || 0), 0);
-}
-
-export default function ProductsPage() {
-  const [query, setQuery] = useState('');
-  const [activeCategory, setActiveCategory] = useState<string | null>(null);
-  const [allStock, setAllStock] = useState<StockEntry[]>([]);
+export default function CatalogPage() {
+  const [products, setProducts] = useState<Product[]>([]);
+  const [categories, setCategories] = useState<string[]>([]);
+  const [cat, setCat] = useState('All');
+  const [q, setQ] = useState('');
+  const [sel, setSel] = useState<Product | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [page, setPage] = useState(0);
-  const [prices, setPrices] = useState<Record<string, PriceInfo>>({});
-  const [pricesLoading, setPricesLoading] = useState(false);
-  const [pricingAccessError, setPricingAccessError] = useState<string | null>(null);
-  const [selected, setSelected] = useState<StockEntry | null>(null);
-  const { selectedCustomer } = useSelectedCustomer();
 
   useEffect(() => {
-    let cancelled = false;
-    async function loadAll() {
-      setLoading(true);
-      setError(null);
-      try {
-        const res = await fetch('/api/stock');
-        const data = await res.json();
-        if (!cancelled) {
-          if (!res.ok) setError(data.error ?? 'Could not load products right now.');
-          else setAllStock(data.results ?? []);
-        }
-      } catch {
-        if (!cancelled) setError('Could not reach the product list right now. Try again in a moment.');
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-    loadAll();
-    return () => {
-      cancelled = true;
-    };
+    fetch('/api/products')
+      .then((r) => r.json())
+      .then((d) => {
+        setProducts(d.products || []);
+        setCategories(['All', ...(d.categories || [])]);
+      })
+      .finally(() => setLoading(false));
   }, []);
 
-  const filtered = useMemo(() => {
-    const trimmed = query.trim().toUpperCase();
-    const category = CATEGORIES.find((c) => c.label === activeCategory);
-
-    return allStock.filter((r) => {
-      const haystack = `${r.sku} ${r.name ?? ''} ${r.supplierStock ?? ''}`.toUpperCase();
-      if (trimmed && !haystack.includes(trimmed)) return false;
-      if (category && !category.keywords.some((kw) => haystack.includes(kw))) return false;
-      return true;
+  const list = useMemo(() => {
+    const query = q.trim().toLowerCase();
+    return products.filter((p) => {
+      const catOk = cat === 'All' || p.category === cat;
+      const qOk = !query || p.name.toLowerCase().includes(query) || p.sku.toLowerCase().includes(query);
+      return catOk && qOk;
     });
-  }, [query, activeCategory, allStock]);
+  }, [products, cat, q]);
 
-  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const currentPage = Math.min(page, pageCount - 1);
-  const visible = filtered.slice(currentPage * PAGE_SIZE, currentPage * PAGE_SIZE + PAGE_SIZE);
-
-  useEffect(() => {
-    setPage(0);
-  }, [query, activeCategory]);
-
-  useEffect(() => {
-    if (visible.length === 0) return;
-    let cancelled = false;
-
-    async function loadPrices() {
-      setPricesLoading(true);
-      setPrices({});
-      try {
-        const res = await fetch('/api/pricing/batch', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            items: visible.map((v) => ({ sku: v.sku, stockCategory: v.stockCategory, listPrice: v.listPrice })),
-            qty: 1,
-            customerCode: selectedCustomer?.code,
-          }),
-        });
-        const data = await res.json();
-        if (cancelled) return;
-        if (!res.ok) {
-          setPricingAccessError(data.error ?? 'Could not load pricing right now.');
-          return;
-        }
-        setPricingAccessError(null);
-        const next: Record<string, PriceInfo> = {};
-        for (const r of data.results ?? []) {
-          next[r.sku] = { listPrice: r.listPrice, price: r.price, discountPercent: r.discountPercent };
-        }
-        setPrices((prev) => ({ ...prev, ...next }));
-      } catch {
-        if (!cancelled) setPricingAccessError('Could not reach pricing right now.');
-      } finally {
-        if (!cancelled) setPricesLoading(false);
-      }
-    }
-
-    loadPrices();
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPage, query, activeCategory, allStock.length, selectedCustomer?.code]);
+  function stockBadge(s: Stock) {
+    const n = s?.onHand ?? null;
+    if (n === null) return <span className="rounded bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-500">Stock —</span>;
+    if (n === 0) return <span className="rounded bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800">On backorder</span>;
+    if (n < 10) return <span className="rounded bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800">Low · {n}</span>;
+    return <span className="rounded bg-green-100 px-2 py-0.5 text-[11px] font-semibold text-green-800">In stock · {n}</span>;
+  }
 
   return (
-    <div className="space-y-5">
-      <div>
-        <h1 className="font-display text-3xl text-deep font-bold">Products</h1>
-        <p className="text-ink/50 mt-1">Search stock and pricing across every location.</p>
+    <div className="mx-auto w-full max-w-7xl px-3 py-6">
+      <div className="mb-5">
+        <h1 className="text-2xl font-bold text-ink">Product Catalog</h1>
+        <p className="text-sm text-slate-500">Browse the full Hayward range with live stock for your account.</p>
       </div>
 
-      <div className="flex flex-wrap gap-1.5">
-        <button
-          onClick={() => setActiveCategory(null)}
-          className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
-            activeCategory === null ? 'bg-wave text-white' : 'bg-white border border-ink/10 text-ink/60 hover:border-wave/30'
-          }`}
-        >
-          All
-        </button>
-        {CATEGORIES.map((c) => (
-          <button
-            key={c.label}
-            onClick={() => setActiveCategory((prev) => (prev === c.label ? null : c.label))}
-            className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
-              activeCategory === c.label
-                ? 'bg-wave text-white'
-                : 'bg-white border border-ink/10 text-ink/60 hover:border-wave/30'
-            }`}
-          >
-            {c.label}
-          </button>
-        ))}
-      </div>
-
-      <div className="relative max-w-lg">
-        <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-ink/30" />
-        <input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search by SKU or product name"
-          className="w-full rounded-full border border-ink/10 bg-white pl-11 pr-4 py-3 text-sm shadow-soft focus:border-wave focus:ring-2 focus:ring-wave/20 outline-none"
-        />
-      </div>
-
-      {loading && (
-        <div className="flex items-center gap-2 text-ink/40 py-12 justify-center">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          Loading products...
+      <div className="mb-5 flex flex-wrap items-center gap-3">
+        <div className="relative min-w-[240px] flex-1">
+          <input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Search by name or SKU…"
+            className="w-full rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm outline-none focus:border-wave"
+          />
         </div>
-      )}
-      {error && <p className="text-sm text-coral">{error}</p>}
-
-      {pricingAccessError && (
-        <div className="flex items-start gap-2 rounded-2xl bg-amber/10 border border-amber/20 px-4 py-3 text-sm text-amber">
-          <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
-          <span>{pricingAccessError} Stock is still shown below, but prices can&apos;t be calculated until this is resolved.</span>
+        <div className="flex flex-wrap gap-2">
+          {categories.map((c) => (
+            <button
+              key={c}
+              onClick={() => setCat(c)}
+              className={`rounded-full border px-3.5 py-2 text-[13px] font-semibold ${
+                c === cat ? 'border-wave bg-wave text-white' : 'border-slate-200 bg-white text-slate-500'
+              }`}
+            >
+              {c}
+            </button>
+          ))}
         </div>
-      )}
+      </div>
 
-      {!loading && !error && (
+      {loading ? (
+        <div className="py-20 text-center text-slate-400">Loading catalog…</div>
+      ) : (
         <>
-          <p className="text-xs text-ink/40">
-            {filtered.length} {filtered.length === 1 ? 'product' : 'products'}
-            {activeCategory && ` in ${activeCategory}`}
-            {query && ` matching "${query}"`}
-          </p>
-
-          {filtered.length === 0 ? (
-            <div className="rounded-2xl bg-white border border-ink/10 shadow-soft py-16 flex flex-col items-center gap-2">
-              <PackageX className="h-8 w-8 text-ink/20" />
-              <p className="text-ink/40">No products matched that search.</p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
-              {visible.map((item) => {
-                const stock = totalOnHand(item.byLocation);
-                const price = prices[item.sku];
-                return (
-                  <button
-                    key={item.sku}
-                    onClick={() => setSelected(item)}
-                    className="text-left rounded-xl bg-white border border-ink/10 shadow-soft p-3 flex flex-col gap-2 hover:shadow-glow hover:border-wave/20 transition-all"
-                  >
-                    <div>
-                      <p className="text-sm font-semibold text-ink leading-snug line-clamp-2">
-                        {item.name || item.sku}
-                      </p>
-                      <p className="text-[11px] text-ink/40 mt-0.5 font-mono">{item.sku}</p>
-                    </div>
-
-                    {stock > 0 ? (
-                      <span className="inline-flex items-center self-start gap-1 rounded-full bg-splash/10 text-splash px-2 py-0.5 text-[11px] font-semibold">
-                        {stock} in stock
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center self-start gap-1 rounded-full bg-amber/10 text-amber px-2 py-0.5 text-[11px] font-semibold">
-                        Out of stock
-                      </span>
-                    )}
-
-                    {item.incoming && item.incoming.onOrderQty > 0 && (
-                      <span className="inline-flex items-center self-start gap-1 text-[11px] font-medium text-wave -mt-1">
-                        <Truck className="h-3 w-3" />
-                        {item.incoming.onOrderQty} on the way
-                        {item.incoming.nextEta ? ` · ${shortDate(item.incoming.nextEta)}` : ''}
-                      </span>
-                    )}
-
-                    <div className="mt-auto pt-2 border-t border-ink/5">
-                      {pricesLoading && !price ? (
-                        <span className="text-[11px] text-ink/30">Pricing...</span>
-                      ) : price?.price != null ? (
-                        <div className="flex items-baseline gap-1.5 flex-wrap">
-                          <span className="font-display text-base text-deep font-bold">
-                            {formatMoney(price.price)}
-                          </span>
-                          {price.discountPercent ? (
-                            <span className="text-[11px] font-semibold text-sunset">
-                              -{price.discountPercent}%
-                            </span>
-                          ) : null}
-                        </div>
-                      ) : (
-                        <span className="text-[11px] text-ink/30">Price on request</span>
-                      )}
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-
-          {pageCount > 1 && (
-            <div className="flex items-center justify-between pt-2">
+          <div className="mb-3 text-[13px] text-slate-500">
+            {list.length} product{list.length !== 1 ? 's' : ''}
+            {cat !== 'All' ? ` in ${cat}` : ''}
+          </div>
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-6">
+            {list.map((p) => (
               <button
-                onClick={() => setPage((p) => Math.max(0, p - 1))}
-                disabled={currentPage === 0}
-                className="rounded-full border border-ink/10 bg-white px-4 py-2 text-sm font-medium shadow-soft disabled:opacity-40"
+                key={p.sku}
+                onClick={() => setSel(p)}
+                className="group flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white text-left transition hover:-translate-y-0.5 hover:border-sky-200 hover:shadow-lg"
               >
-                Previous
+                <div className="flex aspect-square items-center justify-center bg-foam p-4">
+                  {p.image && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={p.image} alt={p.name} loading="lazy" className="max-h-full max-w-full object-contain mix-blend-multiply" />
+                  )}
+                </div>
+                <div className="p-3">
+                  <div className="min-h-[36px] text-sm font-bold leading-tight text-ink">{p.name}</div>
+                  <div className="mt-1 font-mono text-[12px] text-slate-500">{p.sku}</div>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {p.specs['Total HP'] && <span className="rounded bg-sky-100 px-2 py-0.5 text-[11px] font-semibold text-deep">{p.specs['Total HP']}</span>}
+                    {stockBadge(p.stock)}
+                  </div>
+                </div>
               </button>
-              <span className="text-xs text-ink/40">
-                Page {currentPage + 1} of {pageCount}
-              </span>
-              <button
-                onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
-                disabled={currentPage >= pageCount - 1}
-                className="rounded-full border border-ink/10 bg-white px-4 py-2 text-sm font-medium shadow-soft disabled:opacity-40"
-              >
-                Next
-              </button>
-            </div>
-          )}
+            ))}
+          </div>
         </>
       )}
 
-      {selected && (
-        <ProductDetailModal item={selected} onClose={() => setSelected(null)} />
+      {sel && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/55 p-5"
+          onClick={(e) => e.target === e.currentTarget && setSel(null)}
+        >
+          <div className="grid max-h-[90vh] w-full max-w-3xl grid-cols-1 overflow-auto rounded-2xl bg-white sm:grid-cols-2">
+            <div className="flex items-center justify-center bg-foam p-7">
+              {sel.image && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={sel.image} alt={sel.name} className="max-h-[360px] max-w-full object-contain mix-blend-multiply" />
+              )}
+            </div>
+            <div className="p-6">
+              <h2 className="text-xl font-bold text-ink">{sel.name}</h2>
+              <div className="font-mono text-[13px] text-slate-500">{sel.sku} · {sel.category}</div>
+              <p className="my-4 text-sm leading-relaxed text-slate-700">{sel.description}</p>
+              <table className="w-full border-collapse text-[13px]">
+                <tbody>
+                  {Object.entries(sel.specs).map(([k, v]) => (
+                    <tr key={k} className="border-b border-slate-100">
+                      <td className="py-1.5 text-slate-500">{k}</td>
+                      <td className="py-1.5 text-right font-semibold">{v}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {sel.stock?.byLocation && (
+                <div className="mt-4 rounded-lg bg-foam p-3 text-[12.5px] text-deep">
+                  <div className="mb-1 font-semibold">Live stock by location</div>
+                  {Object.entries(sel.stock.byLocation).map(([loc, v]: any) => (
+                    <div key={loc} className="flex justify-between">
+                      <span>{loc}</span>
+                      <span className="font-semibold">{v.onHand}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
