@@ -5,14 +5,14 @@
 // the top mirror div and the bottom table scroll container.
 const SCROLLBAR_STYLE = `
   #top-scroll::-webkit-scrollbar,
-  #bottom-scroll::-webkit-scrollbar { height: 14px; }
+  #bottom-scroll::-webkit-scrollbar { height: 28px; }
   #top-scroll::-webkit-scrollbar-track,
   #bottom-scroll::-webkit-scrollbar-track { background: #f1f5f9; border-radius: 99px; }
   #top-scroll::-webkit-scrollbar-thumb,
   #bottom-scroll::-webkit-scrollbar-thumb {
     background: #94a3b8;
     border-radius: 99px;
-    border: 3px solid #f1f5f9;
+    border: 5px solid #f1f5f9;
     min-width: 80px;
   }
   #top-scroll::-webkit-scrollbar-thumb:hover,
@@ -46,6 +46,7 @@ type As400Line = {
   item: string;
   as400Ord: number;
   as400Shpd: number;
+  as400OrderDate: string | null;
   eta: string | null;
   shipDate: string | null;
   shipToName: string | null;
@@ -73,6 +74,7 @@ type ShipLine = {
 type ReconRow = ArrowLine & {
   as400Ord: number;
   as400Shpd: number;
+  as400OrderDate: string | null;
   as400Eta: string | null;
   shipDate: string | null;
   shipToName: string | null;
@@ -111,6 +113,18 @@ const creditorName: Record<string, string> = {
   '17350': 'Hayward Wuxi',
 };
 
+const HAYWARD_CREDITORS = new Set([
+  '17100', '17115', '17125', '17200', '17300', '17350',
+]);
+
+function supplierTypeBadge(creditor: string | null) {
+  if (!creditor) return <span className="text-slate-400 text-[11px]">—</span>;
+  if (HAYWARD_CREDITORS.has(creditor)) {
+    return <span className="inline-block rounded px-2 py-0.5 text-[11px] font-semibold bg-wave text-white whitespace-nowrap">Hayward</span>;
+  }
+  return <span className="inline-block rounded px-2 py-0.5 text-[11px] font-semibold bg-slate-500 text-white whitespace-nowrap">3rd Party</span>;
+}
+
 const AUNZ_PORTS = new Set([
   'melbourne','sydney','brisbane','darwin','adelaide','perth','fremantle',
   'port botany','townsville','fisherman islands',
@@ -120,11 +134,11 @@ const AUNZ_PORTS = new Set([
 
 function statusBadge(s: ReconRow['status']) {
   const map: Record<ReconRow['status'], { label: string; cls: string }> = {
-    missing:      { label: 'Missing',     cls: 'bg-red-100 text-red-700' },
-    not_received: { label: 'Not rcvd',    cls: 'bg-amber-100 text-amber-700' },
-    in_transit:   { label: 'In transit',  cls: 'bg-blue-100 text-blue-700' },
-    delivered:    { label: 'Delivered',   cls: 'bg-green-100 text-green-700' },
-    ok:           { label: 'OK',          cls: 'bg-slate-100 text-slate-600' },
+    missing:      { label: 'Missing',     cls: 'bg-red-500 text-white' },
+    not_received: { label: 'Not rcvd',    cls: 'bg-orange-400 text-white' },
+    in_transit:   { label: 'In transit',  cls: 'bg-blue-500 text-white' },
+    delivered:    { label: 'Delivered',   cls: 'bg-green-500 text-white' },
+    ok:           { label: 'OK',          cls: 'bg-slate-400 text-white' },
   };
   const { label, cls } = map[s];
   return <span className={`inline-block rounded px-2 py-0.5 text-[11px] font-semibold ${cls}`}>{label}</span>;
@@ -138,32 +152,53 @@ function addrMatch(row: ReconRow): 'ok' | 'warn' | 'unknown' {
 }
 
 // ---------------------------------------------------------------------------
-// Parse AS400 CSV (columns: PO, ITEM, AS400_ORD, AS400_SHPD, ETA, SHIP_DATE,
-// SHIP_TO_NAME, SHIP_TO_CITY, SHIP_TO_STATE, SHIP_TO_COUNTRY, SHIP_TO_POSTCODE,
-// US_SO_NUMBER)
+// Parse AS400 CSV — handles quoted fields containing commas correctly.
 // ---------------------------------------------------------------------------
+
+function parseCsvLine(line: string): string[] {
+  const cols: string[] = [];
+  let cur = '';
+  let inQuote = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') {
+      if (inQuote && line[i + 1] === '"') { cur += '"'; i++; }
+      else inQuote = !inQuote;
+    } else if (ch === ',' && !inQuote) {
+      cols.push(cur.trim()); cur = '';
+    } else {
+      cur += ch;
+    }
+  }
+  cols.push(cur.trim());
+  return cols;
+}
 
 function parseAs400Csv(text: string): As400Line[] {
   const lines = text.trim().split('\n');
   if (lines.length < 2) return [];
-  const hdr = lines[0].split(',').map((h) => h.trim().toLowerCase().replace(/"/g, ''));
+  const hdr = parseCsvLine(lines[0]).map((h) => h.toLowerCase().replace(/"/g, ''));
   const idx = (n: string) => hdr.indexOf(n);
   const c = {
     po: idx('po'), item: idx('item'),
     ord: idx('as400_ord'), shpd: idx('as400_shpd'),
+    as400OrderDate: idx('as400_order_date'),
     eta: idx('eta'), shipDate: idx('ship_date'),
     name: idx('ship_to_name'), city: idx('ship_to_city'),
     state: idx('ship_to_state'), country: idx('ship_to_country'),
     postcode: idx('ship_to_postcode'), so: idx('us_so_number'),
   };
   return lines.slice(1).flatMap((line) => {
-    const cols = line.split(',').map((v) => v.trim().replace(/^"|"$/g, ''));
+    if (!line.trim()) return [];
+    const cols = parseCsvLine(line);
     const po = cols[c.po];
     if (!po || !/^\d{6}$/.test(po)) return [];
     return [{
-      po, item: cols[c.item] ?? '',
+      po,
+      item: cols[c.item] ?? '',
       as400Ord: Number(cols[c.ord]) || 0,
       as400Shpd: Number(cols[c.shpd]) || 0,
+      as400OrderDate: cols[c.as400OrderDate] || null,
       eta: cols[c.eta] || null,
       shipDate: cols[c.shipDate] || null,
       shipToName: cols[c.name] || null,
@@ -303,6 +338,7 @@ function reconcile(arrow: ArrowLine[], as400: As400Line[], ship: ShipLine[]): Re
     return {
       ...a,
       as400Ord, as400Shpd,
+      as400OrderDate: a4?.as400OrderDate ?? null,
       as400Eta:      a4?.eta        ?? null,
       shipDate:      a4?.shipDate   ?? null,
       shipToName:    a4?.shipToName    ?? null,
@@ -377,6 +413,8 @@ export default function ReconciliationPage() {
   const [search,     setSearch]     = useState('');
   const [uploadingA4, setUploadingA4] = useState(false);
   const [uploadingShip, setUploadingShip] = useState(false);
+  const [showParamount,    setShowParamount]    = useState(false);
+  const [showFlowControl,  setShowFlowControl]  = useState(false);
 
   useEffect(() => {
     Promise.all([
@@ -441,6 +479,9 @@ export default function ReconciliationPage() {
 
   const filtered = useMemo(() => {
     let r = rows;
+    // Exclude Paramount (stock category PR) and Flow Control (17300) by default
+    if (!showParamount)   r = r.filter((x) => !(x.arrowStock?.startsWith('PR-') || (x.description ?? '').toUpperCase().includes('PARAMOUNT')));
+    if (!showFlowControl) r = r.filter((x) => x.creditor !== '17300');
     if (tab === 'exceptions')   r = r.filter((x) => x.status === 'missing' || x.lateVsRequest);
     if (tab === 'not_received') r = r.filter((x) => x.status === 'not_received');
     if (tab === 'in_transit')   r = r.filter((x) => x.status === 'in_transit');
@@ -453,13 +494,17 @@ export default function ReconciliationPage() {
         x.arrowStock.toLowerCase().includes(q) ||
         x.supplierSku.toLowerCase().includes(q) ||
         (x.description ?? '').toLowerCase().includes(q) ||
+        (x.creditor ?? '').toLowerCase().includes(q) ||
+        (creditorName[x.creditor ?? ''] ?? '').toLowerCase().includes(q) ||
         (x.usSoNumber ?? '').toLowerCase().includes(q) ||
         (x.container ?? '').toLowerCase().includes(q) ||
-        (x.vessel ?? '').toLowerCase().includes(q),
+        (x.vessel ?? '').toLowerCase().includes(q) ||
+        (x.shipToName ?? '').toLowerCase().includes(q) ||
+        (x.shipToCity ?? '').toLowerCase().includes(q),
       );
     }
     return r;
-  }, [rows, tab, search]);
+  }, [rows, tab, search, showParamount, showFlowControl]);
 
   const stats = useMemo(() => ({
     total:      rows.length,
@@ -492,16 +537,334 @@ export default function ReconciliationPage() {
             <span className="text-wave">⚓</span> Order Reconciliation &amp; ETA
           </h1>
           <p className="text-sm text-slate-500">Arrow POs vs AS400 supplier entry vs CDS-Net shipment portal · Australia &amp; New Zealand</p>
-        </div>
-        <div className="flex gap-3 text-xs text-slate-400">
-          {arrowMeta.generatedAt && <span>{arrowMeta.rows} Arrow · {fmtMeta(arrowMeta.generatedAt)}</span>}
-          {as400Meta.rows > 0    && <span>· {as400Meta.rows} AS400</span>}
-          {shipMeta.rows > 0     && <span>· {shipMeta.rows} shipment lines</span>}
+          <div className="mt-1 flex gap-3 text-xs text-slate-400">
+            {arrowMeta.generatedAt && <span>{arrowMeta.rows} Arrow · {fmtMeta(arrowMeta.generatedAt)}</span>}
+            {as400Meta.rows > 0    && <span>· {as400Meta.rows} AS400</span>}
+            {shipMeta.rows > 0     && <span>· {shipMeta.rows} shipment lines</span>}
+          </div>
         </div>
       </div>
 
-      {/* ── Upload banners ── */}
-      <div className="grid gap-3 lg:grid-cols-2">
+      {/* ── KPI cards — hidden when scrolled (sticky bar takes over) ── */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-5 transition-all duration-200 overflow-hidden"
+           style={{ maxHeight: '120px' }}
+           ref={(el) => {
+             if (!el) return;
+             const onScroll = () => {
+               el.style.maxHeight = window.scrollY > 80 ? '0px' : '120px';
+               el.style.opacity = window.scrollY > 80 ? '0' : '1';
+               el.style.marginBottom = window.scrollY > 80 ? '-1.5rem' : '';
+             };
+             window.addEventListener('scroll', onScroll, { passive: true });
+           }}
+      >
+        {[
+          { label: 'PO Lines',        value: stats.total,      color: 'text-ink' },
+          { label: 'Exceptions',      value: stats.exceptions,  color: 'text-amber-600' },
+          { label: 'In Transit',      value: stats.inTransit,   color: 'text-blue-600' },
+          { label: 'Delivered',       value: stats.delivered,   color: 'text-green-700' },
+          { label: 'Late vs request', value: stats.late,        color: 'text-red-600' },
+        ].map((k) => (
+          <div key={k.label} className="rounded-xl border border-slate-100 bg-white p-4">
+            <p className={`text-2xl font-bold ${k.color}`}>{k.value}</p>
+            <p className="text-xs text-slate-500">{k.label}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* ── Filter row — sticky below dashboard header ── */}
+      <div className="sticky top-0 z-30 -mx-8 bg-white/95 backdrop-blur px-8 py-3 border-b border-slate-100 shadow-sm flex flex-wrap items-center gap-2">
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search PO, SKU, description, supplier code or name…"
+          className="w-96 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm shadow-sm outline-none focus:border-wave focus:ring-2 focus:ring-wave/20"
+        />
+        <div className="flex flex-wrap gap-1">
+          {tabs.map((t) => (
+            <button
+              key={t.id}
+              onClick={() => setTab(t.id)}
+              className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+                tab === t.id
+                  ? 'bg-wave text-white'
+                  : 'bg-white border border-slate-200 text-slate-600 hover:border-wave hover:text-wave'
+              }`}
+            >
+              {t.label}{t.count !== undefined ? ` · ${t.count}` : ''}
+            </button>
+          ))}
+        </div>
+        {/* Stock group toggles */}
+        <div className="ml-auto flex gap-2">
+          <button
+            onClick={() => setShowParamount((v) => !v)}
+            className={`rounded-lg px-3 py-1.5 text-xs font-medium border transition-colors ${
+              showParamount
+                ? 'bg-purple-600 text-white border-purple-600'
+                : 'bg-white text-slate-500 border-slate-200 hover:border-purple-400 hover:text-purple-600'
+            }`}
+          >
+            {showParamount ? '✓' : '+'} Paramount
+          </button>
+          <button
+            onClick={() => setShowFlowControl((v) => !v)}
+            className={`rounded-lg px-3 py-1.5 text-xs font-medium border transition-colors ${
+              showFlowControl
+                ? 'bg-orange-500 text-white border-orange-500'
+                : 'bg-white text-slate-500 border-slate-200 hover:border-orange-400 hover:text-orange-600'
+            }`}
+          >
+            {showFlowControl ? '✓' : '+'} Flow Control
+          </button>
+        </div>
+      </div>
+
+      {/* ── Table ── */}
+      {loading ? (
+        <div className="py-16 text-center text-sm text-slate-400">Loading…</div>
+      ) : (
+        <>
+          {/* Export button — right-aligned above table */}
+          <div className="flex justify-end mb-2">
+            <button
+              onClick={() => {
+                const headers = [
+                  'PO','Status','Type','Stock Code','Supplier SKU','Description','Order Date','ETA Arrow',
+                  'Ordered','Received','Arrow PO Ref','AS400 ENT','AS400 SHPD','AS400 Order Date','AS400 ETA','US SO#',
+                  'Ship To','City','State','Postcode','Addr OK',
+                  'On Water','Container','Vessel','Container ETA','Supplier'
+                ];
+                const escape = (v: any) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+                const addrOk = (r: ReconRow) => {
+                  if (!r.shipToCity) return '?';
+                  const city = r.shipToCity.toLowerCase();
+                  return ['dandenong','victoria','melbourne','sydney','brisbane','perth','adelaide'].some(c => city.includes(c)) ? 'AU' : 'Check';
+                };
+                const csvRows = filtered.map(r => [
+                  r.po, r.status, HAYWARD_CREDITORS.has(r.creditor ?? '') ? 'Hayward' : '3rd Party',
+                  r.arrowStock, r.supplierSku, r.description ?? '', r.orderDate ?? '', r.requestedDate ?? '',
+                  r.qtyOrdered, r.qtyReceived,
+                  r.as400Ord > 0 ? r.po : '', r.as400Ord === 0 ? 'missing' : r.as400Ord, r.as400Shpd,
+                  r.as400OrderDate ?? '', r.as400Eta ?? '', r.usSoNumber ?? '',
+                  r.shipToName ?? '', r.shipToCity ?? '', r.shipToState ?? '', r.shipToPostcode ?? '', addrOk(r),
+                  r.onWater, r.container ?? '', r.vessel ?? '', r.containerEta ?? '',
+                  creditorName[r.creditor ?? ''] ?? r.creditor ?? ''
+                ].map(escape).join(','));
+                const csv = [headers.map(escape).join(','), ...csvRows].join('\n');
+                const blob = new Blob([csv], { type: 'text/csv' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url; a.download = `recon-${new Date().toISOString().slice(0,10)}.csv`;
+                a.click(); URL.revokeObjectURL(url);
+              }}
+              className="flex items-center gap-2 rounded-xl border border-ink/10 bg-white px-4 py-2 text-sm font-medium shadow-soft hover:border-wave/30 transition-colors"
+            >
+              <svg className="h-4 w-4 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+              Export to Excel
+            </button>
+          </div>
+          <div className="rounded-2xl border border-ink/10 bg-white shadow-soft overflow-hidden">
+          {/* Top scrollbar mirror — synced to bottom scroll */}
+          <div
+            id="top-scroll"
+            className="overflow-x-auto"
+            style={{ height: '18px' }}
+            onScroll={(e) => {
+              const bottom = document.getElementById('bottom-scroll');
+              if (bottom) bottom.scrollLeft = (e.target as HTMLDivElement).scrollLeft;
+            }}
+          >
+            <div id="top-scroll-inner" style={{ height: '1px' }} />
+          </div>
+          {/* Actual scrollable table — fixed height so thead stays locked while tbody scrolls */}
+          <div
+            id="bottom-scroll"
+            className="overflow-x-auto overflow-y-auto"
+            style={{ maxHeight: 'calc(100vh - 220px)' }}
+            onScroll={(e) => {
+              const top = document.getElementById('top-scroll');
+              if (top) top.scrollLeft = (e.target as HTMLDivElement).scrollLeft;
+              const inner = document.getElementById('top-scroll-inner');
+              const tbl = (e.target as HTMLDivElement).querySelector('table');
+              if (inner && tbl) inner.style.width = tbl.scrollWidth + 'px';
+            }}
+            ref={(el) => {
+              if (!el) return;
+              const inner = document.getElementById('top-scroll-inner');
+              const tbl = el.querySelector('table');
+              if (inner && tbl) inner.style.width = tbl.scrollWidth + 'px';
+            }}
+          >
+          <table className="w-full text-left text-xs" style={{ minWidth: '2400px', tableLayout: 'auto', borderCollapse: 'collapse' }}>
+            <colgroup>
+              <col style={{ minWidth: '75px' }}  />
+              <col style={{ minWidth: '90px' }}  />
+              <col style={{ minWidth: '90px' }}  />{/* Supplier type */}
+              <col style={{ minWidth: '130px' }} />
+              <col style={{ minWidth: '120px' }} />
+              <col style={{ minWidth: '200px' }} />
+              <col style={{ minWidth: '100px' }} />
+              <col style={{ minWidth: '100px' }} />
+              <col style={{ minWidth: '75px' }}  />
+              <col style={{ minWidth: '75px' }}  />
+              <col style={{ minWidth: '90px' }}  />
+              <col style={{ minWidth: '70px' }}  />
+              <col style={{ minWidth: '70px' }}  />
+              <col style={{ minWidth: '100px' }} />
+              <col style={{ minWidth: '100px' }} />
+              <col style={{ minWidth: '130px' }} />
+              <col style={{ minWidth: '160px' }} />
+              <col style={{ minWidth: '130px' }} />
+              <col style={{ minWidth: '90px' }}  />
+              <col style={{ minWidth: '80px' }}  />
+              <col style={{ minWidth: '80px' }}  />
+              <col style={{ minWidth: '80px' }}  />
+              <col style={{ minWidth: '130px' }} />
+              <col style={{ minWidth: '160px' }} />
+              <col style={{ minWidth: '110px' }} />
+              <col style={{ minWidth: '120px' }} />
+            </colgroup>
+            <thead className="sticky top-0 z-20">
+              <tr className="text-[11px] font-bold uppercase tracking-widest">
+                <th colSpan={3} style={{ background: '#334155', color: 'white', padding: '6px 12px', borderRight: '2px solid white', position: 'sticky', left: 0, zIndex: 11 }}>
+                  Order
+                </th>
+                <th colSpan={7} style={{ background: '#059669', color: 'white', padding: '6px 12px', borderRight: '2px solid white', position: 'sticky', left: '255px', zIndex: 11 }}>
+                  Arrow AU
+                </th>
+                <th colSpan={6} style={{ background: '#f59e0b', color: 'white', padding: '6px 12px', borderRight: '2px solid white' }}>
+                  AS400 · USA
+                </th>
+                <th colSpan={5} style={{ background: '#0ea5e9', color: 'white', padding: '6px 12px', borderRight: '2px solid white' }}>
+                  Delivery address
+                </th>
+                <th colSpan={5} style={{ background: '#7c3aed', color: 'white', padding: '6px 12px' }}>
+                  CDS-Net · Shipment
+                </th>
+              </tr>
+              <tr className="border-b border-slate-200 text-[11px] font-semibold uppercase tracking-wide">
+                <th className="sticky left-0 z-10 bg-slate-800 px-3 py-2.5 whitespace-nowrap text-white">PO</th>
+                <th className="sticky bg-slate-700 px-3 py-2.5 whitespace-nowrap text-white" style={{ left: '75px' }}>Status</th>
+                <th className="sticky bg-slate-600 px-3 py-2.5 whitespace-nowrap text-white border-r border-slate-500" style={{ left: '165px' }}>Type</th>
+                <th className="sticky bg-emerald-200 px-3 py-2.5 whitespace-nowrap text-emerald-900" style={{ left: '255px' }}>Stock code</th>
+                <th className="sticky bg-emerald-200 px-3 py-2.5 whitespace-nowrap text-emerald-900" style={{ left: '385px' }}>Supplier SKU</th>
+                <th className="sticky bg-emerald-200 px-3 py-2.5 whitespace-nowrap text-emerald-900" style={{ left: '505px' }}>Description</th>
+                <th className="sticky bg-emerald-200 px-3 py-2.5 whitespace-nowrap text-emerald-900" style={{ left: '705px' }}>Order date</th>
+                <th className="sticky bg-emerald-200 px-3 py-2.5 whitespace-nowrap text-emerald-900" style={{ left: '805px' }}>ETA Arrow</th>
+                <th className="sticky bg-emerald-200 px-3 py-2.5 text-right whitespace-nowrap text-emerald-900" style={{ left: '905px' }}>Ordered</th>
+                <th className="sticky bg-emerald-200 px-3 py-2.5 text-right whitespace-nowrap text-emerald-900 border-r-2 border-emerald-400" style={{ left: '980px' }}>Received</th>
+                <th className="bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900">Arrow PO ref</th>
+                <th className="bg-amber-100 px-3 py-2.5 text-right whitespace-nowrap text-amber-900">ENT</th>
+                <th className="bg-amber-100 px-3 py-2.5 text-right whitespace-nowrap text-amber-900">SHPD</th>
+                <th className="bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900">Order date</th>
+                <th className="bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900">ETA</th>
+                <th className="bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900 border-r-2 border-amber-300">US SO#</th>
+                <th className="bg-sky-100 px-3 py-2.5 whitespace-nowrap text-sky-900">Ship to</th>
+                <th className="bg-sky-100 px-3 py-2.5 whitespace-nowrap text-sky-900">City</th>
+                <th className="bg-sky-100 px-3 py-2.5 whitespace-nowrap text-sky-900">State</th>
+                <th className="bg-sky-100 px-3 py-2.5 whitespace-nowrap text-sky-900">Postcode</th>
+                <th className="bg-sky-100 px-3 py-2.5 whitespace-nowrap text-sky-900 border-r-2 border-sky-300">Addr OK?</th>
+                <th className="bg-violet-100 px-3 py-2.5 text-right whitespace-nowrap text-violet-900">On water</th>
+                <th className="bg-violet-100 px-3 py-2.5 whitespace-nowrap text-violet-900">Container</th>
+                <th className="bg-violet-100 px-3 py-2.5 whitespace-nowrap text-violet-900">Vessel</th>
+                <th className="bg-violet-100 px-3 py-2.5 whitespace-nowrap text-violet-900">Cont. ETA</th>
+                <th className="bg-violet-100 px-3 py-2.5 whitespace-nowrap text-violet-900">Supplier</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {filtered.length === 0 ? (
+                <tr>
+                  <td colSpan={26} className="py-12 text-center text-slate-400">
+                    No rows match the current filter.
+                  </td>
+                </tr>
+              ) : (
+                filtered.map((r, i) => {
+                  const addr = addrMatch(r);
+                  const rowBase = r.lateVsRequest ? 'bg-red-50/30' : '';
+                  return (
+                    <tr
+                      key={`${r.po}-${r.arrowStock}-${i}`}
+                      className={`${rowBase} hover:brightness-[0.97] transition-colors`}
+                    >
+                      <td className="sticky left-0 z-10 bg-slate-900 px-3 py-2 whitespace-nowrap">
+                        <Link href={`/dashboard/reconciliation?po=${r.po}`} className="font-bold text-white hover:text-wave">{r.po}</Link>
+                      </td>
+                      <td className="sticky bg-slate-800 px-3 py-2" style={{ left: '75px' }}>
+                        {statusBadge(r.status)}
+                      </td>
+                      <td className="sticky bg-slate-700 px-3 py-2 border-r border-slate-600" style={{ left: '165px' }}>
+                        {supplierTypeBadge(r.creditor)}
+                      </td>
+                      <td className="sticky bg-emerald-50 px-3 py-2 font-mono text-[11px] whitespace-nowrap text-slate-800" style={{ left: '255px' }}>{r.arrowStock}</td>
+                      <td className="sticky bg-emerald-50 px-3 py-2 font-mono text-[11px] whitespace-nowrap text-slate-700" style={{ left: '385px' }}>{r.supplierSku || '—'}</td>
+                      <td className="sticky bg-emerald-50 px-3 py-2 text-slate-800" style={{ left: '505px' }} title={r.description ?? ''}>{r.description ?? '—'}</td>
+                      <td className="sticky bg-emerald-50 px-3 py-2 whitespace-nowrap text-slate-500" style={{ left: '705px' }}>{fmt(r.orderDate)}</td>
+                      <td className="sticky bg-emerald-50 px-3 py-2 whitespace-nowrap text-slate-700" style={{ left: '805px' }}>
+                        {fmt(r.requestedDate)}
+                        {r.lateVsRequest && <span className="ml-1 text-red-500" title="Late vs requested date">&#x26A0;</span>}
+                      </td>
+                      <td className="sticky bg-emerald-50 px-3 py-2 text-right font-bold text-emerald-900" style={{ left: '905px' }}>{r.qtyOrdered}</td>
+                      <td className="sticky bg-emerald-50 px-3 py-2 text-right text-slate-600 border-r-2 border-emerald-300" style={{ left: '980px' }}>{r.qtyReceived}</td>
+                      <td className="bg-amber-50 px-3 py-2 whitespace-nowrap font-mono text-[11px]">
+                        {r.as400Ord === 0
+                          ? <span className="text-red-400">—</span>
+                          : <span className="text-green-700 font-semibold">&#10003; {r.po}</span>
+                        }
+                      </td>
+                      <td className="bg-amber-50 px-3 py-2 text-right">
+                        {r.as400Ord === 0
+                          ? <span className="font-semibold text-red-600">missing</span>
+                          : <span className="font-semibold text-amber-900">{r.as400Ord}</span>}
+                      </td>
+                      <td className="bg-amber-50 px-3 py-2 text-right text-amber-800">{r.as400Shpd || '—'}</td>
+                      <td className="bg-amber-50 px-3 py-2 whitespace-nowrap text-slate-600">{fmt(r.as400OrderDate)}</td>
+                      <td className="bg-amber-50 px-3 py-2 whitespace-nowrap text-slate-600">{fmt(r.as400Eta)}</td>
+                      <td className="bg-amber-50 px-3 py-2 font-mono text-[11px] text-slate-500 border-r-2 border-amber-200">{r.usSoNumber ?? '—'}</td>
+                      <td className="bg-sky-50 px-3 py-2 text-slate-700" title={r.shipToName ?? ''}>{r.shipToName ?? '—'}</td>
+                      <td className="bg-sky-50 px-3 py-2 whitespace-nowrap text-slate-700">{r.shipToCity ?? '—'}</td>
+                      <td className="bg-sky-50 px-3 py-2 text-slate-600">{r.shipToState ?? '—'}</td>
+                      <td className="bg-sky-50 px-3 py-2 text-slate-600">{r.shipToPostcode ?? '—'}</td>
+                      <td className="bg-sky-50 px-3 py-2 border-r-2 border-sky-200">
+                        {r.as400Ord === 0 ? (
+                          <span className="text-slate-300">—</span>
+                        ) : addr === 'ok' ? (
+                          <span className="font-semibold text-green-600">&#10003; AU</span>
+                        ) : addr === 'warn' ? (
+                          <span className="font-semibold text-red-600" title={`Unexpected: ${r.shipToCity}, ${r.shipToState}`}>&#x26A0; Check</span>
+                        ) : (
+                          <span className="text-slate-400">?</span>
+                        )}
+                      </td>
+                      <td className="bg-violet-50 px-3 py-2 text-right">
+                        {r.onWater > 0
+                          ? <span className="font-bold text-violet-700">{r.onWater}</span>
+                          : <span className="text-slate-300">—</span>}
+                      </td>
+                      <td className="bg-violet-50 px-3 py-2 font-mono text-[11px] whitespace-nowrap text-violet-800">{r.container ?? '—'}</td>
+                      <td className="bg-violet-50 px-3 py-2 whitespace-nowrap text-slate-700">{r.vessel ?? '—'}</td>
+                      <td className="bg-violet-50 px-3 py-2 whitespace-nowrap text-slate-600">{fmt(r.containerEta)}</td>
+                      <td className="bg-violet-50 px-3 py-2 whitespace-nowrap text-slate-500">
+                        {creditorName[r.creditor ?? ''] ?? r.creditor ?? '—'}
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+          </div>
+        </div>
+        </>
+      )}
+
+      <p className="text-xs text-ink/40">
+        {filtered.length.toLocaleString()} of {rows.length.toLocaleString()} lines shown
+      </p>
+
+      {/* ── Upload banners — bottom of page ── */}
+      <div className="grid gap-3 lg:grid-cols-2 pt-4 border-t border-slate-100">
         <UploadBanner
           label="AS400 data"
           sublabel="manual until Snowflake service account is live"
@@ -521,218 +884,6 @@ export default function ReconciliationPage() {
           onFile={handleShipFile}
         />
       </div>
-
-      {/* ── KPI cards ── */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
-        {[
-          { label: 'PO Lines',        value: stats.total,      color: 'text-ink' },
-          { label: 'Exceptions',      value: stats.exceptions,  color: 'text-amber-600' },
-          { label: 'In Transit',      value: stats.inTransit,   color: 'text-blue-600' },
-          { label: 'Delivered',       value: stats.delivered,   color: 'text-green-700' },
-          { label: 'Late vs request', value: stats.late,        color: 'text-red-600' },
-        ].map((k) => (
-          <div key={k.label} className="rounded-xl border border-slate-100 bg-white p-4">
-            <p className={`text-2xl font-bold ${k.color}`}>{k.value}</p>
-            <p className="text-xs text-slate-500">{k.label}</p>
-          </div>
-        ))}
-      </div>
-
-      {/* ── Filter row ── */}
-      <div className="flex flex-wrap items-center gap-2">
-        <input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search PO, SKU, container, vessel…"
-          className="min-w-[240px] rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-wave"
-        />
-        <div className="flex flex-wrap gap-1">
-          {tabs.map((t) => (
-            <button
-              key={t.id}
-              onClick={() => setTab(t.id)}
-              className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-                tab === t.id
-                  ? 'bg-wave text-white'
-                  : 'bg-white border border-slate-200 text-slate-600 hover:border-wave hover:text-wave'
-              }`}
-            >
-              {t.label}{t.count !== undefined ? ` · ${t.count}` : ''}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* ── Table ── */}
-      {loading ? (
-        <div className="py-16 text-center text-sm text-slate-400">Loading…</div>
-      ) : (
-        <div className="rounded-2xl border border-ink/10 bg-white shadow-soft overflow-hidden">
-          {/* Top scrollbar mirror — synced to bottom scroll */}
-          <div
-            id="top-scroll"
-            className="overflow-x-auto"
-            style={{ height: '18px' }}
-            onScroll={(e) => {
-              const bottom = document.getElementById('bottom-scroll');
-              if (bottom) bottom.scrollLeft = (e.target as HTMLDivElement).scrollLeft;
-            }}
-          >
-            <div id="top-scroll-inner" style={{ height: '1px' }} />
-          </div>
-          {/* Actual scrollable table */}
-          <div
-            id="bottom-scroll"
-            className="overflow-x-auto"
-            onScroll={(e) => {
-              const top = document.getElementById('top-scroll');
-              if (top) top.scrollLeft = (e.target as HTMLDivElement).scrollLeft;
-              const inner = document.getElementById('top-scroll-inner');
-              const tbl = (e.target as HTMLDivElement).querySelector('table');
-              if (inner && tbl) inner.style.width = tbl.scrollWidth + 'px';
-            }}
-            ref={(el) => {
-              if (!el) return;
-              const inner = document.getElementById('top-scroll-inner');
-              const tbl = el.querySelector('table');
-              if (inner && tbl) inner.style.width = tbl.scrollWidth + 'px';
-            }}
-          >
-          <table className="w-full text-left text-xs" style={{ minWidth: '1600px', tableLayout: 'fixed' }}>
-            <thead>
-              {/* ── Group label row ── */}
-              <tr className="text-[11px] font-bold uppercase tracking-widest">
-                {/* Arrow AU — solid green */}
-                <th colSpan={8} className="bg-emerald-600 px-3 py-2 text-white border-r border-emerald-700">
-                  ↗ Arrow AU
-                </th>
-                {/* AS400 USA — solid amber */}
-                <th colSpan={4} className="bg-amber-500 px-3 py-2 text-white border-r border-amber-600">
-                  ⚙ AS400 · USA
-                </th>
-                {/* Delivery Address — solid sky */}
-                <th colSpan={5} className="bg-sky-500 px-3 py-2 text-white border-r border-sky-600">
-                  📍 Delivery address
-                </th>
-                {/* CDS-Net Shipment — solid violet */}
-                <th colSpan={6} className="bg-violet-600 px-3 py-2 text-white">
-                  🚢 CDS-Net · Shipment
-                </th>
-              </tr>
-              {/* ── Column headers ── */}
-              <tr className="border-b border-slate-200 text-[11px] font-semibold uppercase tracking-wide">
-                {/* Arrow AU */}
-                <th className="sticky left-0 z-10 bg-emerald-100 px-3 py-2.5 whitespace-nowrap text-emerald-900">Stock code</th>
-                <th className="bg-emerald-100 px-3 py-2.5 whitespace-nowrap text-emerald-900">Supplier SKU</th>
-                <th className="bg-emerald-100 px-3 py-2.5 whitespace-nowrap text-emerald-900">Description</th>
-                <th className="bg-emerald-100 px-3 py-2.5 whitespace-nowrap text-emerald-900">PO</th>
-                <th className="bg-emerald-100 px-3 py-2.5 whitespace-nowrap text-emerald-900">Order date</th>
-                <th className="bg-emerald-100 px-3 py-2.5 whitespace-nowrap text-emerald-900">ETA Arrow</th>
-                <th className="bg-emerald-100 px-3 py-2.5 text-right whitespace-nowrap text-emerald-900">Ordered</th>
-                <th className="bg-emerald-100 px-3 py-2.5 text-right whitespace-nowrap text-emerald-900 border-r-2 border-emerald-300">Received</th>
-                {/* AS400 */}
-                <th className="bg-amber-100 px-3 py-2.5 text-right whitespace-nowrap text-amber-900">ENT</th>
-                <th className="bg-amber-100 px-3 py-2.5 text-right whitespace-nowrap text-amber-900">SHPD</th>
-                <th className="bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900">ETA</th>
-                <th className="bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900 border-r-2 border-amber-300">US SO#</th>
-                {/* Delivery address */}
-                <th className="bg-sky-100 px-3 py-2.5 whitespace-nowrap text-sky-900">Ship to</th>
-                <th className="bg-sky-100 px-3 py-2.5 whitespace-nowrap text-sky-900">City</th>
-                <th className="bg-sky-100 px-3 py-2.5 whitespace-nowrap text-sky-900">State</th>
-                <th className="bg-sky-100 px-3 py-2.5 whitespace-nowrap text-sky-900">Postcode</th>
-                <th className="bg-sky-100 px-3 py-2.5 whitespace-nowrap text-sky-900 border-r-2 border-sky-300">Addr OK?</th>
-                {/* Shipment */}
-                <th className="bg-violet-100 px-3 py-2.5 text-right whitespace-nowrap text-violet-900">On water</th>
-                <th className="bg-violet-100 px-3 py-2.5 whitespace-nowrap text-violet-900">Container</th>
-                <th className="bg-violet-100 px-3 py-2.5 whitespace-nowrap text-violet-900">Vessel</th>
-                <th className="bg-violet-100 px-3 py-2.5 whitespace-nowrap text-violet-900">Cont. ETA</th>
-                <th className="bg-violet-100 px-3 py-2.5 whitespace-nowrap text-violet-900">Supplier</th>
-                <th className="bg-violet-100 px-3 py-2.5 whitespace-nowrap text-violet-900">Status</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {filtered.length === 0 ? (
-                <tr>
-                  <td colSpan={23} className="py-12 text-center text-slate-400">
-                    No rows match the current filter.
-                  </td>
-                </tr>
-              ) : (
-                filtered.map((r, i) => {
-                  const addr = addrMatch(r);
-                  const rowBase = r.lateVsRequest ? 'bg-red-50/30' : '';
-                  return (
-                    <tr
-                      key={`${r.po}-${r.arrowStock}-${i}`}
-                      className={`${rowBase} hover:brightness-[0.97] transition-colors`}
-                    >
-                      {/* Arrow AU — green */}
-                      <td className="sticky left-0 z-10 bg-emerald-50 px-3 py-2 font-mono text-[11px] whitespace-nowrap text-slate-800">
-                        {r.arrowStock}
-                      </td>
-                      <td className="bg-emerald-50 px-3 py-2 font-mono text-[11px] whitespace-nowrap text-slate-700">{r.supplierSku || '—'}</td>
-                      <td className="bg-emerald-50 max-w-[200px] truncate px-3 py-2 text-slate-800" title={r.description ?? ''}>{r.description ?? '—'}</td>
-                      <td className="bg-emerald-50 px-3 py-2 whitespace-nowrap">
-                        <Link href={`/dashboard/reconciliation?po=${r.po}`} className="font-semibold text-wave hover:underline">{r.po}</Link>
-                      </td>
-                      <td className="bg-emerald-50 px-3 py-2 whitespace-nowrap text-slate-500">{fmt(r.orderDate)}</td>
-                      <td className="bg-emerald-50 px-3 py-2 whitespace-nowrap text-slate-700">
-                        {fmt(r.requestedDate)}
-                        {r.lateVsRequest && <span className="ml-1 text-red-500" title="Late vs requested date">⚠</span>}
-                      </td>
-                      <td className="bg-emerald-50 px-3 py-2 text-right font-bold text-emerald-900">{r.qtyOrdered}</td>
-                      <td className="bg-emerald-50 px-3 py-2 text-right text-slate-600 border-r-2 border-emerald-200">{r.qtyReceived}</td>
-                      {/* AS400 — amber */}
-                      <td className="bg-amber-50 px-3 py-2 text-right">
-                        {r.as400Ord === 0
-                          ? <span className="font-semibold text-red-600">missing</span>
-                          : <span className="font-semibold text-amber-900">{r.as400Ord}</span>}
-                      </td>
-                      <td className="bg-amber-50 px-3 py-2 text-right text-amber-800">{r.as400Shpd || '—'}</td>
-                      <td className="bg-amber-50 px-3 py-2 whitespace-nowrap text-slate-600">{fmt(r.as400Eta)}</td>
-                      <td className="bg-amber-50 px-3 py-2 font-mono text-[11px] text-slate-500 border-r-2 border-amber-200">{r.usSoNumber ?? '—'}</td>
-                      {/* Delivery address — sky blue */}
-                      <td className="bg-sky-50 px-3 py-2 max-w-[140px] truncate text-slate-700" title={r.shipToName ?? ''}>{r.shipToName ?? '—'}</td>
-                      <td className="bg-sky-50 px-3 py-2 whitespace-nowrap text-slate-700">{r.shipToCity ?? '—'}</td>
-                      <td className="bg-sky-50 px-3 py-2 text-slate-600">{r.shipToState ?? '—'}</td>
-                      <td className="bg-sky-50 px-3 py-2 text-slate-600">{r.shipToPostcode ?? '—'}</td>
-                      <td className="bg-sky-50 px-3 py-2 border-r-2 border-sky-200">
-                        {r.as400Ord === 0 ? (
-                          <span className="text-slate-300">—</span>
-                        ) : addr === 'ok' ? (
-                          <span className="font-semibold text-green-600">✓ AU</span>
-                        ) : addr === 'warn' ? (
-                          <span className="font-semibold text-red-600" title={`Unexpected: ${r.shipToCity}, ${r.shipToState}`}>⚠ Check</span>
-                        ) : (
-                          <span className="text-slate-400">?</span>
-                        )}
-                      </td>
-                      {/* CDS-Net shipment — violet */}
-                      <td className="bg-violet-50 px-3 py-2 text-right">
-                        {r.onWater > 0
-                          ? <span className="font-bold text-violet-700">{r.onWater}</span>
-                          : <span className="text-slate-300">—</span>}
-                      </td>
-                      <td className="bg-violet-50 px-3 py-2 font-mono text-[11px] whitespace-nowrap text-violet-800">{r.container ?? '—'}</td>
-                      <td className="bg-violet-50 px-3 py-2 whitespace-nowrap text-slate-700">{r.vessel ?? '—'}</td>
-                      <td className="bg-violet-50 px-3 py-2 whitespace-nowrap text-slate-600">{fmt(r.containerEta)}</td>
-                      <td className="bg-violet-50 px-3 py-2 whitespace-nowrap text-slate-500">
-                        {creditorName[r.creditor ?? ''] ?? r.creditor ?? '—'}
-                      </td>
-                      <td className="bg-violet-50 px-3 py-2">{statusBadge(r.status)}</td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-          </div>
-        </div>
-      )}
-
-      <p className="text-xs text-ink/40">
-        {filtered.length.toLocaleString()} of {rows.length.toLocaleString()} lines shown
-      </p>
     </div>
   );
 }
