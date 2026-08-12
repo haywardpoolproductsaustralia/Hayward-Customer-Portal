@@ -140,34 +140,48 @@ function StatusFilter({
   );
 }
 
-// Sortable column header component
+// Sortable column header component with multi-column support
+interface SortRule {
+  column: SortColumn;
+  direction: SortDirection;
+}
+
 function SortableHeader({
   label,
   column,
-  sortColumn,
-  sortDirection,
+  sortRules,
   onSort,
 }: {
   label: string;
   column: SortColumn;
-  sortColumn: SortColumn | null;
-  sortDirection: SortDirection;
-  onSort: (col: SortColumn) => void;
+  sortRules: SortRule[];
+  onSort: (col: SortColumn, shiftKey: boolean) => void;
 }) {
-  const isActive = sortColumn === column;
+  const ruleIndex = sortRules.findIndex((r) => r.column === column);
+  const isActive = ruleIndex >= 0;
+  const priority = ruleIndex >= 0 ? ruleIndex + 1 : null;
+  const direction = isActive ? sortRules[ruleIndex].direction : null;
+
   return (
     <button
-      onClick={() => onSort(column)}
-      className={`flex items-center gap-1 transition-colors ${
+      onClick={(e) => onSort(column, e.shiftKey)}
+      className={`flex items-center gap-1 transition-colors whitespace-nowrap ${
         isActive ? 'text-ink font-semibold' : 'text-ink/45 hover:text-ink/60'
       }`}
+      title={isActive ? `Sorting by this column (${direction === 'asc' ? 'ascending' : 'descending'}). Shift+click to add/remove secondary sorts.` : 'Click to sort. Shift+click to add secondary sorts.'}
     >
       <span>{label}</span>
-      <div className="w-4 h-4 flex items-center justify-center">
+      <div className="flex items-center gap-0.5">
         {isActive && (
-          sortDirection === 'asc' 
-            ? <ChevronUp className="h-3.5 w-3.5 text-wave" />
-            : <ChevronDown className="h-3.5 w-3.5 text-wave" />
+          <>
+            {direction === 'asc' 
+              ? <ChevronUp className="h-3.5 w-3.5 text-wave" />
+              : <ChevronDown className="h-3.5 w-3.5 text-wave" />
+            }
+            {sortRules.length > 1 && (
+              <span className="text-[10px] font-bold text-wave bg-wave/10 rounded px-1">{priority}</span>
+            )}
+          </>
         )}
       </div>
     </button>
@@ -191,8 +205,9 @@ export default function OrdersPage() {
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
 
-  const [sortColumn, setSortColumn] = useState<SortColumn | null>('orderDate');
-  const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
+  const [sortRules, setSortRules] = useState<SortRule[]>([
+    { column: 'orderDate', direction: 'desc' },
+  ]);
 
   useEffect(() => {
     let cancelled = false;
@@ -350,37 +365,42 @@ export default function OrdersPage() {
         return true;
       });
 
-    // Apply sorting
-    if (sortColumn) {
+    // Apply multi-column sorting
+    if (sortRules.length > 0) {
       result.sort((a, b) => {
-        const aVal = getSortValue(a, sortColumn);
-        const bVal = getSortValue(b, sortColumn);
+        for (const rule of sortRules) {
+          const aVal = getSortValue(a, rule.column);
+          const bVal = getSortValue(b, rule.column);
 
-        // Handle null/empty values: push to end
-        if (aVal === -1 || aVal === '') {
-          if (bVal === -1 || bVal === '') return 0;
-          return sortDirection === 'asc' ? 1 : -1;
-        }
-        if (bVal === -1 || bVal === '') {
-          return sortDirection === 'asc' ? -1 : 1;
-        }
+          // Handle null/empty values: push to end
+          if (aVal === -1 || aVal === '') {
+            if (bVal === -1 || bVal === '') continue;
+            return rule.direction === 'asc' ? 1 : -1;
+          }
+          if (bVal === -1 || bVal === '') {
+            return rule.direction === 'asc' ? -1 : 1;
+          }
 
-        // Compare values
-        let comparison = 0;
-        if (typeof aVal === 'string' && typeof bVal === 'string') {
-          comparison = aVal.localeCompare(bVal);
-        } else if (typeof aVal === 'number' && typeof bVal === 'number') {
-          comparison = aVal - bVal;
-        } else {
-          comparison = String(aVal).localeCompare(String(bVal));
-        }
+          // Compare values
+          let comparison = 0;
+          if (typeof aVal === 'string' && typeof bVal === 'string') {
+            comparison = aVal.localeCompare(bVal);
+          } else if (typeof aVal === 'number' && typeof bVal === 'number') {
+            comparison = aVal - bVal;
+          } else {
+            comparison = String(aVal).localeCompare(String(bVal));
+          }
 
-        return sortDirection === 'asc' ? comparison : -comparison;
+          if (comparison !== 0) {
+            return rule.direction === 'asc' ? comparison : -comparison;
+          }
+        }
+        return 0;
       });
     }
 
     return result;
-  }, [orders, orderNoSearch, customerOrderNoSearch, skuSearch, branchFilter, statusFilter, dateFrom, dateTo, sortColumn, sortDirection, stockBySku]);
+  }, [orders, orderNoSearch, customerOrderNoSearch, skuSearch, branchFilter, statusFilter, dateFrom, dateTo, sortRules, stockBySku]);
 
   function clearFilters() {
     setOrderNoSearch('');
@@ -392,14 +412,31 @@ export default function OrdersPage() {
     setDateTo('');
   }
 
-  function handleSort(col: SortColumn) {
-    if (sortColumn === col) {
-      // Toggle direction if clicking same column
-      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+  function handleSort(col: SortColumn, shiftKey: boolean) {
+    if (shiftKey) {
+      // Shift+click: add/remove secondary sort
+      const existingIndex = sortRules.findIndex((r) => r.column === col);
+      if (existingIndex >= 0) {
+        // Remove the sort rule
+        setSortRules(sortRules.filter((_, i) => i !== existingIndex));
+      } else {
+        // Add as secondary sort (ascending)
+        setSortRules([...sortRules, { column: col, direction: 'asc' }]);
+      }
     } else {
-      // New column: default to ascending
-      setSortColumn(col);
-      setSortDirection('asc');
+      // Regular click: set as primary sort
+      const existingIndex = sortRules.findIndex((r) => r.column === col);
+      if (existingIndex === 0 && sortRules.length === 1) {
+        // Toggle direction if it's the only active sort
+        setSortRules([{ column: col, direction: sortRules[0].direction === 'asc' ? 'desc' : 'asc' }]);
+      } else if (existingIndex >= 0) {
+        // Move to primary and toggle direction
+        const newRules = sortRules.filter((_, i) => i !== existingIndex);
+        setSortRules([{ column: col, direction: 'asc' }, ...newRules]);
+      } else {
+        // New column as primary sort
+        setSortRules([{ column: col, direction: 'asc' }, ...sortRules]);
+      }
     }
   }
 
@@ -563,8 +600,7 @@ export default function OrdersPage() {
                     <SortableHeader
                       label="Order #"
                       column="orderNo"
-                      sortColumn={sortColumn}
-                      sortDirection={sortDirection}
+                      sortRules={sortRules}
                       onSort={handleSort}
                     />
                   </th>
@@ -572,8 +608,7 @@ export default function OrdersPage() {
                     <SortableHeader
                       label="Customer order #"
                       column="customerOrderNo"
-                      sortColumn={sortColumn}
-                      sortDirection={sortDirection}
+                      sortRules={sortRules}
                       onSort={handleSort}
                     />
                   </th>
@@ -582,8 +617,7 @@ export default function OrdersPage() {
                       <SortableHeader
                         label="Branch"
                         column="branchName"
-                        sortColumn={sortColumn}
-                        sortDirection={sortDirection}
+                        sortRules={sortRules}
                         onSort={handleSort}
                       />
                     </th>
@@ -592,8 +626,7 @@ export default function OrdersPage() {
                     <SortableHeader
                       label="Order date"
                       column="orderDate"
-                      sortColumn={sortColumn}
-                      sortDirection={sortDirection}
+                      sortRules={sortRules}
                       onSort={handleSort}
                     />
                   </th>
@@ -601,8 +634,7 @@ export default function OrdersPage() {
                     <SortableHeader
                       label="Est. delivery"
                       column="expectedDate"
-                      sortColumn={sortColumn}
-                      sortDirection={sortDirection}
+                      sortRules={sortRules}
                       onSort={handleSort}
                     />
                   </th>
@@ -610,8 +642,7 @@ export default function OrdersPage() {
                     <SortableHeader
                       label="Invoice date"
                       column="invoiceDate"
-                      sortColumn={sortColumn}
-                      sortDirection={sortDirection}
+                      sortRules={sortRules}
                       onSort={handleSort}
                     />
                   </th>
@@ -619,8 +650,7 @@ export default function OrdersPage() {
                     <SortableHeader
                       label="SKU"
                       column="sku"
-                      sortColumn={sortColumn}
-                      sortDirection={sortDirection}
+                      sortRules={sortRules}
                       onSort={handleSort}
                     />
                   </th>
@@ -629,8 +659,7 @@ export default function OrdersPage() {
                       <SortableHeader
                         label="Ordered"
                         column="qtyOrdered"
-                        sortColumn={sortColumn}
-                        sortDirection={sortDirection}
+                        sortRules={sortRules}
                         onSort={handleSort}
                       />
                     </div>
@@ -640,8 +669,7 @@ export default function OrdersPage() {
                       <SortableHeader
                         label="Shipped"
                         column="qtyShipped"
-                        sortColumn={sortColumn}
-                        sortDirection={sortDirection}
+                        sortRules={sortRules}
                         onSort={handleSort}
                       />
                     </div>
@@ -651,8 +679,7 @@ export default function OrdersPage() {
                       <SortableHeader
                         label="B/Order"
                         column="qtyBackordered"
-                        sortColumn={sortColumn}
-                        sortDirection={sortDirection}
+                        sortRules={sortRules}
                         onSort={handleSort}
                       />
                     </div>
@@ -661,8 +688,7 @@ export default function OrdersPage() {
                     <SortableHeader
                       label="Status"
                       column="statusFlag"
-                      sortColumn={sortColumn}
-                      sortDirection={sortDirection}
+                      sortRules={sortRules}
                       onSort={handleSort}
                     />
                   </th>
@@ -671,8 +697,7 @@ export default function OrdersPage() {
                       <SortableHeader
                         label="On hand"
                         column="onHand"
-                        sortColumn={sortColumn}
-                        sortDirection={sortDirection}
+                        sortRules={sortRules}
                         onSort={handleSort}
                       />
                     </div>
@@ -682,8 +707,7 @@ export default function OrdersPage() {
                       <SortableHeader
                         label="On order"
                         column="onOrderQty"
-                        sortColumn={sortColumn}
-                        sortDirection={sortDirection}
+                        sortRules={sortRules}
                         onSort={handleSort}
                       />
                     </div>
@@ -692,8 +716,7 @@ export default function OrdersPage() {
                     <SortableHeader
                       label="Next arrival"
                       column="nextEta"
-                      sortColumn={sortColumn}
-                      sortDirection={sortDirection}
+                      sortRules={sortRules}
                       onSort={handleSort}
                     />
                   </th>
