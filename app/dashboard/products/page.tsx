@@ -25,6 +25,12 @@ interface PriceInfo {
   discountPercent: number | null;
 }
 
+// Catalogue filter. Distinct from the keyword CATEGORIES above: those match on
+// product name, these are decided server-side by /api/stock from the caller's
+// Clerk org. Paramount is a PERMISSION boundary (its own pr:stock:* namespace),
+// so availableViews is whatever the API says it is - never assumed here.
+type StockView = 'all' | 'hayward' | 'paramount' | 'flowcontrol';
+
 function formatMoney(value: number | null) {
   if (value == null) return null;
   return new Intl.NumberFormat('en-AU', { style: 'currency', currency: 'AUD' }).format(value);
@@ -53,6 +59,9 @@ export default function ProductsPage() {
   const [pricesLoading, setPricesLoading] = useState(false);
   const [pricingAccessError, setPricingAccessError] = useState<string | null>(null);
   const [selected, setSelected] = useState<StockEntry | null>(null);
+  const [view, setView] = useState<StockView>('all');
+  const [availableViews, setAvailableViews] = useState<StockView[]>([]);
+  const [viewLabels, setViewLabels] = useState<Record<string, string>>({});
   const { selectedCustomer } = useSelectedCustomer();
 
   useEffect(() => {
@@ -61,11 +70,19 @@ export default function ProductsPage() {
       setLoading(true);
       setError(null);
       try {
-        const res = await fetch('/api/stock');
+        const res = await fetch(`/api/stock?view=${view}`);
         const data = await res.json();
         if (!cancelled) {
           if (!res.ok) setError(data.error ?? 'Could not load products right now.');
-          else setAllStock(data.results ?? []);
+          else {
+            setAllStock(data.results ?? []);
+            // The server clamps the view to what this org may actually see, so
+            // trust its answer over local state rather than showing a filter
+            // that wasn't applied.
+            if (data.view) setView(data.view as StockView);
+            setAvailableViews((data.availableViews ?? []) as StockView[]);
+            setViewLabels(data.viewLabels ?? {});
+          }
         }
       } catch {
         if (!cancelled) setError('Could not reach the product list right now. Try again in a moment.');
@@ -77,7 +94,7 @@ export default function ProductsPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [view]);
 
   const filtered = useMemo(() => {
     const trimmed = query.trim().toUpperCase();
@@ -97,7 +114,7 @@ export default function ProductsPage() {
 
   useEffect(() => {
     setPage(0);
-  }, [query, activeCategory]);
+  }, [query, activeCategory, view]);
 
   useEffect(() => {
     if (visible.length === 0) return;
@@ -140,7 +157,7 @@ export default function ProductsPage() {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPage, query, activeCategory, allStock.length, selectedCustomer?.code]);
+  }, [currentPage, query, activeCategory, view, allStock.length, selectedCustomer?.code]);
 
   return (
     <div className="space-y-5">
@@ -148,6 +165,24 @@ export default function ProductsPage() {
         <h1 className="font-display text-3xl text-deep font-bold">Products</h1>
         <p className="text-ink/50 mt-1">Search stock and pricing across every location.</p>
       </div>
+
+      {availableViews.length > 1 && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          {availableViews.map((v) => (
+            <button
+              key={v}
+              onClick={() => setView(v)}
+              className={`rounded-full px-3.5 py-1.5 text-xs font-semibold transition-colors ${
+                view === v
+                  ? 'bg-deep text-white'
+                  : 'bg-white border border-deep/15 text-deep/70 hover:border-deep/40'
+              }`}
+            >
+              {viewLabels[v] ?? v}
+            </button>
+          ))}
+        </div>
+      )}
 
       <div className="flex flex-wrap gap-1.5">
         <button
@@ -202,6 +237,7 @@ export default function ProductsPage() {
         <>
           <p className="text-xs text-ink/40">
             {filtered.length} {filtered.length === 1 ? 'product' : 'products'}
+            {view !== 'all' && viewLabels[view] ? ` · ${viewLabels[view]}` : ''}
             {activeCategory && ` in ${activeCategory}`}
             {query && ` matching "${query}"`}
           </p>
