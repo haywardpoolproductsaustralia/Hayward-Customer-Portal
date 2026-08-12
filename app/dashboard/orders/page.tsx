@@ -12,6 +12,7 @@ import {
   Download,
   Loader2,
   ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import { useSelectedCustomer } from '@/components/SelectedCustomerContext';
 import { SearchableSelect } from '@/components/SearchableSelect';
@@ -37,6 +38,10 @@ interface StockInfo {
   onOrderQty: number;
   nextEta: string | null;
 }
+
+// Column sort keys
+type SortColumn = 'orderNo' | 'customerOrderNo' | 'branchName' | 'orderDate' | 'expectedDate' | 'invoiceDate' | 'sku' | 'qtyOrdered' | 'qtyShipped' | 'qtyBackordered' | 'statusFlag' | 'onHand' | 'onOrderQty' | 'nextEta';
+type SortDirection = 'asc' | 'desc';
 
 const STATUS: Record<string, { label: string; icon: typeof CheckCircle2; className: string }> = {
   C: { label: 'Completed', icon: CheckCircle2, className: 'bg-ink/5 text-ink/50' },
@@ -135,6 +140,40 @@ function StatusFilter({
   );
 }
 
+// Sortable column header component
+function SortableHeader({
+  label,
+  column,
+  sortColumn,
+  sortDirection,
+  onSort,
+}: {
+  label: string;
+  column: SortColumn;
+  sortColumn: SortColumn | null;
+  sortDirection: SortDirection;
+  onSort: (col: SortColumn) => void;
+}) {
+  const isActive = sortColumn === column;
+  return (
+    <button
+      onClick={() => onSort(column)}
+      className={`flex items-center gap-1 transition-colors ${
+        isActive ? 'text-ink font-semibold' : 'text-ink/45 hover:text-ink/60'
+      }`}
+    >
+      <span>{label}</span>
+      <div className="w-4 h-4 flex items-center justify-center">
+        {isActive && (
+          sortDirection === 'asc' 
+            ? <ChevronUp className="h-3.5 w-3.5 text-wave" />
+            : <ChevronDown className="h-3.5 w-3.5 text-wave" />
+        )}
+      </div>
+    </button>
+  );
+}
+
 export default function OrdersPage() {
   const [orders, setOrders] = useState<OrderLine[]>([]);
   const [isHeadOffice, setIsHeadOffice] = useState(false);
@@ -151,6 +190,9 @@ export default function OrdersPage() {
   const [statusFilter, setStatusFilter] = useState('all');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+
+  const [sortColumn, setSortColumn] = useState<SortColumn | null>('orderDate');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
 
   useEffect(() => {
     let cancelled = false;
@@ -249,6 +291,43 @@ export default function OrdersPage() {
   const skuOptions = useMemo(() =>
     [...new Set(orders.map((o) => o.sku))].sort(), [orders]);
 
+  // Helper function to get sortable value from order + stock data
+  const getSortValue = (o: OrderLine, col: SortColumn): any => {
+    const stock = stockBySku[o.sku.toUpperCase()];
+    switch (col) {
+      case 'orderNo':
+        return o.orderNo;
+      case 'customerOrderNo':
+        return o.customerOrderNo ?? '';
+      case 'branchName':
+        return o.branchName;
+      case 'orderDate':
+        return new Date(o.orderDate).getTime();
+      case 'expectedDate':
+        return new Date(o.expectedDate).getTime();
+      case 'invoiceDate':
+        return o.invoiceDate ? new Date(o.invoiceDate).getTime() : -1;
+      case 'sku':
+        return o.sku;
+      case 'qtyOrdered':
+        return o.qtyOrdered;
+      case 'qtyShipped':
+        return o.qtyShipped;
+      case 'qtyBackordered':
+        return o.qtyBackordered ?? 0;
+      case 'statusFlag':
+        return o.statusFlag;
+      case 'onHand':
+        return stock ? stock.onHand : -1;
+      case 'onOrderQty':
+        return stock ? stock.onOrderQty : -1;
+      case 'nextEta':
+        return stock?.nextEta ? new Date(stock.nextEta).getTime() : -1;
+      default:
+        return '';
+    }
+  };
+
   const filtered = useMemo(() => {
     const orderNoTrim = orderNoSearch.trim();
     const customerOrderNoTrim = customerOrderNoSearch.trim();
@@ -256,7 +335,7 @@ export default function OrdersPage() {
     const fromTime = dateFrom ? new Date(dateFrom).getTime() : null;
     const toTime = dateTo ? new Date(dateTo).getTime() : null;
 
-    return orders
+    let result = orders
       .filter((o) => !orderNoTrim || o.orderNo.includes(orderNoTrim))
       .filter((o) => !customerOrderNoTrim || (o.customerOrderNo ?? '').includes(customerOrderNoTrim))
       .filter((o) => !skuTrim || o.sku.toUpperCase().includes(skuTrim))
@@ -269,9 +348,39 @@ export default function OrdersPage() {
         if (fromTime && t < fromTime) return false;
         if (toTime && t > toTime) return false;
         return true;
-      })
-      .sort((a, b) => new Date(b.orderDate).getTime() - new Date(a.orderDate).getTime());
-  }, [orders, orderNoSearch, customerOrderNoSearch, skuSearch, branchFilter, statusFilter, dateFrom, dateTo]);
+      });
+
+    // Apply sorting
+    if (sortColumn) {
+      result.sort((a, b) => {
+        const aVal = getSortValue(a, sortColumn);
+        const bVal = getSortValue(b, sortColumn);
+
+        // Handle null/empty values: push to end
+        if (aVal === -1 || aVal === '') {
+          if (bVal === -1 || bVal === '') return 0;
+          return sortDirection === 'asc' ? 1 : -1;
+        }
+        if (bVal === -1 || bVal === '') {
+          return sortDirection === 'asc' ? -1 : 1;
+        }
+
+        // Compare values
+        let comparison = 0;
+        if (typeof aVal === 'string' && typeof bVal === 'string') {
+          comparison = aVal.localeCompare(bVal);
+        } else if (typeof aVal === 'number' && typeof bVal === 'number') {
+          comparison = aVal - bVal;
+        } else {
+          comparison = String(aVal).localeCompare(String(bVal));
+        }
+
+        return sortDirection === 'asc' ? comparison : -comparison;
+      });
+    }
+
+    return result;
+  }, [orders, orderNoSearch, customerOrderNoSearch, skuSearch, branchFilter, statusFilter, dateFrom, dateTo, sortColumn, sortDirection, stockBySku]);
 
   function clearFilters() {
     setOrderNoSearch('');
@@ -281,6 +390,17 @@ export default function OrdersPage() {
     setStatusFilter('all');
     setDateFrom('');
     setDateTo('');
+  }
+
+  function handleSort(col: SortColumn) {
+    if (sortColumn === col) {
+      // Toggle direction if clicking same column
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      // New column: default to ascending
+      setSortColumn(col);
+      setSortDirection('asc');
+    }
   }
 
   async function exportToExcel() {
@@ -436,69 +556,193 @@ export default function OrdersPage() {
       ) : (
         <div className="rounded-2xl border border-ink/10 bg-white shadow-soft overflow-hidden">
           <div className="overflow-x-auto">
-          <table className="w-full min-w-[1200px] table-fixed text-sm border-collapse">
-            <thead>
-              <tr className="sticky top-0 z-10 bg-foam/90 backdrop-blur text-left text-[10px] uppercase tracking-tight text-ink/45 divide-x divide-ink/10 [&>th]:px-2 [&>th]:py-2.5 [&>th]:font-semibold [&>th]:break-words border-b border-ink/10">
-                <th className="w-[7%]">Order #</th>
-                <th className="w-[7%]">Customer order #</th>
-                {isHeadOffice && <th className="w-[13%]">Branch</th>}
-                <th className="w-[7%]">Order date</th>
-                <th className="w-[7%]">Est. delivery</th>
-                <th className="w-[7%]">Invoice date</th>
-                <th className="w-[11%]">SKU</th>
-                <th className="text-right w-[5%]">Ordered</th>
-                <th className="text-right w-[5%]">Shipped</th>
-                <th className="text-right w-[5%]">B/Order</th>
-                <th className="w-[10%]">Status</th>
-                <th className="text-right w-[5%]">On hand</th>
-                <th className="text-right w-[5%]">On order</th>
-                <th className="w-[7%]">Next arrival</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-ink/5">
-              {filtered.map((o, i) => {
-                const status = STATUS[o.statusFlag] ?? {
-                  label: o.statusFlag || 'Unknown',
-                  icon: FileText,
-                  className: 'bg-ink/5 text-ink/50',
-                };
-                const StatusIcon = status.icon;
-                const stock = stockBySku[o.sku.toUpperCase()];
-                return (
-                  <tr
-                    key={`${o.orderNo}-${o.sku}-${i}`}
-                    className="divide-x divide-ink/5 even:bg-ink/[0.015] hover:bg-wave/[0.04] transition-colors [&>td]:px-2 [&>td]:py-2.5 align-top"
-                  >
-                    <td className="font-semibold text-ink text-xs break-words">{o.orderNo}</td>
-                    <td className="text-ink/60 text-[11px] break-words">{o.customerOrderNo || '-'}</td>
-                    {isHeadOffice && <td className="text-ink/60 text-xs break-words">{o.branchName}</td>}
-                    <td className="text-ink/50 text-xs whitespace-nowrap">{shortDate(o.orderDate)}</td>
-                    <td className="text-ink/50 text-xs whitespace-nowrap">{shortDate(o.expectedDate)}</td>
-                    <td className="text-ink/50 text-xs whitespace-nowrap">
-                      {o.invoiceDate ? shortDate(o.invoiceDate) : <span className="text-ink/30">Pending</span>}
-                    </td>
-                    <td className="font-mono text-xs text-ink/70 break-all">{o.sku}</td>
-                    <td className="text-right tabular-nums text-xs">{o.qtyOrdered}</td>
-                    <td className="text-right tabular-nums text-xs">{o.qtyShipped}</td>
-                    <td className="text-right tabular-nums text-xs text-ink/60">{o.qtyBackordered || '-'}</td>
-                    <td>
-                      <span
-                        className={`inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-semibold leading-tight ${status.className}`}
-                      >
-                        <StatusIcon className="h-2.5 w-2.5 shrink-0" />
-                        {status.label}
-                      </span>
-                    </td>
-                    <td className="text-right tabular-nums text-xs font-medium text-ink/70">{stock ? stock.onHand : '-'}</td>
-                    <td className="text-right tabular-nums text-xs text-ink/60">
-                      {stock && stock.onOrderQty ? stock.onOrderQty : '-'}
-                    </td>
-                    <td className="text-ink/50 text-xs whitespace-nowrap">{stock?.nextEta ? shortDate(stock.nextEta) : '-'}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+            <table className="w-full min-w-[1200px] table-fixed text-sm border-collapse">
+              <thead>
+                <tr className="sticky top-0 z-10 bg-foam/90 backdrop-blur text-left text-[10px] uppercase tracking-tight text-ink/45 divide-x divide-ink/10 [&>th]:px-2 [&>th]:py-2.5 [&>th]:font-semibold [&>th]:break-words border-b border-ink/10">
+                  <th className="w-[7%]">
+                    <SortableHeader
+                      label="Order #"
+                      column="orderNo"
+                      sortColumn={sortColumn}
+                      sortDirection={sortDirection}
+                      onSort={handleSort}
+                    />
+                  </th>
+                  <th className="w-[7%]">
+                    <SortableHeader
+                      label="Customer order #"
+                      column="customerOrderNo"
+                      sortColumn={sortColumn}
+                      sortDirection={sortDirection}
+                      onSort={handleSort}
+                    />
+                  </th>
+                  {isHeadOffice && (
+                    <th className="w-[13%]">
+                      <SortableHeader
+                        label="Branch"
+                        column="branchName"
+                        sortColumn={sortColumn}
+                        sortDirection={sortDirection}
+                        onSort={handleSort}
+                      />
+                    </th>
+                  )}
+                  <th className="w-[7%]">
+                    <SortableHeader
+                      label="Order date"
+                      column="orderDate"
+                      sortColumn={sortColumn}
+                      sortDirection={sortDirection}
+                      onSort={handleSort}
+                    />
+                  </th>
+                  <th className="w-[7%]">
+                    <SortableHeader
+                      label="Est. delivery"
+                      column="expectedDate"
+                      sortColumn={sortColumn}
+                      sortDirection={sortDirection}
+                      onSort={handleSort}
+                    />
+                  </th>
+                  <th className="w-[7%]">
+                    <SortableHeader
+                      label="Invoice date"
+                      column="invoiceDate"
+                      sortColumn={sortColumn}
+                      sortDirection={sortDirection}
+                      onSort={handleSort}
+                    />
+                  </th>
+                  <th className="w-[11%]">
+                    <SortableHeader
+                      label="SKU"
+                      column="sku"
+                      sortColumn={sortColumn}
+                      sortDirection={sortDirection}
+                      onSort={handleSort}
+                    />
+                  </th>
+                  <th className="text-right w-[5%]">
+                    <div className="flex justify-end">
+                      <SortableHeader
+                        label="Ordered"
+                        column="qtyOrdered"
+                        sortColumn={sortColumn}
+                        sortDirection={sortDirection}
+                        onSort={handleSort}
+                      />
+                    </div>
+                  </th>
+                  <th className="text-right w-[5%]">
+                    <div className="flex justify-end">
+                      <SortableHeader
+                        label="Shipped"
+                        column="qtyShipped"
+                        sortColumn={sortColumn}
+                        sortDirection={sortDirection}
+                        onSort={handleSort}
+                      />
+                    </div>
+                  </th>
+                  <th className="text-right w-[5%]">
+                    <div className="flex justify-end">
+                      <SortableHeader
+                        label="B/Order"
+                        column="qtyBackordered"
+                        sortColumn={sortColumn}
+                        sortDirection={sortDirection}
+                        onSort={handleSort}
+                      />
+                    </div>
+                  </th>
+                  <th className="w-[10%]">
+                    <SortableHeader
+                      label="Status"
+                      column="statusFlag"
+                      sortColumn={sortColumn}
+                      sortDirection={sortDirection}
+                      onSort={handleSort}
+                    />
+                  </th>
+                  <th className="text-right w-[5%]">
+                    <div className="flex justify-end">
+                      <SortableHeader
+                        label="On hand"
+                        column="onHand"
+                        sortColumn={sortColumn}
+                        sortDirection={sortDirection}
+                        onSort={handleSort}
+                      />
+                    </div>
+                  </th>
+                  <th className="text-right w-[5%]">
+                    <div className="flex justify-end">
+                      <SortableHeader
+                        label="On order"
+                        column="onOrderQty"
+                        sortColumn={sortColumn}
+                        sortDirection={sortDirection}
+                        onSort={handleSort}
+                      />
+                    </div>
+                  </th>
+                  <th className="w-[7%]">
+                    <SortableHeader
+                      label="Next arrival"
+                      column="nextEta"
+                      sortColumn={sortColumn}
+                      sortDirection={sortDirection}
+                      onSort={handleSort}
+                    />
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-ink/5">
+                {filtered.map((o, i) => {
+                  const status = STATUS[o.statusFlag] ?? {
+                    label: o.statusFlag || 'Unknown',
+                    icon: FileText,
+                    className: 'bg-ink/5 text-ink/50',
+                  };
+                  const StatusIcon = status.icon;
+                  const stock = stockBySku[o.sku.toUpperCase()];
+                  return (
+                    <tr
+                      key={`${o.orderNo}-${o.sku}-${i}`}
+                      className="divide-x divide-ink/5 even:bg-ink/[0.015] hover:bg-wave/[0.04] transition-colors [&>td]:px-2 [&>td]:py-2.5 align-top"
+                    >
+                      <td className="font-semibold text-ink text-xs break-words">{o.orderNo}</td>
+                      <td className="text-ink/60 text-[11px] break-words">{o.customerOrderNo || '-'}</td>
+                      {isHeadOffice && <td className="text-ink/60 text-xs break-words">{o.branchName}</td>}
+                      <td className="text-ink/50 text-xs whitespace-nowrap">{shortDate(o.orderDate)}</td>
+                      <td className="text-ink/50 text-xs whitespace-nowrap">{shortDate(o.expectedDate)}</td>
+                      <td className="text-ink/50 text-xs whitespace-nowrap">
+                        {o.invoiceDate ? shortDate(o.invoiceDate) : <span className="text-ink/30">Pending</span>}
+                      </td>
+                      <td className="font-mono text-xs text-ink/70 break-all">{o.sku}</td>
+                      <td className="text-right tabular-nums text-xs">{o.qtyOrdered}</td>
+                      <td className="text-right tabular-nums text-xs">{o.qtyShipped}</td>
+                      <td className="text-right tabular-nums text-xs text-ink/60">{o.qtyBackordered || '-'}</td>
+                      <td>
+                        <span
+                          className={`inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-semibold leading-tight ${status.className}`}
+                        >
+                          <StatusIcon className="h-2.5 w-2.5 shrink-0" />
+                          {status.label}
+                        </span>
+                      </td>
+                      <td className="text-right tabular-nums text-xs font-medium text-ink/70">{stock ? stock.onHand : '-'}</td>
+                      <td className="text-right tabular-nums text-xs text-ink/60">
+                        {stock && stock.onOrderQty ? stock.onOrderQty : '-'}
+                      </td>
+                      <td className="text-ink/50 text-xs whitespace-nowrap">{stock?.nextEta ? shortDate(stock.nextEta) : '-'}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         </div>
       )}
