@@ -10,6 +10,7 @@ export interface StockEntry {
   stockCategory?: string | null;
   listPrice?: number | null;
   supplierStock?: string | null;
+  supplierCode?: string | null;
   byLocation?: Record<string, { onHand: number; allocated: number; backordered: number }>;
   // Incoming supply from Hayward's suppliers. Quantity + expected dates ONLY -
   // deliberately no supplier name, cost, or PO number (commercially sensitive).
