@@ -6,8 +6,9 @@ import { getJSON, redis } from './redis';
 // ---------------------------------------------------------------------------
 // CATALOGUE = a Redis namespace, and a PERMISSION boundary.
 //
-//     stock:all      / stock:{sku}      -> Hayward catalogue (excludes PR)
+//     stock:all      / stock:{sku}      -> Hayward's own lines (excludes PR and 17300)
 //     pr:stock:all   / pr:stock:{sku}   -> Paramount catalogue
+//     fc:stock:all   / fc:stock:{sku}   -> Flow Control catalogue
 //
 //   Paramount stock is written by portal-sync/sync-paramount-stock.js into its
 //   own namespace. sync-stock-and-orders.js still excludes PR at the SQL layer
@@ -21,46 +22,54 @@ import { getJSON, redis } from './redis';
 //   A view NEVER widens access. Asking for the Paramount view without the
 //   Paramount catalogue simply returns the Hayward SKUs.
 //
-// Flow Control is a VIEW, not a catalogue: those SKUs live inside the ordinary
-// stock:* namespace and every existing distributor can already see them today.
-// If Flow Control ever needs restricting the way Paramount is, it needs its own
-// fc:stock:* namespace and a sync exclusion — a filter here would not be enough.
+// Flow Control was originally a view over stock:*, visible to everyone. As of
+// 13 Aug 2026 it is a full catalogue restricted to Hayward staff only, so it
+// got the same treatment as Paramount: sync-flowcontrol-stock.js writes
+// fc:stock:*, and syncStock excludes SUPPLIER_CODE 17300 from stock:*.
+//
+// A filter in this file alone would NOT have been enough. Ten other surfaces
+// read stock:all directly (dashboard, warehouse fulfillment, warehouse
+// duplicates, orders/submit, chat, forecast, warranty-tickets, pricing,
+// au-orders-extract), none of which consult this module. The exclusion has to
+// happen at the sync or those SKUs stay reachable.
 
-export type Catalogue = 'hayward' | 'paramount';
+export type Catalogue = 'hayward' | 'paramount' | 'flowcontrol';
 export type StockView = 'all' | 'hayward' | 'paramount' | 'flowcontrol';
 
 /** Consolidated list key per catalogue — the "show everything" read. */
 export const STOCK_ALL_KEY: Record<Catalogue, string> = {
   hayward: 'stock:all',
   paramount: 'pr:stock:all',
+  flowcontrol: 'fc:stock:all',
 };
 
 /** Per-SKU key prefix per catalogue. */
 export const STOCK_KEY_PREFIX: Record<Catalogue, string> = {
   hayward: 'stock:',
   paramount: 'pr:stock:',
+  flowcontrol: 'fc:stock:',
 };
+
+/** Display order. Hayward first, so its SKUs lead the merged view. */
+export const CATALOGUE_ORDER: readonly Catalogue[] = ['hayward', 'paramount', 'flowcontrol'];
 
 /** Arrow STOCK_CATEGORY for Paramount stock. char(2), confirmed 12 Aug 2026. */
 export const PARAMOUNT_CATEGORY = 'PR';
 
-// Flow Control is identified by STKMAST.SUPPLIER_CODE, NOT by stock category.
-// 17300 is the Flow Control supplier (the same creditor deliberately excluded
-// from the Hayward-family reconciliation scope, which only covers 17100 /
-// 17115 / 17125 / 17200).
+// Flow Control is identified by STKMAST.SUPPLIER_CODE = '17300' (the creditor
+// deliberately excluded from the Hayward-family reconciliation scope, which
+// covers only 17100 / 17115 / 17125 / 17200). SUPPLIER_CODE is char(6) and so
+// space-padded; the sync RTRIMs it and the predicates below trim defensively.
 //
-// SUPPLIER_CODE is char(6) and therefore space-padded in Arrow. The sync
-// RTRIMs it before writing, and the predicate below trims again defensively.
-//
-// >>> REQUIRES A SYNC PATCH. syncStock in sync-stock-and-orders.js does not
-// >>> currently SELECT SUPPLIER_CODE, so no stock entry in Redis carries
-// >>> `supplierCode` yet. Apply that patch and let one run complete BEFORE
-// >>> deploying this file, or the Flow Control button filters to an empty grid.
+// This list must stay in step with three places on AZ-Grey:
+//   sync-flowcontrol-stock.js   FC_SUPPLIER_CODES  (what goes into fc:stock:*)
+//   sync-stock-and-orders.js    the 17300 exclusion in syncStock's WHERE
+//   check-paramount-ready.js    FLOW_CONTROL_SUPPLIER_CODES
+// Adding a code here without adding it there leaves those SKUs in stock:all,
+// visible to every distributor.
 export const FLOW_CONTROL_SUPPLIER_CODES: ReadonlySet<string> = new Set<string>([
   '17300',
 ]);
-
-export const FLOW_CONTROL_CONFIGURED = FLOW_CONTROL_SUPPLIER_CODES.size > 0;
 
 // Maps each Clerk Organization's stable ID to the matching key in
 // portal-sync/config/customer-groups.json, plus a friendly display name.
@@ -82,9 +91,10 @@ export const FLOW_CONTROL_CONFIGURED = FLOW_CONTROL_SUPPLIER_CODES.size > 0;
 // onboarded - it must stay in sync with both Clerk's Organizations list
 // and portal-sync/config/customer-groups.json.
 //
-// `catalogues` omitted  -> Hayward only. Correct and UNCHANGED for every
-//                          existing distributor. Do not add it casually:
-//                          adding 'paramount' grants PR stock permanently.
+// `catalogues` omitted  -> Hayward's own lines only. Correct for every existing
+//                          distributor. Do not add entries casually: listing a
+//                          catalogue here grants that stock permanently.
+//                          'flowcontrol' is Hayward staff ONLY.
 // `showFilters` omitted -> no filter buttons, current UI. Only the three orgs
 //                          that hold mixed catalogues get the button row.
 const ORG_ID_TO_GROUP: Record<
@@ -105,7 +115,7 @@ const ORG_ID_TO_GROUP: Record<
   org_3FXoOv8Hwxz98CjYKgE4wqMEFbv: { groupKey: 'Dolphin', displayName: 'Dolphin' },
   org_3FXoPhSizbC7vjV7EfSTIq7FPye: { groupKey: 'Rainbow', displayName: 'Rainbow' },
 
-  // Paramount + Hayward. Both catalogues, merged by default, filterable.
+  // Paramount + Hayward. NOT Flow Control — that is Hayward staff only.
   // Granted on business direction (13 Aug 2026): PWP starts buying Paramount
   // from now on, so past order history is deliberately not the test.
   org_3FXoQaqpeHV2Yd9kRO2yezbZpQ7: {
@@ -125,7 +135,7 @@ const ORG_ID_TO_GROUP: Record<
   org_3FXoXP7hTrIzCR3Ju04twjCk3cD: { groupKey: 'AZPools', displayName: 'A-Z Pools' },
   org_3FkCebllwiLs18S36g5jt5xTb8a: { groupKey: 'PoolSpaWarehouse', displayName: 'Pool & Spa Warehouse' },
 
-  // Paramount + Hayward, same as Poolwater Products.
+  // Paramount + Hayward, same as Poolwater Products. NOT Flow Control.
   org_3FkCgxlVfMXEJ2Kl9Q0xqkLVdgd: {
     groupKey: 'Compass',
     displayName: 'Compass',
@@ -133,12 +143,13 @@ const ORG_ID_TO_GROUP: Record<
     showFilters: true,
   },
 
-  // Hayward internal staff: everything.
+  // Hayward internal staff: everything, including Flow Control. This is the
+  // ONLY org that holds the 'flowcontrol' catalogue.
   org_3FkCOPQRTCIuDtVHLXAwhCVyJtZ: {
     groupKey: 'Hayward',
     displayName: 'Hayward',
     isAggregate: true,
-    catalogues: ['hayward', 'paramount'],
+    catalogues: ['hayward', 'paramount', 'flowcontrol'],
     showFilters: true,
   },
   // testorg (org_3FXoaO7oKb6VcioyqvVrFsOjpNQ) intentionally excluded - not a real customer group.
@@ -171,9 +182,8 @@ function isResolvedValue(v: unknown): v is string {
 // distributor entries above behave exactly as they did before this change.
 function cataloguesFor(group: { catalogues?: Catalogue[] }): Catalogue[] {
   const list = group.catalogues?.length ? group.catalogues : (['hayward'] as Catalogue[]);
-  // De-dupe and pin the order so Hayward SKUs always sort ahead of Paramount
-  // in the merged default view.
-  return (['hayward', 'paramount'] as Catalogue[]).filter((c) => list.includes(c));
+  // De-dupe and pin the order so Hayward SKUs always lead the merged view.
+  return CATALOGUE_ORDER.filter((c) => list.includes(c));
 }
 
 /**
@@ -277,13 +287,14 @@ function isFlowControlSupplier(entry: StockEntryLike): boolean {
   return FLOW_CONTROL_SUPPLIER_CODES.has((entry.supplierCode ?? '').trim());
 }
 
+// Buttons are derived strictly from held catalogues, so an org can never be
+// shown a filter for stock it isn't permitted. Compass and Poolwater Products
+// get three buttons; Hayward staff get four.
 export function availableViewsFor(access: CustomerAccess): StockView[] {
   if (!access.showFilters) return [];
   const views: StockView[] = ['all', 'hayward'];
   if (access.catalogues.includes('paramount')) views.push('paramount');
-  // Hidden if the supplier codes are ever emptied — a button that filters to
-  // an empty grid is worse than no button.
-  if (FLOW_CONTROL_CONFIGURED) views.push('flowcontrol');
+  if (access.catalogues.includes('flowcontrol')) views.push('flowcontrol');
   return views;
 }
 
@@ -298,22 +309,20 @@ export function resolveStockScope(
   let view: StockView =
     requestedView && availableViews.includes(requestedView) ? requestedView : 'all';
 
-  // Belt and braces — an org without the Paramount catalogue can never land on
-  // the Paramount view, and Flow Control needs its codes configured.
-  if (view === 'paramount' && !access.catalogues.includes('paramount')) view = 'all';
-  if (view === 'flowcontrol' && !FLOW_CONTROL_CONFIGURED) view = 'all';
+  // Belt and braces — a narrow view is only reachable if the org holds the
+  // matching catalogue. Anything else falls back to the merged view, which is
+  // itself scoped to what the org holds.
+  if (view !== 'all' && !access.catalogues.includes(view as Catalogue)) view = 'all';
 
-  // Read only the namespaces this view actually needs — the Paramount view has
-  // no reason to pull stock:all, and the Hayward/Flow Control views have no
-  // reason to pull pr:stock:all.
-  let catalogues: Catalogue[];
-  if (view === 'paramount') catalogues = ['paramount'];
-  else if (view === 'hayward' || view === 'flowcontrol') catalogues = ['hayward'];
-  else catalogues = access.catalogues;
+  // Each narrow view now maps 1:1 onto its own namespace, so a view reads only
+  // the key it needs: the Paramount view never pulls stock:all, and the
+  // Hayward view never pulls fc:stock:all.
+  const catalogues: Catalogue[] =
+    view === 'all' ? access.catalogues : [view as Catalogue];
 
   // Final intersection against the permission boundary. Nothing past this line
   // can return a key the org does not hold.
-  const allowed = (['hayward', 'paramount'] as Catalogue[]).filter(
+  const allowed = CATALOGUE_ORDER.filter(
     (c) => catalogues.includes(c) && access.catalogues.includes(c)
   );
 
@@ -327,15 +336,18 @@ export function resolveStockScope(
 }
 
 /**
- * Predicate for filtering merged entries once the keys have been read.
- * Entries carry `stockCategory` and `supplierCode` from both sync scripts.
+ * Secondary predicate, applied after the keys are read.
+ *
+ * Since each catalogue is now its own namespace, this is defence in depth
+ * rather than the mechanism — the isolation is that an org is never handed a
+ * pr: or fc: key at all. This catches the case where a sync exclusion is
+ * dropped and PR or 17300 stock reappears inside stock:all: those SKUs would
+ * still be filtered out of the Hayward view rather than silently shown.
  *
  *   all         -> everything the org holds
- *   hayward     -> Hayward's own lines: not Paramount, not Flow Control
+ *   hayward     -> not Paramount, not Flow Control
  *   paramount   -> STOCK_CATEGORY 'PR'
  *   flowcontrol -> SUPPLIER_CODE 17300
- *
- * The three narrow views partition the catalogue: no SKU matches two of them.
  */
 export function stockViewFilter(
   scope: StockScope
