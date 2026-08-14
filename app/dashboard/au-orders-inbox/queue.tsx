@@ -903,12 +903,13 @@ function QuickView({
   const th = "border border-slate-300 bg-slate-100 px-2 py-1.5 text-left font-semibold text-slate-700 whitespace-nowrap";
   const td = "border border-slate-300 px-2 py-1 align-top text-slate-700";
 
-  const HEADERS = ["Customer", "Debtor", "Account address", "From", "PO", "Received", "Ship to", "SKU", "Qty", "Arrow qty", "Unit $", "Line $", "Status", "In Arrow", "Keyed by", "Description"];
+  const HEADERS = ["Customer", "Debtor", "Sender Email", "Account address", "From", "PO", "Received", "Ship to", "SKU", "Qty", "Arrow qty", "Unit $", "Line $", "Status", "In Arrow", "Keyed by", "Description"];
 
   // Array-of-arrays used for BOTH the TSV copy and the real .xlsx export.
   const aoa = rows.map((r) => [
     custOf(r.o),
     r.o.debtorCode ?? "",
+    r.o.fromEmail ?? "",
     r.o.accountAddress ?? "",
     r.o.fromEmail ?? "",
     r.o.poRef ?? "",
@@ -927,7 +928,7 @@ function QuickView({
 
   function exportXlsx() {
     const ws = XLSX.utils.aoa_to_sheet([HEADERS, ...aoa]);
-    ws["!cols"] = [{ wch: 22 }, { wch: 8 }, { wch: 34 }, { wch: 32 }, { wch: 12 }, { wch: 18 }, { wch: 34 }, { wch: 16 }, { wch: 5 }, { wch: 9 }, { wch: 9 }, { wch: 9 }, { wch: 18 }, { wch: 12 }, { wch: 14 }, { wch: 50 }];
+    ws["!cols"] = [{ wch: 22 }, { wch: 8 }, { wch: 32 }, { wch: 34 }, { wch: 32 }, { wch: 12 }, { wch: 18 }, { wch: 34 }, { wch: 16 }, { wch: 5 }, { wch: 9 }, { wch: 9 }, { wch: 9 }, { wch: 18 }, { wch: 12 }, { wch: 14 }, { wch: 50 }];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "au-orders");
     XLSX.writeFile(wb, `au-orders-${new Date().toISOString().slice(0, 10)}.xlsx`);
@@ -953,6 +954,7 @@ function QuickView({
             <tr>
               <th className={th}>Customer</th>
               <th className={th}>Debtor</th>
+              <th className={th}>Sender Email</th>
               <th className={th}>PO</th>
               <th className={th}>Received</th>
               <th className={th}>SKU</th>
@@ -973,6 +975,7 @@ function QuickView({
                 <td className={`${td} whitespace-nowrap font-mono`}>
                   {r.o.debtorCode ?? <span className="text-rose-600">—</span>}
                 </td>
+                <td className={`${td} whitespace-nowrap text-xs text-slate-600`}>{r.o.fromEmail ?? ""}</td>
                 <td className={`${td} whitespace-nowrap`}>{r.o.poRef ?? ""}</td>
                 <td className={`${td} whitespace-nowrap text-slate-500`}>{fmtTime(r.o.receivedAt)}</td>
                 <td className={`${td} whitespace-nowrap font-mono`}>
@@ -1039,7 +1042,7 @@ function QuickView({
           </tbody>
           <tfoot>
             <tr>
-              <td className={`${td} bg-slate-50 font-semibold`} colSpan={5}>Total</td>
+              <td className={`${td} bg-slate-50 font-semibold`} colSpan={6}>Total</td>
               <td className={`${td} bg-slate-50 text-right font-semibold tabular-nums`}>{totalQty}</td>
               <td className={`${td} bg-slate-50 text-right font-semibold tabular-nums`}>{arrowTotal}</td>
               <td className={`${td} bg-slate-50`}></td>
