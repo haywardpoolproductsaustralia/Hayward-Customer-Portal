@@ -740,11 +740,11 @@ export default function ReconciliationPage() {
                 <th colSpan={6} style={{ background: '#f59e0b', color: 'white', padding: '6px 12px', borderRight: '2px solid white' }}>
                   AS400 · USA
                 </th>
+                <th colSpan={5} style={{ background: '#7c3aed', color: 'white', padding: '6px 12px', borderRight: '2px solid white' }}>
+                  CDS-Net · Shipment
+                </th>
                 <th colSpan={5} style={{ background: '#0ea5e9', color: 'white', padding: '6px 12px', borderRight: '2px solid white' }}>
                   Delivery address
-                </th>
-                <th colSpan={5} style={{ background: '#7c3aed', color: 'white', padding: '6px 12px' }}>
-                  CDS-Net · Shipment
                 </th>
               </tr>
               <tr className="border-b border-slate-200 text-[11px] font-semibold uppercase tracking-wide">
@@ -764,16 +764,16 @@ export default function ReconciliationPage() {
                 <th className="bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900">Order date</th>
                 <th className="bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900">ETA</th>
                 <th className="bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900 border-r-2 border-amber-300">US SO#</th>
-                <th className="delivery-col bg-sky-100 px-3 py-2.5 whitespace-nowrap text-sky-900">Ship to</th>
-                <th className="delivery-col bg-sky-100 px-3 py-2.5 whitespace-nowrap text-sky-900">City</th>
-                <th className="delivery-col bg-sky-100 px-3 py-2.5 whitespace-nowrap text-sky-900">State</th>
-                <th className="delivery-col bg-sky-100 px-3 py-2.5 whitespace-nowrap text-sky-900">Postcode</th>
-                <th className="delivery-col bg-sky-100 px-3 py-2.5 whitespace-nowrap text-sky-900 border-r-2 border-sky-300">Addr OK?</th>
                 <th className="bg-violet-100 px-3 py-2.5 text-right whitespace-nowrap text-violet-900">On water</th>
                 <th className="bg-violet-100 px-3 py-2.5 whitespace-nowrap text-violet-900">Container</th>
                 <th className="bg-violet-100 px-3 py-2.5 whitespace-nowrap text-violet-900">Vessel</th>
                 <th className="bg-violet-100 px-3 py-2.5 whitespace-nowrap text-violet-900">Cont. ETA</th>
-                <th className="bg-violet-100 px-3 py-2.5 whitespace-nowrap text-violet-900">Supplier</th>
+                <th className="bg-violet-100 px-3 py-2.5 whitespace-nowrap text-violet-900 border-r-2 border-violet-300">Supplier</th>
+                <th className="bg-sky-100 px-3 py-2.5 whitespace-nowrap text-sky-900">Ship to</th>
+                <th className="bg-sky-100 px-3 py-2.5 whitespace-nowrap text-sky-900">City</th>
+                <th className="bg-sky-100 px-3 py-2.5 whitespace-nowrap text-sky-900">State</th>
+                <th className="bg-sky-100 px-3 py-2.5 whitespace-nowrap text-sky-900">Postcode</th>
+                <th className="bg-sky-100 px-3 py-2.5 whitespace-nowrap text-sky-900">Addr OK?</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -826,11 +826,22 @@ export default function ReconciliationPage() {
                       <td className="bg-amber-50 px-3 py-2 whitespace-nowrap text-slate-600">{fmt(r.as400OrderDate)}</td>
                       <td className="bg-amber-50 px-3 py-2 whitespace-nowrap text-slate-600">{fmt(r.as400Eta)}</td>
                       <td className="bg-amber-50 px-3 py-2 font-mono text-[11px] text-slate-500 border-r-2 border-amber-200">{r.usSoNumber ?? '—'}</td>
-                      <td className="delivery-col bg-sky-50 px-3 py-2 text-slate-700" title={r.shipToName ?? ''}>{r.shipToName ?? '—'}</td>
-                      <td className="delivery-col bg-sky-50 px-3 py-2 whitespace-nowrap text-slate-700">{r.shipToCity ?? '—'}</td>
-                      <td className="delivery-col bg-sky-50 px-3 py-2 text-slate-600">{r.shipToState ?? '—'}</td>
-                      <td className="delivery-col bg-sky-50 px-3 py-2 text-slate-600">{r.shipToPostcode ?? '—'}</td>
-                      <td className="delivery-col bg-sky-50 px-3 py-2 border-r-2 border-sky-200">
+                      <td className="bg-violet-50 px-3 py-2 text-right">
+                        {r.onWater > 0
+                          ? <span className="font-bold text-violet-700">{r.onWater}</span>
+                          : <span className="text-slate-300">—</span>}
+                      </td>
+                      <td className="bg-violet-50 px-3 py-2 font-mono text-[11px] whitespace-nowrap text-violet-800">{r.container ?? '—'}</td>
+                      <td className="bg-violet-50 px-3 py-2 whitespace-nowrap text-slate-700">{r.vessel ?? '—'}</td>
+                      <td className="bg-violet-50 px-3 py-2 whitespace-nowrap text-slate-600">{fmt(r.containerEta)}</td>
+                      <td className="bg-violet-50 px-3 py-2 whitespace-nowrap text-slate-500 border-r-2 border-violet-200">
+                        {creditorName[r.creditor ?? ''] ?? r.creditor ?? '—'}
+                      </td>
+                      <td className="bg-sky-50 px-3 py-2 text-slate-700" title={r.shipToName ?? ''}>{r.shipToName ?? '—'}</td>
+                      <td className="bg-sky-50 px-3 py-2 whitespace-nowrap text-slate-700">{r.shipToCity ?? '—'}</td>
+                      <td className="bg-sky-50 px-3 py-2 text-slate-600">{r.shipToState ?? '—'}</td>
+                      <td className="bg-sky-50 px-3 py-2 text-slate-600">{r.shipToPostcode ?? '—'}</td>
+                      <td className="bg-sky-50 px-3 py-2">
                         {r.as400Ord === 0 ? (
                           <span className="text-slate-300">—</span>
                         ) : addr === 'ok' ? (
@@ -840,17 +851,6 @@ export default function ReconciliationPage() {
                         ) : (
                           <span className="text-slate-400">?</span>
                         )}
-                      </td>
-                      <td className="bg-violet-50 px-3 py-2 text-right">
-                        {r.onWater > 0
-                          ? <span className="font-bold text-violet-700">{r.onWater}</span>
-                          : <span className="text-slate-300">—</span>}
-                      </td>
-                      <td className="bg-violet-50 px-3 py-2 font-mono text-[11px] whitespace-nowrap text-violet-800">{r.container ?? '—'}</td>
-                      <td className="bg-violet-50 px-3 py-2 whitespace-nowrap text-slate-700">{r.vessel ?? '—'}</td>
-                      <td className="bg-violet-50 px-3 py-2 whitespace-nowrap text-slate-600">{fmt(r.containerEta)}</td>
-                      <td className="bg-violet-50 px-3 py-2 whitespace-nowrap text-slate-500">
-                        {creditorName[r.creditor ?? ''] ?? r.creditor ?? '—'}
                       </td>
                     </tr>
                   );
