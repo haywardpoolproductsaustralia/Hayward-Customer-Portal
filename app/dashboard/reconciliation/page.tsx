@@ -418,6 +418,14 @@ export default function ReconciliationPage() {
   const [uploadingA4, setUploadingA4] = useState(false);
   const [uploadingShip, setUploadingShip] = useState(false);
   const [showParamount,    setShowParamount]    = useState(false);
+  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
+
+  const toggleExpandRow = (rowKey: string) => {
+    const newSet = new Set(expandedRows);
+    if (newSet.has(rowKey)) newSet.delete(rowKey);
+    else newSet.add(rowKey);
+    setExpandedRows(newSet);
+  };
 
   useEffect(() => {
     Promise.all([
@@ -709,12 +717,7 @@ export default function ReconciliationPage() {
               <col style={{ minWidth: '100px' }} />
               <col style={{ minWidth: '100px' }} />
               <col style={{ minWidth: '130px' }} />
-              <col style={{ minWidth: '160px' }} />
-              <col style={{ minWidth: '130px' }} />
-              <col style={{ minWidth: '90px' }}  />
-              <col style={{ minWidth: '80px' }}  />
-              <col style={{ minWidth: '80px' }}  />
-              <col style={{ minWidth: '80px' }}  />
+              <col style={{ minWidth: '60px' }}  />{/* Expand button */}
               <col style={{ minWidth: '130px' }} />
               <col style={{ minWidth: '160px' }} />
               <col style={{ minWidth: '110px' }} />
@@ -731,8 +734,8 @@ export default function ReconciliationPage() {
                 <th colSpan={6} style={{ background: '#f59e0b', color: 'white', padding: '6px 12px', borderRight: '2px solid white' }}>
                   AS400 · USA
                 </th>
-                <th colSpan={5} style={{ background: '#0ea5e9', color: 'white', padding: '6px 12px', borderRight: '2px solid white' }}>
-                  Delivery address
+                <th colSpan={1} style={{ background: '#0ea5e9', color: 'white', padding: '6px 12px', borderRight: '2px solid white', textAlign: 'center' }}>
+                  Delivery
                 </th>
                 <th colSpan={5} style={{ background: '#7c3aed', color: 'white', padding: '6px 12px' }}>
                   CDS-Net · Shipment
@@ -755,11 +758,7 @@ export default function ReconciliationPage() {
                 <th className="bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900">Order date</th>
                 <th className="bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900">ETA</th>
                 <th className="bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900 border-r-2 border-amber-300">US SO#</th>
-                <th className="bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900">Ship to</th>
-                <th className="bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900">City</th>
-                <th className="bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900">State</th>
-                <th className="bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900">Postcode</th>
-                <th className="bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900 border-r-2 border-amber-300">Addr OK?</th>
+                <th className="bg-sky-100 px-3 py-2.5 text-center whitespace-nowrap text-sky-900 border-r-2 border-sky-300">🔽</th>
                 <th className="bg-violet-100 px-3 py-2.5 text-right whitespace-nowrap text-violet-900">On water</th>
                 <th className="bg-violet-100 px-3 py-2.5 whitespace-nowrap text-violet-900">Container</th>
                 <th className="bg-violet-100 px-3 py-2.5 whitespace-nowrap text-violet-900">Vessel</th>
@@ -770,7 +769,7 @@ export default function ReconciliationPage() {
             <tbody className="divide-y divide-slate-100">
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={26} className="py-12 text-center text-slate-400">
+                  <td colSpan={21} className="py-12 text-center text-slate-400">
                     No rows match the current filter.
                   </td>
                 </tr>
@@ -817,20 +816,14 @@ export default function ReconciliationPage() {
                       <td className="bg-amber-50 px-3 py-2 whitespace-nowrap text-slate-600">{fmt(r.as400OrderDate)}</td>
                       <td className="bg-amber-50 px-3 py-2 whitespace-nowrap text-slate-600">{fmt(r.as400Eta)}</td>
                       <td className="bg-amber-50 px-3 py-2 font-mono text-[11px] text-slate-500 border-r-2 border-amber-200">{r.usSoNumber ?? '—'}</td>
-                      <td className="bg-amber-50 px-3 py-2 text-slate-700" title={r.shipToName ?? ''}>{r.shipToName ?? '—'}</td>
-                      <td className="bg-amber-50 px-3 py-2 whitespace-nowrap text-slate-700">{r.shipToCity ?? '—'}</td>
-                      <td className="bg-amber-50 px-3 py-2 text-slate-600">{r.shipToState ?? '—'}</td>
-                      <td className="bg-amber-50 px-3 py-2 text-slate-600">{r.shipToPostcode ?? '—'}</td>
-                      <td className="bg-amber-50 px-3 py-2 border-r-2 border-amber-200">
-                        {r.as400Ord === 0 ? (
-                          <span className="text-slate-300">—</span>
-                        ) : addr === 'ok' ? (
-                          <span className="font-semibold text-green-600">&#10003; AU</span>
-                        ) : addr === 'warn' ? (
-                          <span className="font-semibold text-red-600" title={`Unexpected: ${r.shipToCity}, ${r.shipToState}`}>&#x26A0; Check</span>
-                        ) : (
-                          <span className="text-slate-400">?</span>
-                        )}
+                      <td className="bg-sky-50 px-3 py-2 text-center border-r-2 border-sky-200">
+                        <button
+                          onClick={() => toggleExpandRow(`${r.po}-${r.arrowStock}-${i}`)}
+                          className="inline-flex items-center justify-center w-6 h-6 hover:bg-sky-100 rounded transition-colors text-sky-600 font-semibold"
+                          title="View delivery address details"
+                        >
+                          {expandedRows.has(`${r.po}-${r.arrowStock}-${i}`) ? '▼' : '▶'}
+                        </button>
                       </td>
                       <td className="bg-violet-50 px-3 py-2 text-right">
                         {r.onWater > 0
@@ -844,6 +837,45 @@ export default function ReconciliationPage() {
                         {creditorName[r.creditor ?? ''] ?? r.creditor ?? '—'}
                       </td>
                     </tr>
+                    {expandedRows.has(`${r.po}-${r.arrowStock}-${i}`) && (
+                      <tr className="bg-sky-50/50 hover:brightness-[0.98] transition-colors">
+                        <td colSpan={3} className="sticky left-0 z-10 bg-slate-700 px-3 py-3" style={{ left: '165px' }}></td>
+                        <td colSpan={13} className="px-4 py-4">
+                          <div className="grid grid-cols-5 gap-6">
+                            <div>
+                              <p className="text-[10px] font-bold uppercase tracking-wide text-sky-700 mb-1">Ship To</p>
+                              <p className="text-sm text-slate-800">{r.shipToName ?? '—'}</p>
+                            </div>
+                            <div>
+                              <p className="text-[10px] font-bold uppercase tracking-wide text-sky-700 mb-1">City</p>
+                              <p className="text-sm text-slate-800">{r.shipToCity ?? '—'}</p>
+                            </div>
+                            <div>
+                              <p className="text-[10px] font-bold uppercase tracking-wide text-sky-700 mb-1">State</p>
+                              <p className="text-sm text-slate-800">{r.shipToState ?? '—'}</p>
+                            </div>
+                            <div>
+                              <p className="text-[10px] font-bold uppercase tracking-wide text-sky-700 mb-1">Postcode</p>
+                              <p className="text-sm text-slate-800">{r.shipToPostcode ?? '—'}</p>
+                            </div>
+                            <div>
+                              <p className="text-[10px] font-bold uppercase tracking-wide text-sky-700 mb-1">Address OK?</p>
+                              <p className="text-sm">
+                                {r.as400Ord === 0 ? (
+                                  <span className="text-slate-400">—</span>
+                                ) : addr === 'ok' ? (
+                                  <span className="font-semibold text-green-600">✓ AU Delivery</span>
+                                ) : addr === 'warn' ? (
+                                  <span className="font-semibold text-red-600" title={`Unexpected: ${r.shipToCity}, ${r.shipToState}`}>⚠ Check Address</span>
+                                ) : (
+                                  <span className="text-slate-400">?</span>
+                                )}
+                              </p>
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
                   );
                 })
               )}
