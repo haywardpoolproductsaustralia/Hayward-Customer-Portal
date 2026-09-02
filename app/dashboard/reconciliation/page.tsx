@@ -707,13 +707,20 @@ export default function ReconciliationPage() {
               if (top) top.scrollLeft = (e.target as HTMLDivElement).scrollLeft;
               const inner = document.getElementById('top-scroll-inner');
               const tbl = (e.target as HTMLDivElement).querySelector('table');
-              if (inner && tbl) inner.style.width = tbl.scrollWidth + 'px';
+              if (inner && tbl) {
+                const scrollbarWidth = (e.target as HTMLDivElement).offsetWidth - (e.target as HTMLDivElement).clientWidth;
+                inner.style.width = (tbl.scrollWidth + scrollbarWidth) + 'px';
+              }
             }}
             ref={(el) => {
               if (!el) return;
               const inner = document.getElementById('top-scroll-inner');
               const tbl = el.querySelector('table');
-              if (inner && tbl) inner.style.width = tbl.scrollWidth + 'px';
+              if (inner && tbl) {
+                // Account for scrollbar width: ensure top scroll can scroll as far as bottom
+                const scrollbarWidth = el.offsetWidth - el.clientWidth;
+                inner.style.width = (tbl.scrollWidth + scrollbarWidth) + 'px';
+              }
             }}
           >
           <table className="w-full text-left text-xs" style={{ minWidth: '2400px', tableLayout: 'auto', borderCollapse: 'collapse' }}>
@@ -747,49 +754,49 @@ export default function ReconciliationPage() {
             </colgroup>
             <thead className="sticky top-0 z-20">
               <tr className="text-[11px] font-bold uppercase tracking-widest">
-                <th colSpan={3} style={{ background: '#334155', color: 'white', padding: '6px 12px', borderRight: '2px solid white', position: 'sticky', left: 0, zIndex: 11 }}>
+                <th colSpan={3} style={{ background: '#334155', color: 'white', padding: '6px 12px', borderRight: '2px solid white', position: 'sticky', left: 0, zIndex: 11, opacity: 1 }}>
                   Order
                 </th>
-                <th colSpan={7} style={{ background: '#059669', color: 'white', padding: '6px 12px', borderRight: '2px solid white', position: 'sticky', left: '255px', zIndex: 11 }}>
+                <th colSpan={7} style={{ background: '#059669', color: 'white', padding: '6px 12px', borderRight: '2px solid white', position: 'sticky', left: '255px', zIndex: 11, opacity: 1 }}>
                   Arrow AU
                 </th>
-                <th colSpan={6} style={{ background: '#f59e0b', color: 'white', padding: '6px 12px', borderRight: '2px solid white' }}>
+                <th colSpan={6} style={{ background: '#f59e0b', color: 'white', padding: '6px 12px', borderRight: '2px solid white', opacity: 1 }}>
                   AS400 · USA
                 </th>
-                <th colSpan={5} style={{ background: '#0ea5e9', color: 'white', padding: '6px 12px', borderRight: '2px solid white' }}>
+                <th colSpan={5} style={{ background: '#0ea5e9', color: 'white', padding: '6px 12px', borderRight: '2px solid white', opacity: 1 }}>
                   Delivery address
                 </th>
-                <th colSpan={5} style={{ background: '#7c3aed', color: 'white', padding: '6px 12px' }}>
+                <th colSpan={5} style={{ background: '#7c3aed', color: 'white', padding: '6px 12px', opacity: 1 }}>
                   CDS-Net · Shipment
                 </th>
               </tr>
               <tr className="border-b border-slate-200 text-[11px] font-semibold uppercase tracking-wide">
-                <th className="sticky left-0 z-10 bg-slate-800 px-3 py-2.5 whitespace-nowrap text-white">PO</th>
-                <th className="sticky bg-slate-700 px-3 py-2.5 whitespace-nowrap text-white" style={{ left: '75px' }}>Status</th>
-                <th className="sticky bg-slate-600 px-3 py-2.5 whitespace-nowrap text-white border-r border-slate-500" style={{ left: '165px' }}>Type</th>
-                <th className="sticky bg-emerald-200 px-3 py-2.5 whitespace-nowrap text-emerald-900" style={{ left: '255px' }}>Stock code</th>
-                <th className="sticky bg-emerald-200 px-3 py-2.5 whitespace-nowrap text-emerald-900" style={{ left: '385px' }}>Supplier SKU</th>
-                <th className="sticky bg-emerald-200 px-3 py-2.5 whitespace-nowrap text-emerald-900" style={{ left: '505px' }}>Description</th>
-                <th className="sticky bg-emerald-200 px-3 py-2.5 whitespace-nowrap text-emerald-900" style={{ left: '705px' }}>Order date</th>
-                <th className="sticky bg-emerald-200 px-3 py-2.5 whitespace-nowrap text-emerald-900" style={{ left: '805px' }}>ETA Arrow</th>
-                <th className="sticky bg-emerald-200 px-3 py-2.5 text-right whitespace-nowrap text-emerald-900" style={{ left: '905px' }}>Ordered</th>
-                <th className="sticky bg-emerald-200 px-3 py-2.5 text-right whitespace-nowrap text-emerald-900 border-r-2 border-emerald-400" style={{ left: '980px' }}>Received</th>
-                <th className="bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900">Arrow PO ref</th>
-                <th className="bg-amber-100 px-3 py-2.5 text-right whitespace-nowrap text-amber-900">ENT</th>
-                <th className="bg-amber-100 px-3 py-2.5 text-right whitespace-nowrap text-amber-900">SHPD</th>
-                <th className="bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900">Order date</th>
-                <th className="bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900">ETA</th>
-                <th className="bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900 border-r-2 border-amber-300">US SO#</th>
-                <th className="bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900">Ship to</th>
-                <th className="bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900">City</th>
-                <th className="bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900">State</th>
-                <th className="bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900">Postcode</th>
-                <th className="bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900 border-r-2 border-amber-300">Addr OK?</th>
-                <th className="bg-violet-100 px-3 py-2.5 text-right whitespace-nowrap text-violet-900">On water</th>
-                <th className="bg-violet-100 px-3 py-2.5 whitespace-nowrap text-violet-900">Container</th>
-                <th className="bg-violet-100 px-3 py-2.5 whitespace-nowrap text-violet-900">Vessel</th>
-                <th className="bg-violet-100 px-3 py-2.5 whitespace-nowrap text-violet-900">Cont. ETA</th>
-                <th className="bg-violet-100 px-3 py-2.5 whitespace-nowrap text-violet-900">Supplier</th>
+                <th className="sticky left-0 z-10 bg-slate-800 px-3 py-2.5 whitespace-nowrap text-white opacity-100">PO</th>
+                <th className="sticky bg-slate-700 px-3 py-2.5 whitespace-nowrap text-white opacity-100" style={{ left: '75px' }}>Status</th>
+                <th className="sticky bg-slate-600 px-3 py-2.5 whitespace-nowrap text-white border-r border-slate-500 opacity-100" style={{ left: '165px' }}>Type</th>
+                <th className="sticky bg-emerald-200 px-3 py-2.5 whitespace-nowrap text-emerald-900 opacity-100" style={{ left: '255px' }}>Stock code</th>
+                <th className="sticky bg-emerald-200 px-3 py-2.5 whitespace-nowrap text-emerald-900 opacity-100" style={{ left: '385px' }}>Supplier SKU</th>
+                <th className="sticky bg-emerald-200 px-3 py-2.5 whitespace-nowrap text-emerald-900 opacity-100" style={{ left: '505px' }}>Description</th>
+                <th className="sticky bg-emerald-200 px-3 py-2.5 whitespace-nowrap text-emerald-900 opacity-100" style={{ left: '705px' }}>Order date</th>
+                <th className="sticky bg-emerald-200 px-3 py-2.5 whitespace-nowrap text-emerald-900 opacity-100" style={{ left: '805px' }}>ETA Arrow</th>
+                <th className="sticky bg-emerald-200 px-3 py-2.5 text-right whitespace-nowrap text-emerald-900 opacity-100" style={{ left: '905px' }}>Ordered</th>
+                <th className="sticky bg-emerald-200 px-3 py-2.5 text-right whitespace-nowrap text-emerald-900 border-r-2 border-emerald-400 opacity-100" style={{ left: '980px' }}>Received</th>
+                <th className="bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900 opacity-100">Arrow PO ref</th>
+                <th className="bg-amber-100 px-3 py-2.5 text-right whitespace-nowrap text-amber-900 opacity-100">ENT</th>
+                <th className="bg-amber-100 px-3 py-2.5 text-right whitespace-nowrap text-amber-900 opacity-100">SHPD</th>
+                <th className="bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900 opacity-100">Order date</th>
+                <th className="bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900 opacity-100">ETA</th>
+                <th className="bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900 border-r-2 border-amber-300 opacity-100">US SO#</th>
+                <th className="bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900 opacity-100">Ship to</th>
+                <th className="bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900 opacity-100">City</th>
+                <th className="bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900 opacity-100">State</th>
+                <th className="bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900 opacity-100">Postcode</th>
+                <th className="bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900 border-r-2 border-amber-300 opacity-100">Addr OK?</th>
+                <th className="bg-violet-100 px-3 py-2.5 text-right whitespace-nowrap text-violet-900 opacity-100">On water</th>
+                <th className="bg-violet-100 px-3 py-2.5 whitespace-nowrap text-violet-900 opacity-100">Container</th>
+                <th className="bg-violet-100 px-3 py-2.5 whitespace-nowrap text-violet-900 opacity-100">Vessel</th>
+                <th className="bg-violet-100 px-3 py-2.5 whitespace-nowrap text-violet-900 opacity-100">Cont. ETA</th>
+                <th className="bg-violet-100 px-3 py-2.5 whitespace-nowrap text-violet-900 opacity-100">Supplier</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
