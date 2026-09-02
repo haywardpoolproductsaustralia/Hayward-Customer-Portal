@@ -33,6 +33,7 @@ type ArrowLine = {
   arrowStock: string;
   supplierSku: string;
   description: string | null;
+  stockCategory: string;
   creditor: string | null;
   qtyOrdered: number;
   qtyReceived: number;
@@ -480,7 +481,10 @@ export default function ReconciliationPage() {
   const filtered = useMemo(() => {
     let r = rows;
     // Exclude Paramount (stock category PR) and Flow Control (17300) by default
-    if (!showParamount)   r = r.filter((x) => !(x.arrowStock?.startsWith('PR-') || (x.description ?? '').toUpperCase().includes('PARAMOUNT')));
+    if (showParamount)
+      r = r.filter((x) => x.stockCategory === 'PR');
+    else
+      r = r.filter((x) => x.stockCategory !== 'PR');
     if (!showFlowControl) r = r.filter((x) => x.creditor !== '17300');
     if (tab === 'exceptions')   r = r.filter((x) => x.status === 'missing' || x.lateVsRequest);
     if (tab === 'not_received') r = r.filter((x) => x.status === 'not_received');
