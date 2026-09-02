@@ -418,6 +418,9 @@ export default function ReconciliationPage() {
   const [uploadingA4, setUploadingA4] = useState(false);
   const [uploadingShip, setUploadingShip] = useState(false);
   const [showParamount,    setShowParamount]    = useState(false);
+  const [excludeThirdParty, setExcludeThirdParty] = useState(false);
+  const [excludeParamount, setExcludeParamount] = useState(false);
+  const [excludeFlowcontrol, setExcludeFlowcontrol] = useState(false);
 
   useEffect(() => {
     Promise.all([
@@ -482,11 +485,19 @@ export default function ReconciliationPage() {
 
   const filtered = useMemo(() => {
     let r = rows;
-    // When Paramount button is active, show ONLY Paramount (PR). Otherwise exclude it.
+    // Apply exclusion filters first
+    if (excludeThirdParty)
+      r = r.filter((x) => HAYWARD_CREDITORS.has(x.creditor ?? '') || x.stockCategory === 'PR');
+    if (excludeParamount)
+      r = r.filter((x) => x.stockCategory !== 'PR');
+    if (excludeFlowcontrol)
+      r = r.filter((x) => x.stockCategory !== 'FC');
+    // When Paramount button is active, show ONLY Paramount (PR). Otherwise exclude it (unless excluding via button).
     if (showParamount)
       r = r.filter((x) => x.stockCategory === 'PR');
-    else
+    else if (!excludeParamount)
       r = r.filter((x) => x.stockCategory !== 'PR');
+    // Apply tab and search filters
     if (tab === 'exceptions')   r = r.filter((x) => x.status === 'missing' || x.lateVsRequest);
     if (tab === 'not_received') r = r.filter((x) => x.status === 'not_received');
     if (tab === 'in_transit')   r = r.filter((x) => x.status === 'in_transit');
@@ -509,7 +520,7 @@ export default function ReconciliationPage() {
       );
     }
     return r;
-  }, [rows, tab, search, showParamount]);
+  }, [rows, tab, search, showParamount, excludeThirdParty, excludeParamount, excludeFlowcontrol]);
 
   const stats = useMemo(() => ({
     total:      rows.length,
@@ -620,9 +631,42 @@ export default function ReconciliationPage() {
         <div className="py-16 text-center text-sm text-slate-400">Loading…</div>
       ) : (
         <>
-          {/* Export button — right-aligned above table */}
-          <div className="flex justify-end mb-2">
-            <button
+          {/* Type filters and Export button */}
+          <div className="flex justify-between items-center mb-3 gap-3">
+            <div className="flex gap-2">
+              <button
+                onClick={() => setExcludeThirdParty(!excludeThirdParty)}
+                className={`rounded-lg px-3 py-2 text-sm font-medium transition-all ${
+                  excludeThirdParty
+                    ? 'bg-slate-500 text-white shadow-md'
+                    : 'bg-white text-slate-600 border border-slate-200 hover:border-slate-400'
+                }`}
+              >
+                {excludeThirdParty ? '✓' : '○'} Exclude 3rd Party
+              </button>
+              <button
+                onClick={() => setExcludeParamount(!excludeParamount)}
+                className={`rounded-lg px-3 py-2 text-sm font-medium transition-all ${
+                  excludeParamount
+                    ? 'bg-purple-500 text-white shadow-md'
+                    : 'bg-white text-slate-600 border border-slate-200 hover:border-slate-400'
+                }`}
+              >
+                {excludeParamount ? '✓' : '○'} Exclude Paramount
+              </button>
+              <button
+                onClick={() => setExcludeFlowcontrol(!excludeFlowcontrol)}
+                className={`rounded-lg px-3 py-2 text-sm font-medium transition-all ${
+                  excludeFlowcontrol
+                    ? 'bg-blue-500 text-white shadow-md'
+                    : 'bg-white text-slate-600 border border-slate-200 hover:border-slate-400'
+                }`}
+              >
+                {excludeFlowcontrol ? '✓' : '○'} Exclude Flowcontrol
+              </button>
+            </div>
+            <div className="flex justify-end">
+              <button
               onClick={() => {
                 const headers = [
                   'PO','Status','Type','Stock Code','Supplier SKU','Description','Order Date','ETA Arrow',
@@ -658,6 +702,7 @@ export default function ReconciliationPage() {
               <svg className="h-4 w-4 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
               Export to Excel
             </button>
+            </div>
           </div>
           <div className="rounded-2xl border border-ink/10 bg-white shadow-soft overflow-hidden">
           {/* Top scrollbar mirror — synced to bottom scroll */}
@@ -730,10 +775,10 @@ export default function ReconciliationPage() {
                   Arrow AU
                 </th>
                 <th colSpan={6} style={{ background: '#f59e0b', color: 'white', padding: '6px 12px', borderRight: '2px solid white' }}>
-                  AS400 · USA
+                  Supplier USA-Wuxi
                 </th>
                 <th colSpan={5} style={{ background: '#7c3aed', color: 'white', padding: '6px 12px', borderRight: '2px solid white' }}>
-                  CDS-Net · Shipment
+                  Shipment On Water
                 </th>
                 <th colSpan={5} style={{ background: '#0ea5e9', color: 'white', padding: '6px 12px', borderRight: '2px solid white' }}>
                   AS400 Delivery Address
