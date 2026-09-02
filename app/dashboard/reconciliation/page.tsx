@@ -418,7 +418,6 @@ export default function ReconciliationPage() {
   const [uploadingA4, setUploadingA4] = useState(false);
   const [uploadingShip, setUploadingShip] = useState(false);
   const [showParamount,    setShowParamount]    = useState(false);
-  const [showDeliveryAddr, setShowDeliveryAddr] = useState(false);
 
   useEffect(() => {
     Promise.all([
@@ -534,9 +533,7 @@ export default function ReconciliationPage() {
 
   return (
     <div className="space-y-6">
-      <style dangerouslySetInnerHTML={{ __html: SCROLLBAR_STYLE + (showDeliveryAddr ? '' : `
-        .delivery-col { display: none !important; }
-      `) }} />
+      <style dangerouslySetInnerHTML={{ __html: SCROLLBAR_STYLE }} />
 
       {/* ── Header ── */}
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -623,14 +620,8 @@ export default function ReconciliationPage() {
         <div className="py-16 text-center text-sm text-slate-400">Loading…</div>
       ) : (
         <>
-          {/* Buttons — right-aligned above table */}
-          <div className="flex gap-2 justify-end mb-2">
-            <button
-              onClick={() => setShowDeliveryAddr(!showDeliveryAddr)}
-              className="flex items-center gap-2 rounded-xl border border-ink/10 bg-white px-4 py-2 text-sm font-medium shadow-soft hover:border-sky-300/50 transition-colors"
-            >
-              {showDeliveryAddr ? '−' : '+'} Delivery Address
-            </button>
+          {/* Export button — right-aligned above table */}
+          <div className="flex justify-end mb-2">
             <button
               onClick={() => {
                 const headers = [
@@ -744,7 +735,7 @@ export default function ReconciliationPage() {
                   CDS-Net · Shipment
                 </th>
                 <th colSpan={5} style={{ background: '#0ea5e9', color: 'white', padding: '6px 12px', borderRight: '2px solid white' }}>
-                  Delivery address
+                  AS400 Delivery Address
                 </th>
               </tr>
               <tr className="border-b border-slate-200 text-[11px] font-semibold uppercase tracking-wide">
