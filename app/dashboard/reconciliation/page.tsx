@@ -709,11 +709,11 @@ export default function ReconciliationPage() {
               <col style={{ minWidth: '100px' }} />
               <col style={{ minWidth: '100px' }} />
               <col style={{ minWidth: '130px' }} />
-              <col style={{ minWidth: '160px' }} />
-              <col style={{ minWidth: '130px' }} />
+              <col style={{ minWidth: '110px' }} />{/* On water */}
+              <col style={{ minWidth: '140px' }} />{/* Container */}
               <col style={{ minWidth: '90px' }}  />
-              <col style={{ minWidth: '80px' }}  />
-              <col style={{ minWidth: '80px' }}  />
+              <col style={{ minWidth: '90px' }}  />
+              <col style={{ minWidth: '90px' }}  />
               <col style={{ minWidth: '80px' }}  />
               <col style={{ minWidth: '130px' }} />
               <col style={{ minWidth: '160px' }} />
@@ -749,22 +749,22 @@ export default function ReconciliationPage() {
                 <th className="sticky bg-emerald-200 px-3 py-2.5 whitespace-nowrap text-emerald-900" style={{ left: '805px' }}>ETA Arrow</th>
                 <th className="sticky bg-emerald-200 px-3 py-2.5 text-right whitespace-nowrap text-emerald-900" style={{ left: '905px' }}>Ordered</th>
                 <th className="sticky bg-emerald-200 px-3 py-2.5 text-right whitespace-nowrap text-emerald-900 border-r-2 border-emerald-400" style={{ left: '980px' }}>Received</th>
-                <th className="bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900">Arrow PO ref</th>
-                <th className="bg-amber-100 px-3 py-2.5 text-right whitespace-nowrap text-amber-900">ENT</th>
-                <th className="bg-amber-100 px-3 py-2.5 text-right whitespace-nowrap text-amber-900">SHPD</th>
-                <th className="bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900">Order date</th>
-                <th className="bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900">ETA</th>
-                <th className="bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900 border-r-2 border-amber-300">US SO#</th>
-                <th className="bg-violet-100 px-3 py-2.5 text-right whitespace-nowrap text-violet-900">On water</th>
-                <th className="bg-violet-100 px-3 py-2.5 whitespace-nowrap text-violet-900">Container</th>
-                <th className="bg-violet-100 px-3 py-2.5 whitespace-nowrap text-violet-900">Vessel</th>
-                <th className="bg-violet-100 px-3 py-2.5 whitespace-nowrap text-violet-900">Cont. ETA</th>
-                <th className="bg-violet-100 px-3 py-2.5 whitespace-nowrap text-violet-900 border-r-2 border-violet-300">Supplier</th>
-                <th className="bg-sky-100 px-3 py-2.5 whitespace-nowrap text-sky-900">Ship to</th>
-                <th className="bg-sky-100 px-3 py-2.5 whitespace-nowrap text-sky-900">City</th>
-                <th className="bg-sky-100 px-3 py-2.5 whitespace-nowrap text-sky-900">State</th>
-                <th className="bg-sky-100 px-3 py-2.5 whitespace-nowrap text-sky-900">Postcode</th>
-                <th className="bg-sky-100 px-3 py-2.5 whitespace-nowrap text-sky-900">Addr OK?</th>
+                <th className="sticky bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900" style={{ zIndex: 9 }}>Arrow PO ref</th>
+                <th className="sticky bg-amber-100 px-3 py-2.5 text-right whitespace-nowrap text-amber-900" style={{ zIndex: 9 }}>ENT</th>
+                <th className="sticky bg-amber-100 px-3 py-2.5 text-right whitespace-nowrap text-amber-900" style={{ zIndex: 9 }}>SHPD</th>
+                <th className="sticky bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900" style={{ zIndex: 9 }}>Order date</th>
+                <th className="sticky bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900" style={{ zIndex: 9 }}>ETA</th>
+                <th className="sticky bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900 border-r-2 border-amber-300" style={{ zIndex: 9 }}>US SO#</th>
+                <th className="sticky bg-violet-100 px-3 py-2.5 text-center whitespace-nowrap text-violet-900 font-semibold" style={{ zIndex: 9, minWidth: '100px' }}>On water</th>
+                <th className="sticky bg-violet-100 px-3 py-2.5 whitespace-nowrap text-violet-900 font-semibold" style={{ zIndex: 9, minWidth: '120px' }}>Container</th>
+                <th className="sticky bg-violet-100 px-3 py-2.5 whitespace-nowrap text-violet-900" style={{ zIndex: 9 }}>Vessel</th>
+                <th className="sticky bg-violet-100 px-3 py-2.5 whitespace-nowrap text-violet-900" style={{ zIndex: 9 }}>Cont. ETA</th>
+                <th className="sticky bg-violet-100 px-3 py-2.5 whitespace-nowrap text-violet-900 border-r-2 border-violet-300" style={{ zIndex: 9 }}>Supplier</th>
+                <th className="sticky bg-sky-100 px-3 py-2.5 whitespace-nowrap text-sky-900" style={{ zIndex: 9 }}>Ship to</th>
+                <th className="sticky bg-sky-100 px-3 py-2.5 whitespace-nowrap text-sky-900" style={{ zIndex: 9 }}>City</th>
+                <th className="sticky bg-sky-100 px-3 py-2.5 whitespace-nowrap text-sky-900" style={{ zIndex: 9 }}>State</th>
+                <th className="sticky bg-sky-100 px-3 py-2.5 whitespace-nowrap text-sky-900" style={{ zIndex: 9 }}>Postcode</th>
+                <th className="sticky bg-sky-100 px-3 py-2.5 whitespace-nowrap text-sky-900" style={{ zIndex: 9 }}>Addr OK?</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -817,12 +817,12 @@ export default function ReconciliationPage() {
                       <td className="bg-amber-50 px-3 py-2 whitespace-nowrap text-slate-600">{fmt(r.as400OrderDate)}</td>
                       <td className="bg-amber-50 px-3 py-2 whitespace-nowrap text-slate-600">{fmt(r.as400Eta)}</td>
                       <td className="bg-amber-50 px-3 py-2 font-mono text-[11px] text-slate-500 border-r-2 border-amber-200">{r.usSoNumber ?? '—'}</td>
-                      <td className="bg-violet-50 px-3 py-2 text-right">
+                      <td className="bg-violet-50 px-4 py-3 text-center">
                         {r.onWater > 0
-                          ? <span className="font-bold text-violet-700">{r.onWater}</span>
+                          ? <span className="inline-flex items-center justify-center bg-violet-200 text-violet-900 font-bold rounded-md px-3 py-1 text-sm">{r.onWater}</span>
                           : <span className="text-slate-300">—</span>}
                       </td>
-                      <td className="bg-violet-50 px-3 py-2 font-mono text-[11px] whitespace-nowrap text-violet-800">{r.container ?? '—'}</td>
+                      <td className="bg-violet-50 px-4 py-3 font-mono text-xs whitespace-nowrap text-violet-800 tracking-tight">{r.container ?? '—'}</td>
                       <td className="bg-violet-50 px-3 py-2 whitespace-nowrap text-slate-700">{r.vessel ?? '—'}</td>
                       <td className="bg-violet-50 px-3 py-2 whitespace-nowrap text-slate-600">{fmt(r.containerEta)}</td>
                       <td className="bg-violet-50 px-3 py-2 whitespace-nowrap text-slate-500 border-r-2 border-violet-200">
