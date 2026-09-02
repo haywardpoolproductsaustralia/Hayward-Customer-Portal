@@ -47,4 +47,28 @@ export async function GET() {
     ]);
 
     let lines = rawLines
-      ? (typeof rawLines === 'string' ? JSON.parse(rawLines)
+      ? (typeof rawLines === 'string' ? JSON.parse(rawLines) : rawLines)
+      : [];
+
+    // Filter by stock category:
+    // - Hayward staff (isAggregate): see all POs (no filter)
+    // - Poolwater Products: see ONLY Paramount stock (PR)
+    if (!access.isAggregate && Array.isArray(lines)) {
+      lines = (lines as ArrowLine[]).filter((line) =>
+        (line.stockCategory ?? '').trim().toUpperCase() === PARAMOUNT_CATEGORY
+      );
+    }
+
+    const meta = rawMeta
+      ? (typeof rawMeta === 'string' ? JSON.parse(rawMeta) : rawMeta)
+      : { generatedAt: null, rows: 0 };
+
+    return NextResponse.json({
+      lines,
+      generatedAt: (meta as any).generatedAt ?? null,
+      rows: Array.isArray(lines) ? lines.length : 0,
+    });
+  } catch (e: any) {
+    return NextResponse.json({ lines: [], error: e.message }, { status: 500 });
+  }
+}
