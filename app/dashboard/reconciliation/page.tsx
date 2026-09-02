@@ -715,10 +715,11 @@ export default function ReconciliationPage() {
               <col style={{ minWidth: '90px' }}  />
               <col style={{ minWidth: '90px' }}  />
               <col style={{ minWidth: '80px' }}  />
-              <col style={{ minWidth: '130px' }} />
-              <col style={{ minWidth: '160px' }} />
-              <col style={{ minWidth: '110px' }} />
-              <col style={{ minWidth: '120px' }} />
+              <col style={{ minWidth: '160px' }} />{/* Ship to */}
+              <col style={{ minWidth: '160px' }} />{/* City */}
+              <col style={{ minWidth: '80px' }}  />{/* State */}
+              <col style={{ minWidth: '80px' }}  />{/* Postcode */}
+              <col style={{ minWidth: '80px' }}  />{/* Addr OK? */}
             </colgroup>
             <thead className="sticky top-0 z-20">
               <tr className="text-[11px] font-bold uppercase tracking-widest">
@@ -828,11 +829,11 @@ export default function ReconciliationPage() {
                       <td className="bg-violet-50 px-3 py-2 whitespace-nowrap text-slate-500 border-r-2 border-violet-200">
                         {creditorName[r.creditor ?? ''] ?? r.creditor ?? '—'}
                       </td>
-                      <td className="bg-sky-50 px-3 py-2 text-slate-700" title={r.shipToName ?? ''}>{r.shipToName ?? '—'}</td>
+                      <td className="bg-sky-50 px-3 py-2 whitespace-nowrap text-slate-700 font-medium" title={r.shipToName ?? ''}>{r.shipToName ?? '—'}</td>
                       <td className="bg-sky-50 px-3 py-2 whitespace-nowrap text-slate-700">{r.shipToCity ?? '—'}</td>
-                      <td className="bg-sky-50 px-3 py-2 text-slate-600">{r.shipToState ?? '—'}</td>
-                      <td className="bg-sky-50 px-3 py-2 text-slate-600">{r.shipToPostcode ?? '—'}</td>
-                      <td className="bg-sky-50 px-3 py-2">
+                      <td className="bg-sky-50 px-3 py-2 whitespace-nowrap text-slate-600">{r.shipToState ?? '—'}</td>
+                      <td className="bg-sky-50 px-3 py-2 whitespace-nowrap text-slate-600">{r.shipToPostcode ?? '—'}</td>
+                      <td className="bg-sky-50 px-3 py-2 whitespace-nowrap">
                         {r.as400Ord === 0 ? (
                           <span className="text-slate-300">—</span>
                         ) : addr === 'ok' ? (
