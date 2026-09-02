@@ -1,3 +1,5 @@
+import { getJSON } from '@/lib/redis';
+
 export interface PricingRule {
   sku: string;
   stockCategory: string;
@@ -15,13 +17,32 @@ function round2(v: number): number {
 }
 
 /**
+ * Get the list price for a SKU from the new pricing:listprices cache.
+ * This reads from the updated STKMAST.SELLING_PRICE1 written by sync-list-prices.js.
+ * Falls back to null if the SKU is not found.
+ */
+export async function getListPrice(sku: string): Promise<number | null> {
+  try {
+    const priceIndex = await getJSON<Record<string, { listPrice: number }>>(
+      'pricing:listprices'
+    );
+    if (!priceIndex || !priceIndex[sku]) {
+      return null;
+    }
+    return priceIndex[sku].listPrice ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Computes a final price for a quantity, using the same logic as the
  * existing Pricing Tool: the highest quantity-break threshold the qty
  * meets or exceeds wins; if none match, fall back to the flat discount,
  * then to the lowest tier's discount as a last resort.
  *
  * `listPrice` is passed in explicitly (the SKU's own STKMAST.SELLING_PRICE1,
- * cached on the stock entry) rather than read from `rule.listPrice` -
+ * now fetched from pricing:listprices) rather than read from `rule.listPrice` -
  * category-level rules have no SKU of their own in SPRTRAN, so their
  * `listPrice` is always null even though the discount itself is perfectly
  * valid. Using the SKU's own list price means category-fallback pricing
