@@ -778,6 +778,7 @@ export default function ReconciliationPage() {
                   const addr = addrMatch(r);
                   const rowBase = r.lateVsRequest ? 'bg-red-50/30' : '';
                   return (
+                    <>
                     <tr
                       key={`${r.po}-${r.arrowStock}-${i}`}
                       className={`${rowBase} hover:brightness-[0.97] transition-colors`}
@@ -876,6 +877,7 @@ export default function ReconciliationPage() {
                         </td>
                       </tr>
                     )}
+                    </>
                   );
                 })
               )}
