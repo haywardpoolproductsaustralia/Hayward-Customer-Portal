@@ -761,13 +761,13 @@ export default function ReconciliationPage() {
                   Arrow AU
                 </th>
                 <th colSpan={6} style={{ background: '#f59e0b', color: 'white', padding: '6px 12px', borderRight: '2px solid white', opacity: 1 }}>
-                  Supplier USA-China
+                  AS400 · USA
                 </th>
                 <th colSpan={5} style={{ background: '#0ea5e9', color: 'white', padding: '6px 12px', borderRight: '2px solid white', opacity: 1 }}>
-                  AS400 Delivery Address
+                  Delivery address
                 </th>
                 <th colSpan={5} style={{ background: '#7c3aed', color: 'white', padding: '6px 12px', opacity: 1 }}>
-                  Shipment On Water
+                  CDS-Net · Shipment
                 </th>
               </tr>
               <tr className="border-b border-slate-200 text-[11px] font-semibold uppercase tracking-wide">
