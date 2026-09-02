@@ -3,13 +3,13 @@
 // Data is written by arrow-recon.js running on AZ-Grey.
 // Redis keys: recon:arrow_open_pos  recon:arrow_meta
 //
-// UPDATED: Filter by stock category
-// - Hayward staff (isAggregate): see ALL POs
-// - Poolwater Products: see ONLY Paramount stock (STOCK_CATEGORY = 'PR')
+// UPDATED: Filters lines by customer access.
+// - Hayward staff (isAggregate): see ALL open POs
+// - Poolwater Products + other customers: see ONLY their own customer codes
 
 import { NextResponse } from 'next/server';
 import { Redis } from '@upstash/redis';
-import { getCustomerAccess, PARAMOUNT_CATEGORY } from '@/lib/access';
+import { getCustomerAccess } from '@/lib/access';
 
 const redis = new Redis({
   url: process.env.UPSTASH_REDIS_REST_URL!,
@@ -24,6 +24,7 @@ interface ArrowLine {
   description: string | null;
   stockCategory: string;
   creditor: string | null;
+  customerCode: string | null;  // **NEW**
   qtyOrdered: number;
   qtyReceived: number;
   qtyOutstanding: number;
@@ -50,12 +51,13 @@ export async function GET() {
       ? (typeof rawLines === 'string' ? JSON.parse(rawLines) : rawLines)
       : [];
 
-    // Filter by stock category:
-    // - Hayward staff (isAggregate): see all POs (no filter)
-    // - Poolwater Products: see ONLY Paramount stock (PR)
+    // Filter by customer access:
+    // - Hayward staff (isAggregate): see all POs
+    // - Others: see only their own customer codes
     if (!access.isAggregate && Array.isArray(lines)) {
+      const allowedCodes = new Set(access.customerCodes);
       lines = (lines as ArrowLine[]).filter((line) =>
-        (line.stockCategory ?? '').trim().toUpperCase() === PARAMOUNT_CATEGORY
+        allowedCodes.has(line.customerCode ?? '')
       );
     }
 
