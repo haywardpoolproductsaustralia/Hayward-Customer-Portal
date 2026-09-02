@@ -258,22 +258,36 @@ async function parseShipmentXlsx(file: File): Promise<ShipLine[]> {
   if (hi < 0) throw new Error('Column "PO #" not found — is this a Shipment Activity by Container file?');
 
   const H = raw[hi];
-  const col = (n: string) => H.indexOf(n);
-  const c = {
-    po:            col('PO #'),
-    item:          col('Item #'),
-    container:     col('Container #'),
-    vessel:        col('Vessel'),
-    etd:           col('ETD'),
-    eta:           col('ETA'),
-    delivered:     col('Delivered'),
-    actualDeliv:   col('Actual Delivered Date'),
-    units:         col('Units'),
-    carrier:       col('Carrier Name'),
-    origin:        col('Origin Port Name'),
-    destPort:      col('Dest. Port Name'),
-    location:      col('Location Name'),
+  // Normalize headers: trim whitespace and match case-insensitively
+  const normalizeHeader = (h: any) => (h ? String(h).trim() : '');
+  const colIndex = (name: string) => {
+    const normalized = name.trim().toLowerCase();
+    return H.findIndex((h: any) => normalizeHeader(h).toLowerCase() === normalized);
   };
+  
+  const c = {
+    po:            colIndex('PO #'),
+    item:          colIndex('Item #'),
+    container:     colIndex('Container #'),
+    vessel:        colIndex('Vessel'),
+    etd:           colIndex('ETD'),
+    eta:           colIndex('ETA'),
+    delivered:     colIndex('Delivered'),
+    actualDeliv:   colIndex('Actual Delivered Date'),
+    units:         colIndex('Units'),
+    carrier:       colIndex('Carrier Name'),
+    origin:        colIndex('Origin Port Name'),
+    destPort:      colIndex('Dest. Port Name'),
+    location:      colIndex('Location Name'),
+  };
+
+  // Verify required columns exist
+  const missing = Object.entries(c)
+    .filter(([k, idx]) => idx === -1 && ['po', 'item', 'destPort'].includes(k))
+    .map(([k]) => k);
+  if (missing.length > 0) {
+    throw new Error(`Required columns not found: ${missing.join(', ')}`);
+  }
 
   const lines: ShipLine[] = [];
   for (let i = hi + 1; i < raw.length; i++) {
@@ -287,14 +301,14 @@ async function parseShipmentXlsx(file: File): Promise<ShipLine[]> {
     if (!item) continue;
     lines.push({
       po, item,
-      container: r[c.container] != null ? String(r[c.container]).trim() || null : null,
-      vessel:    r[c.vessel]    != null ? String(r[c.vessel]).trim()    || null : null,
-      etd:       isoDate(r[c.etd]),
-      eta:       isoDate(r[c.eta]),
-      delivered: isoDate(r[c.delivered]) ?? isoDate(r[c.actualDeliv]),
-      units:     r[c.units] != null && r[c.units] !== '' ? Number(r[c.units]) : null,
-      carrier:   r[c.carrier] != null ? String(r[c.carrier]).trim() || null : null,
-      origin:    r[c.origin]  != null ? String(r[c.origin]).trim()  || null : null,
+      container: c.container !== -1 && r[c.container] != null ? String(r[c.container]).trim() || null : null,
+      vessel:    c.vessel !== -1 && r[c.vessel]    != null ? String(r[c.vessel]).trim()    || null : null,
+      etd:       c.etd !== -1 ? isoDate(r[c.etd]) : null,
+      eta:       c.eta !== -1 ? isoDate(r[c.eta]) : null,
+      delivered: (c.delivered !== -1 ? isoDate(r[c.delivered]) : null) ?? (c.actualDeliv !== -1 ? isoDate(r[c.actualDeliv]) : null),
+      units:     c.units !== -1 && r[c.units] != null && r[c.units] !== '' ? Number(r[c.units]) : null,
+      carrier:   c.carrier !== -1 && r[c.carrier] != null ? String(r[c.carrier]).trim() || null : null,
+      origin:    c.origin !== -1 && r[c.origin]  != null ? String(r[c.origin]).trim()  || null : null,
       destPort,
     });
   }
@@ -418,9 +432,6 @@ export default function ReconciliationPage() {
   const [uploadingA4, setUploadingA4] = useState(false);
   const [uploadingShip, setUploadingShip] = useState(false);
   const [showParamount,    setShowParamount]    = useState(false);
-  const [excludeThirdParty, setExcludeThirdParty] = useState(false);
-  const [excludeParamount, setExcludeParamount] = useState(false);
-  const [excludeFlowcontrol, setExcludeFlowcontrol] = useState(false);
 
   useEffect(() => {
     Promise.all([
@@ -436,6 +447,17 @@ export default function ReconciliationPage() {
       setAs400Meta({ uploadedAt: a400.uploadedAt ?? null, rows: a400.lines?.length ?? 0, filename: a400.filename ?? null });
     }).finally(() => setLoading(false));
   }, []);
+
+  // Auto-enable Paramount button if user only has access to Paramount POs
+  // (i.e., they receive only PR stock category from API - like Poolwater Products)
+  useEffect(() => {
+    if (arrowLines.length === 0) return;
+    const hasParamount = arrowLines.some((l) => l.stockCategory === 'PR');
+    const hasNonParamount = arrowLines.some((l) => l.stockCategory !== 'PR');
+    if (hasParamount && !hasNonParamount) {
+      setShowParamount(true);
+    }
+  }, [arrowLines]);
 
   // AS400 CSV upload
   const handleAs400File = useCallback(async (file: File) => {
@@ -485,19 +507,11 @@ export default function ReconciliationPage() {
 
   const filtered = useMemo(() => {
     let r = rows;
-    // Apply exclusion filters first
-    if (excludeThirdParty)
-      r = r.filter((x) => HAYWARD_CREDITORS.has(x.creditor ?? '') || x.stockCategory === 'PR');
-    if (excludeParamount)
-      r = r.filter((x) => x.stockCategory !== 'PR');
-    if (excludeFlowcontrol)
-      r = r.filter((x) => x.stockCategory !== 'FC');
-    // When Paramount button is active, show ONLY Paramount (PR). Otherwise exclude it (unless excluding via button).
+    // When Paramount button is active, show ONLY Paramount (PR). Otherwise exclude it.
     if (showParamount)
       r = r.filter((x) => x.stockCategory === 'PR');
-    else if (!excludeParamount)
+    else
       r = r.filter((x) => x.stockCategory !== 'PR');
-    // Apply tab and search filters
     if (tab === 'exceptions')   r = r.filter((x) => x.status === 'missing' || x.lateVsRequest);
     if (tab === 'not_received') r = r.filter((x) => x.status === 'not_received');
     if (tab === 'in_transit')   r = r.filter((x) => x.status === 'in_transit');
@@ -520,7 +534,7 @@ export default function ReconciliationPage() {
       );
     }
     return r;
-  }, [rows, tab, search, showParamount, excludeThirdParty, excludeParamount, excludeFlowcontrol]);
+  }, [rows, tab, search, showParamount]);
 
   const stats = useMemo(() => ({
     total:      rows.length,
@@ -631,42 +645,9 @@ export default function ReconciliationPage() {
         <div className="py-16 text-center text-sm text-slate-400">Loading…</div>
       ) : (
         <>
-          {/* Type filters and Export button */}
-          <div className="flex justify-between items-center mb-3 gap-3">
-            <div className="flex gap-2">
-              <button
-                onClick={() => setExcludeThirdParty(!excludeThirdParty)}
-                className={`rounded-lg px-3 py-2 text-sm font-medium transition-all ${
-                  excludeThirdParty
-                    ? 'bg-slate-500 text-white shadow-md'
-                    : 'bg-white text-slate-600 border border-slate-200 hover:border-slate-400'
-                }`}
-              >
-                {excludeThirdParty ? '✓' : '○'} Exclude 3rd Party
-              </button>
-              <button
-                onClick={() => setExcludeParamount(!excludeParamount)}
-                className={`rounded-lg px-3 py-2 text-sm font-medium transition-all ${
-                  excludeParamount
-                    ? 'bg-purple-500 text-white shadow-md'
-                    : 'bg-white text-slate-600 border border-slate-200 hover:border-slate-400'
-                }`}
-              >
-                {excludeParamount ? '✓' : '○'} Exclude Paramount
-              </button>
-              <button
-                onClick={() => setExcludeFlowcontrol(!excludeFlowcontrol)}
-                className={`rounded-lg px-3 py-2 text-sm font-medium transition-all ${
-                  excludeFlowcontrol
-                    ? 'bg-blue-500 text-white shadow-md'
-                    : 'bg-white text-slate-600 border border-slate-200 hover:border-slate-400'
-                }`}
-              >
-                {excludeFlowcontrol ? '✓' : '○'} Exclude Flowcontrol
-              </button>
-            </div>
-            <div className="flex justify-end">
-              <button
+          {/* Export button — right-aligned above table */}
+          <div className="flex justify-end mb-2">
+            <button
               onClick={() => {
                 const headers = [
                   'PO','Status','Type','Stock Code','Supplier SKU','Description','Order Date','ETA Arrow',
@@ -702,7 +683,6 @@ export default function ReconciliationPage() {
               <svg className="h-4 w-4 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
               Export to Excel
             </button>
-            </div>
           </div>
           <div className="rounded-2xl border border-ink/10 bg-white shadow-soft overflow-hidden">
           {/* Top scrollbar mirror — synced to bottom scroll */}
@@ -754,17 +734,16 @@ export default function ReconciliationPage() {
               <col style={{ minWidth: '100px' }} />
               <col style={{ minWidth: '100px' }} />
               <col style={{ minWidth: '130px' }} />
-              <col style={{ minWidth: '110px' }} />{/* On water */}
-              <col style={{ minWidth: '140px' }} />{/* Container */}
-              <col style={{ minWidth: '90px' }}  />
-              <col style={{ minWidth: '90px' }}  />
+              <col style={{ minWidth: '160px' }} />
+              <col style={{ minWidth: '130px' }} />
               <col style={{ minWidth: '90px' }}  />
               <col style={{ minWidth: '80px' }}  />
-              <col style={{ minWidth: '160px' }} />{/* Ship to */}
-              <col style={{ minWidth: '160px' }} />{/* City */}
-              <col style={{ minWidth: '80px' }}  />{/* State */}
-              <col style={{ minWidth: '80px' }}  />{/* Postcode */}
-              <col style={{ minWidth: '80px' }}  />{/* Addr OK? */}
+              <col style={{ minWidth: '80px' }}  />
+              <col style={{ minWidth: '80px' }}  />
+              <col style={{ minWidth: '130px' }} />
+              <col style={{ minWidth: '160px' }} />
+              <col style={{ minWidth: '110px' }} />
+              <col style={{ minWidth: '120px' }} />
             </colgroup>
             <thead className="sticky top-0 z-20">
               <tr className="text-[11px] font-bold uppercase tracking-widest">
@@ -775,13 +754,13 @@ export default function ReconciliationPage() {
                   Arrow AU
                 </th>
                 <th colSpan={6} style={{ background: '#f59e0b', color: 'white', padding: '6px 12px', borderRight: '2px solid white' }}>
-                  Supplier USA-Wuxi
-                </th>
-                <th colSpan={5} style={{ background: '#7c3aed', color: 'white', padding: '6px 12px', borderRight: '2px solid white' }}>
-                  Shipment On Water
+                  AS400 · USA
                 </th>
                 <th colSpan={5} style={{ background: '#0ea5e9', color: 'white', padding: '6px 12px', borderRight: '2px solid white' }}>
-                  AS400 Delivery Address
+                  Delivery address
+                </th>
+                <th colSpan={5} style={{ background: '#7c3aed', color: 'white', padding: '6px 12px' }}>
+                  CDS-Net · Shipment
                 </th>
               </tr>
               <tr className="border-b border-slate-200 text-[11px] font-semibold uppercase tracking-wide">
@@ -795,22 +774,22 @@ export default function ReconciliationPage() {
                 <th className="sticky bg-emerald-200 px-3 py-2.5 whitespace-nowrap text-emerald-900" style={{ left: '805px' }}>ETA Arrow</th>
                 <th className="sticky bg-emerald-200 px-3 py-2.5 text-right whitespace-nowrap text-emerald-900" style={{ left: '905px' }}>Ordered</th>
                 <th className="sticky bg-emerald-200 px-3 py-2.5 text-right whitespace-nowrap text-emerald-900 border-r-2 border-emerald-400" style={{ left: '980px' }}>Received</th>
-                <th className="sticky bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900" style={{ zIndex: 9 }}>Arrow PO ref</th>
-                <th className="sticky bg-amber-100 px-3 py-2.5 text-right whitespace-nowrap text-amber-900" style={{ zIndex: 9 }}>ENT</th>
-                <th className="sticky bg-amber-100 px-3 py-2.5 text-right whitespace-nowrap text-amber-900" style={{ zIndex: 9 }}>SHPD</th>
-                <th className="sticky bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900" style={{ zIndex: 9 }}>Order date</th>
-                <th className="sticky bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900" style={{ zIndex: 9 }}>ETA</th>
-                <th className="sticky bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900 border-r-2 border-amber-300" style={{ zIndex: 9 }}>US SO#</th>
-                <th className="sticky bg-violet-100 px-3 py-2.5 text-center whitespace-nowrap text-violet-900 font-semibold" style={{ zIndex: 9, minWidth: '100px' }}>On water</th>
-                <th className="sticky bg-violet-100 px-3 py-2.5 whitespace-nowrap text-violet-900 font-semibold" style={{ zIndex: 9, minWidth: '120px' }}>Container</th>
-                <th className="sticky bg-violet-100 px-3 py-2.5 whitespace-nowrap text-violet-900" style={{ zIndex: 9 }}>Vessel</th>
-                <th className="sticky bg-violet-100 px-3 py-2.5 whitespace-nowrap text-violet-900" style={{ zIndex: 9 }}>Cont. ETA</th>
-                <th className="sticky bg-violet-100 px-3 py-2.5 whitespace-nowrap text-violet-900 border-r-2 border-violet-300" style={{ zIndex: 9 }}>Supplier</th>
-                <th className="sticky bg-sky-100 px-3 py-2.5 whitespace-nowrap text-sky-900" style={{ zIndex: 9 }}>Ship to</th>
-                <th className="sticky bg-sky-100 px-3 py-2.5 whitespace-nowrap text-sky-900" style={{ zIndex: 9 }}>City</th>
-                <th className="sticky bg-sky-100 px-3 py-2.5 whitespace-nowrap text-sky-900" style={{ zIndex: 9 }}>State</th>
-                <th className="sticky bg-sky-100 px-3 py-2.5 whitespace-nowrap text-sky-900" style={{ zIndex: 9 }}>Postcode</th>
-                <th className="sticky bg-sky-100 px-3 py-2.5 whitespace-nowrap text-sky-900" style={{ zIndex: 9 }}>Addr OK?</th>
+                <th className="bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900">Arrow PO ref</th>
+                <th className="bg-amber-100 px-3 py-2.5 text-right whitespace-nowrap text-amber-900">ENT</th>
+                <th className="bg-amber-100 px-3 py-2.5 text-right whitespace-nowrap text-amber-900">SHPD</th>
+                <th className="bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900">Order date</th>
+                <th className="bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900">ETA</th>
+                <th className="bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900 border-r-2 border-amber-300">US SO#</th>
+                <th className="bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900">Ship to</th>
+                <th className="bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900">City</th>
+                <th className="bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900">State</th>
+                <th className="bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900">Postcode</th>
+                <th className="bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900 border-r-2 border-amber-300">Addr OK?</th>
+                <th className="bg-violet-100 px-3 py-2.5 text-right whitespace-nowrap text-violet-900">On water</th>
+                <th className="bg-violet-100 px-3 py-2.5 whitespace-nowrap text-violet-900">Container</th>
+                <th className="bg-violet-100 px-3 py-2.5 whitespace-nowrap text-violet-900">Vessel</th>
+                <th className="bg-violet-100 px-3 py-2.5 whitespace-nowrap text-violet-900">Cont. ETA</th>
+                <th className="bg-violet-100 px-3 py-2.5 whitespace-nowrap text-violet-900">Supplier</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -863,22 +842,11 @@ export default function ReconciliationPage() {
                       <td className="bg-amber-50 px-3 py-2 whitespace-nowrap text-slate-600">{fmt(r.as400OrderDate)}</td>
                       <td className="bg-amber-50 px-3 py-2 whitespace-nowrap text-slate-600">{fmt(r.as400Eta)}</td>
                       <td className="bg-amber-50 px-3 py-2 font-mono text-[11px] text-slate-500 border-r-2 border-amber-200">{r.usSoNumber ?? '—'}</td>
-                      <td className="bg-violet-50 px-4 py-3 text-center">
-                        {r.onWater > 0
-                          ? <span className="inline-flex items-center justify-center bg-violet-200 text-violet-900 font-bold rounded-md px-3 py-1 text-sm">{r.onWater}</span>
-                          : <span className="text-slate-300">—</span>}
-                      </td>
-                      <td className="bg-violet-50 px-4 py-3 font-mono text-xs whitespace-nowrap text-violet-800 tracking-tight">{r.container ?? '—'}</td>
-                      <td className="bg-violet-50 px-3 py-2 whitespace-nowrap text-slate-700">{r.vessel ?? '—'}</td>
-                      <td className="bg-violet-50 px-3 py-2 whitespace-nowrap text-slate-600">{fmt(r.containerEta)}</td>
-                      <td className="bg-violet-50 px-3 py-2 whitespace-nowrap text-slate-500 border-r-2 border-violet-200">
-                        {creditorName[r.creditor ?? ''] ?? r.creditor ?? '—'}
-                      </td>
-                      <td className="bg-sky-50 px-3 py-2 whitespace-nowrap text-slate-700 font-medium" title={r.shipToName ?? ''}>{r.shipToName ?? '—'}</td>
-                      <td className="bg-sky-50 px-3 py-2 whitespace-nowrap text-slate-700">{r.shipToCity ?? '—'}</td>
-                      <td className="bg-sky-50 px-3 py-2 whitespace-nowrap text-slate-600">{r.shipToState ?? '—'}</td>
-                      <td className="bg-sky-50 px-3 py-2 whitespace-nowrap text-slate-600">{r.shipToPostcode ?? '—'}</td>
-                      <td className="bg-sky-50 px-3 py-2 whitespace-nowrap">
+                      <td className="bg-amber-50 px-3 py-2 text-slate-700" title={r.shipToName ?? ''}>{r.shipToName ?? '—'}</td>
+                      <td className="bg-amber-50 px-3 py-2 whitespace-nowrap text-slate-700">{r.shipToCity ?? '—'}</td>
+                      <td className="bg-amber-50 px-3 py-2 text-slate-600">{r.shipToState ?? '—'}</td>
+                      <td className="bg-amber-50 px-3 py-2 text-slate-600">{r.shipToPostcode ?? '—'}</td>
+                      <td className="bg-amber-50 px-3 py-2 border-r-2 border-amber-200">
                         {r.as400Ord === 0 ? (
                           <span className="text-slate-300">—</span>
                         ) : addr === 'ok' ? (
@@ -888,6 +856,17 @@ export default function ReconciliationPage() {
                         ) : (
                           <span className="text-slate-400">?</span>
                         )}
+                      </td>
+                      <td className="bg-violet-50 px-3 py-2 text-right">
+                        {r.onWater > 0
+                          ? <span className="font-bold text-violet-700">{r.onWater}</span>
+                          : <span className="text-slate-300">—</span>}
+                      </td>
+                      <td className="bg-violet-50 px-3 py-2 font-mono text-[11px] whitespace-nowrap text-violet-800">{r.container ?? '—'}</td>
+                      <td className="bg-violet-50 px-3 py-2 whitespace-nowrap text-slate-700">{r.vessel ?? '—'}</td>
+                      <td className="bg-violet-50 px-3 py-2 whitespace-nowrap text-slate-600">{fmt(r.containerEta)}</td>
+                      <td className="bg-violet-50 px-3 py-2 whitespace-nowrap text-slate-500">
+                        {creditorName[r.creditor ?? ''] ?? r.creditor ?? '—'}
                       </td>
                     </tr>
                   );
