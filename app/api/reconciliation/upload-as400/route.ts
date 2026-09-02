@@ -5,28 +5,11 @@ import { getCustomerAccess } from "@/lib/access";
 import type { As400Row } from "@/lib/recon/reconcile";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+export const maxDuration = 300;  // ← Increased from 60 to 300 seconds (5 min)
 
 /**
- * POST /api/reconciliation/upload-as400   (multipart/form-data, field "file")
- *
- * Manual stand-in for the Snowflake feed until the service account exists.
- * Accepts the CSV/XLSX exported from Snowsight and writes recon:as400_orders.
- *
- * Tolerates both the aggregated query output and the raw un-aggregated one:
- * rows are always re-aggregated to the PO + SKU grain here, because the raw
- * feed repeats PO+ITEM across several sales-order lines and joining on a
- * non-unique key double-counts quantities.
- *
- * Recognised columns (case-insensitive, first match wins):
- *   PO      PO_NUMBER | CUSTOMER_PURCHASE_ORDER_REF
- *   SKU     AS400_CODE | ITEM_REF
- *   ordered AS400_ORDERED_QTY | QUANTITY_ORDERED
- *   shipped AS400_SHIPPED_QTY | QUANTITY_SHIPPED
- *   promise PROMISE_DATE | ETA
- *   cancel  ANY_CANCELLED | IS_CANCELLED
- *   so      US_SALES_ORDER | ORDER_REF
- *   loc     LOCATION | INVENTORY_SITE_REF
+ * POST /api/reconciliation/upload-as400
+ * Accepts large CSV/XLSX files up to ~50MB (6 months of data)
  */
 
 const pick = (row: Record<string, unknown>, names: string[]) => {
@@ -75,6 +58,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Expected multipart/form-data with a 'file' field" }, { status: 400 });
   }
   if (!file) return NextResponse.json({ error: "No file supplied" }, { status: 400 });
+  if (file.size > 100 * 1024 * 1024) {
+    return NextResponse.json({ error: "File exceeds 100MB limit" }, { status: 413 });
+  }
 
   let raw: Record<string, unknown>[];
   try {
@@ -91,13 +77,13 @@ export async function POST(req: Request) {
   const acc = new Map<string, As400Row & { _lines: number }>();
   let skipped = 0;
   for (const r of raw) {
-    const po = String(pick(r, ["PO_NUMBER", "CUSTOMER_PURCHASE_ORDER_REF"]) ?? "").trim();
-    const sku = String(pick(r, ["AS400_CODE", "ITEM_REF"]) ?? "").trim();
+    const po = String(pick(r, ["PO_NUMBER", "CUSTOMER_PURCHASE_ORDER_REF", "PO"]) ?? "").trim();
+    const sku = String(pick(r, ["AS400_CODE", "ITEM_REF", "ITEM"]) ?? "").trim();
     if (!po || !sku || !/^\d{6}$/.test(po)) { skipped++; continue; }
 
     const cancelled = truthy(pick(r, ["ANY_CANCELLED", "IS_CANCELLED"]));
-    const ordered = num(pick(r, ["AS400_ORDERED_QTY", "QUANTITY_ORDERED"]));
-    const shipped = num(pick(r, ["AS400_SHIPPED_QTY", "QUANTITY_SHIPPED"]));
+    const ordered = num(pick(r, ["AS400_ORDERED_QTY", "AS400_ORD", "QUANTITY_ORDERED"]));
+    const shipped = num(pick(r, ["AS400_SHIPPED_QTY", "AS400_SHPD", "QUANTITY_SHIPPED"]));
     const promise = iso(pick(r, ["PROMISE_DATE", "ETA"]));
     const so = pick(r, ["US_SALES_ORDER", "ORDER_REF"]);
     const loc = pick(r, ["LOCATION", "INVENTORY_SITE_REF"]);
