@@ -418,7 +418,6 @@ export default function ReconciliationPage() {
   const [uploadingA4, setUploadingA4] = useState(false);
   const [uploadingShip, setUploadingShip] = useState(false);
   const [showParamount,    setShowParamount]    = useState(false);
-  const [showFlowControl,  setShowFlowControl]  = useState(false);
 
   useEffect(() => {
     Promise.all([
@@ -488,7 +487,6 @@ export default function ReconciliationPage() {
       r = r.filter((x) => x.stockCategory === 'PR');
     else
       r = r.filter((x) => x.stockCategory !== 'PR');
-    if (!showFlowControl) r = r.filter((x) => x.creditor !== '17300');
     if (tab === 'exceptions')   r = r.filter((x) => x.status === 'missing' || x.lateVsRequest);
     if (tab === 'not_received') r = r.filter((x) => x.status === 'not_received');
     if (tab === 'in_transit')   r = r.filter((x) => x.status === 'in_transit');
@@ -511,7 +509,7 @@ export default function ReconciliationPage() {
       );
     }
     return r;
-  }, [rows, tab, search, showParamount, showFlowControl]);
+  }, [rows, tab, search, showParamount]);
 
   const stats = useMemo(() => ({
     total:      rows.length,
@@ -613,16 +611,6 @@ export default function ReconciliationPage() {
             }`}
           >
             {showParamount ? '✓' : '+'} Paramount
-          </button>
-          <button
-            onClick={() => setShowFlowControl((v) => !v)}
-            className={`rounded-lg px-3 py-1.5 text-xs font-medium border transition-colors ${
-              showFlowControl
-                ? 'bg-orange-500 text-white border-orange-500'
-                : 'bg-white text-slate-500 border-slate-200 hover:border-orange-400 hover:text-orange-600'
-            }`}
-          >
-            {showFlowControl ? '✓' : '+'} Flow Control
           </button>
         </div>
       </div>
