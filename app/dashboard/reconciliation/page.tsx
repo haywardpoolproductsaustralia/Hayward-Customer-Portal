@@ -118,7 +118,10 @@ const HAYWARD_CREDITORS = new Set([
   '17100', '17115', '17125', '17200', '17300', '17350',
 ]);
 
-function supplierTypeBadge(creditor: string | null) {
+function supplierTypeBadge(creditor: string | null, stockCategory?: string) {
+  if (stockCategory === 'PR') {
+    return <span className="inline-block rounded px-2 py-0.5 text-[11px] font-semibold bg-purple-500 text-white whitespace-nowrap">Paramount</span>;
+  }
   if (!creditor) return <span className="text-slate-400 text-[11px]">—</span>;
   if (HAYWARD_CREDITORS.has(creditor)) {
     return <span className="inline-block rounded px-2 py-0.5 text-[11px] font-semibold bg-wave text-white whitespace-nowrap">Hayward</span>;
@@ -799,7 +802,7 @@ export default function ReconciliationPage() {
                         {statusBadge(r.status)}
                       </td>
                       <td className="sticky bg-slate-700 px-3 py-2 border-r border-slate-600" style={{ left: '165px' }}>
-                        {supplierTypeBadge(r.creditor)}
+                        {supplierTypeBadge(r.creditor, r.stockCategory)}
                       </td>
                       <td className="sticky bg-emerald-50 px-3 py-2 font-mono text-[11px] whitespace-nowrap text-slate-800" style={{ left: '255px' }}>{r.arrowStock}</td>
                       <td className="sticky bg-emerald-50 px-3 py-2 font-mono text-[11px] whitespace-nowrap text-slate-700" style={{ left: '385px' }}>{r.supplierSku || '—'}</td>
