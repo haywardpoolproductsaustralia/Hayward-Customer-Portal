@@ -761,13 +761,13 @@ export default function ReconciliationPage() {
                   Arrow AU
                 </th>
                 <th colSpan={6} style={{ background: '#f59e0b', color: 'white', padding: '6px 12px', borderRight: '2px solid white', opacity: 1 }}>
-                  AS400 · USA
+                  Supplier USA-China
                 </th>
-                <th colSpan={5} style={{ background: '#0ea5e9', color: 'white', padding: '6px 12px', borderRight: '2px solid white', opacity: 1 }}>
-                  Delivery address
+                <th colSpan={5} style={{ background: '#7c3aed', color: 'white', padding: '6px 12px', borderRight: '2px solid white', opacity: 1 }}>
+                  Shipment On Water
                 </th>
-                <th colSpan={5} style={{ background: '#7c3aed', color: 'white', padding: '6px 12px', opacity: 1 }}>
-                  CDS-Net · Shipment
+                <th colSpan={5} style={{ background: '#0ea5e9', color: 'white', padding: '6px 12px', opacity: 1 }}>
+                  AS400 Delivery Address
                 </th>
               </tr>
               <tr className="border-b border-slate-200 text-[11px] font-semibold uppercase tracking-wide">
@@ -787,16 +787,16 @@ export default function ReconciliationPage() {
                 <th className="bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900 opacity-100">Order date</th>
                 <th className="bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900 opacity-100">ETA</th>
                 <th className="bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900 border-r-2 border-amber-300 opacity-100">US SO#</th>
-                <th className="bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900 opacity-100">Ship to</th>
-                <th className="bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900 opacity-100">City</th>
-                <th className="bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900 opacity-100">State</th>
-                <th className="bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900 opacity-100">Postcode</th>
-                <th className="bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900 border-r-2 border-amber-300 opacity-100">Addr OK?</th>
                 <th className="bg-violet-100 px-3 py-2.5 text-right whitespace-nowrap text-violet-900 opacity-100">On water</th>
                 <th className="bg-violet-100 px-3 py-2.5 whitespace-nowrap text-violet-900 opacity-100">Container</th>
                 <th className="bg-violet-100 px-3 py-2.5 whitespace-nowrap text-violet-900 opacity-100">Vessel</th>
                 <th className="bg-violet-100 px-3 py-2.5 whitespace-nowrap text-violet-900 opacity-100">Cont. ETA</th>
-                <th className="bg-violet-100 px-3 py-2.5 whitespace-nowrap text-violet-900 opacity-100">Supplier</th>
+                <th className="bg-violet-100 px-3 py-2.5 whitespace-nowrap text-violet-900 border-r-2 border-violet-200 opacity-100">Supplier</th>
+                <th className="bg-sky-100 px-3 py-2.5 whitespace-nowrap text-sky-900 opacity-100">Ship to</th>
+                <th className="bg-sky-100 px-3 py-2.5 whitespace-nowrap text-sky-900 opacity-100">City</th>
+                <th className="bg-sky-100 px-3 py-2.5 whitespace-nowrap text-sky-900 opacity-100">State</th>
+                <th className="bg-sky-100 px-3 py-2.5 whitespace-nowrap text-sky-900 opacity-100">Postcode</th>
+                <th className="bg-sky-100 px-3 py-2.5 whitespace-nowrap text-sky-900 opacity-100">Addr OK?</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
