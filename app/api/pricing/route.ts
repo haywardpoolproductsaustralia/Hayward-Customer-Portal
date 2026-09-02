@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCustomerAccess, resolvePriceType } from '@/lib/access';
 import { getJSON } from '@/lib/redis';
-import { computePrice, findRuleForSku, PricingRule } from '@/lib/pricing';
+import { computePrice, findRuleForSku, getListPrice, PricingRule } from '@/lib/pricing';
 
 export async function GET(req: NextRequest) {
   const access = await getCustomerAccess();
@@ -28,11 +28,14 @@ export async function GET(req: NextRequest) {
 
   const rules = (await getJSON<PricingRule[]>(`pricing:${priceType}`)) ?? [];
 
-  // The SKU's own list price and category - needed for category-fallback
-  // pricing, since category rules have no list price of their own.
-  const stockEntry = await getJSON<{ stockCategory: string | null; listPrice: number | null }>(
+  // Fetch category from stock entry (still needed for category-fallback pricing)
+  const stockEntry = await getJSON<{ stockCategory: string | null }>(
     `stock:${sku}`
   );
+  
+  // Fetch list price from the new pricing:listprices cache
+  const listPrice = await getListPrice(sku);
+  
   const rule = findRuleForSku(rules, sku, stockEntry?.stockCategory);
 
   if (!rule) {
@@ -42,7 +45,6 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  const listPrice = stockEntry?.listPrice ?? null;
   const price = computePrice(rule, qty, listPrice);
 
   // Full quantity-break ladder, so the UI can show "buy 3+, buy 11+, ..."
