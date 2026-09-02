@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth, currentUser } from "@clerk/nextjs/server";
 import { getCustomerAccess, resolvePriceType } from "@/lib/access";
 import { getJSON } from "@/lib/redis";
-import { computePrice, findRuleForSku, PricingRule } from "@/lib/pricing";
+import { computePrice, findRuleForSku, getListPrice, PricingRule } from "@/lib/pricing";
 import { PORTAL_ORDERS_ENABLED } from "@/lib/features";
 import {
   createPortalOrder,
@@ -61,7 +61,6 @@ interface SubmitLine {
 interface StockRecord {
   name?: string | null;
   stockCategory?: string | null;
-  listPrice?: number | null;
   byLocation?: Record<string, { onHand: number; allocated: number; backordered: number }>;
 }
 
@@ -225,9 +224,14 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // Fetch list prices from pricing:listprices cache
+  const listPrices = await Promise.all(
+    cleaned.map((l) => getListPrice(l.sku))
+  );
+
   const lines: PortalOrderLine[] = cleaned.map((l, i) => {
     const entry = stockEntries[i]!;
-    const listPrice = entry.listPrice ?? null;
+    const listPrice = listPrices[i];
     const rule = findRuleForSku(rules, l.sku, entry.stockCategory ?? null);
     // Price at the LINE's own quantity, so quantity breaks apply per line
     // exactly as the quote builder displayed them.
