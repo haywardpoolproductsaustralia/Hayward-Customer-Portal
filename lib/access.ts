@@ -162,6 +162,7 @@ export interface CustomerAccess {
   isAggregate: boolean;
   branchCode: string | null;
   customerCodes: string[];
+  canAccessReconciliation: boolean;
 
   /** Every catalogue this org may read. The permission boundary. */
   catalogues: Catalogue[];
@@ -215,6 +216,7 @@ export async function getCustomerAccess(): Promise<CustomerAccess | null> {
       customerCodes: [branchCode],
       catalogues,
       showFilters,
+      canAccessReconciliation: false,
     };
   }
 
@@ -234,6 +236,7 @@ export async function getCustomerAccess(): Promise<CustomerAccess | null> {
     const names = await getJSON<Record<string, string>>('customerNames');
     if (names) customerCodes = Object.keys(names);
   }
+  const canAccessReconciliation = group.isAggregate || group.groupKey === 'PoolwaterProducts';
   return {
     groupName: group.displayName,
     groupKey: group.groupKey,
@@ -243,6 +246,7 @@ export async function getCustomerAccess(): Promise<CustomerAccess | null> {
     customerCodes,
     catalogues,
     showFilters,
+    canAccessReconciliation,
   };
 }
 
