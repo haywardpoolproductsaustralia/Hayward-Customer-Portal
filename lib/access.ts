@@ -162,12 +162,13 @@ export interface CustomerAccess {
   isAggregate: boolean;
   branchCode: string | null;
   customerCodes: string[];
-  canAccessReconciliation: boolean;
 
   /** Every catalogue this org may read. The permission boundary. */
   catalogues: Catalogue[];
   /** Whether to render the All / Hayward / Paramount / Flow Control button row. */
   showFilters: boolean;
+  /** Whether this org can access the reconciliation page. */
+  canAccessReconciliation: boolean;
 }
 
 // The branchCode shortcode has the same unresolved-template problem as
@@ -236,7 +237,11 @@ export async function getCustomerAccess(): Promise<CustomerAccess | null> {
     const names = await getJSON<Record<string, string>>('customerNames');
     if (names) customerCodes = Object.keys(names);
   }
-  const canAccessReconciliation = group.isAggregate || group.groupKey === 'PoolwaterProducts';
+
+  // Reconciliation access: Hayward staff + approved customers (Poolwater Products)
+  const canAccessReconciliation =
+    group.isAggregate || group.groupKey === 'PoolwaterProducts';
+
   return {
     groupName: group.displayName,
     groupKey: group.groupKey,
