@@ -27,8 +27,10 @@ const STAFF_ONLY_NAV_ITEMS = [
   { href: '/dashboard/lookup', label: 'Customers', icon: UserSearch },
   { href: '/dashboard/warehouse', label: 'Warehouse', icon: Warehouse },
   { href: '/dashboard/forecast', label: 'Forecast', icon: TrendingUp },
-  { href: '/dashboard/reconciliation', label: 'Reconciliation', icon: GitCompareArrows },
 ];
+
+// Reconciliation access: Hayward staff + approved customers (Poolwater Products)
+const RECONCILIATION_NAV_ITEM = { href: '/dashboard/reconciliation', label: 'Reconciliation', icon: GitCompareArrows };
 
 
 function NavLinks({
@@ -42,7 +44,11 @@ function NavLinks({
   groupKey?: string | null;
   onNavigate?: () => void;
 }) {
-  const base = isAggregate ? [...NAV_ITEMS, ...STAFF_ONLY_NAV_ITEMS] : NAV_ITEMS;
+  const staffItems = [...NAV_ITEMS, ...STAFF_ONLY_NAV_ITEMS];
+  const canAccessReconciliation = isAggregate || groupKey === 'PoolwaterProducts';
+  const base = isAggregate
+    ? [...staffItems, ...(canAccessReconciliation ? [RECONCILIATION_NAV_ITEM] : [])]
+    : [...NAV_ITEMS, ...(canAccessReconciliation ? [RECONCILIATION_NAV_ITEM] : [])];
 
   // Per-group hiding (lib/page-visibility.ts). This only removes the LINK -
   // the page and its API route enforce the same rule server-side, since a
