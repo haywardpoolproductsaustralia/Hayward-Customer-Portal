@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { getCustomerAccess, CustomerAccess } from '@/lib/access';
 import { redis, getJSON } from '@/lib/redis';
-import { computePrice, findRuleForSku, PricingRule } from '@/lib/pricing';
+import { computePrice, findRuleForSku, getListPrice, PricingRule } from '@/lib/pricing';
 import { findRelevantManuals } from '@/lib/manuals';
 
 interface StockEntry {
@@ -75,7 +75,8 @@ async function toolGetPrice(access: CustomerAccess, sku: string, qty = 1, overri
   const rule = findRuleForSku(rules, sku, stockEntry.stockCategory);
   if (!rule) return { error: `No pricing rule found yet for "${sku}".` };
 
-  const listPrice = stockEntry.listPrice ?? null;
+  // Fetch list price from the new pricing:listprices cache
+  const listPrice = await getListPrice(sku);
   const price = computePrice(rule, qty, listPrice);
   return { sku, qty, listPrice, price, name: stockEntry.name };
 }
@@ -127,7 +128,8 @@ const tools: Anthropic.Tool[] = [
   },
   {
     name: 'get_price',
-    description: "Get this customer's actual discounted price for a specific SKU at a given quantity. Always use this for any pricing question - never estimate or guess a price.",
+    description:
+      "Get this customer's actual discounted price for a specific SKU at a given quantity. Always use this for any pricing question - never estimate or guess a price.",
     input_schema: {
       type: 'object',
       properties: {
@@ -147,7 +149,8 @@ const tools: Anthropic.Tool[] = [
         sku: { type: 'string', description: 'Optional - filter to orders containing this SKU' },
         orderNo: {
           type: 'string',
-          description: "Optional - find one specific order by number. Matches either Hayward's order number or the customer's own order/PO number.",
+          description:
+            "Optional - find one specific order by number. Matches either Hayward's order number or the customer's own order/PO number.",
         },
       },
     },
