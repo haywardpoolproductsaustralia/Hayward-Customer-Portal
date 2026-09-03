@@ -522,7 +522,7 @@ export default function ReconciliationPage() {
       const q = search.trim().toLowerCase();
       r = r.filter((x) =>
         x.po.includes(q) ||
-        x.deliveryNote4.toLowerCase().includes(q) ||
+        (x.deliveryNote4 ?? '').toLowerCase().includes(q) ||
         x.arrowStock.toLowerCase().includes(q) ||
         x.supplierSku.toLowerCase().includes(q) ||
         (x.description ?? '').toLowerCase().includes(q) ||
