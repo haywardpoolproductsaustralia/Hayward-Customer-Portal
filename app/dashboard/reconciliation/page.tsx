@@ -779,11 +779,11 @@ export default function ReconciliationPage() {
                 <th className="sticky bg-slate-600 px-3 py-2.5 whitespace-nowrap text-white border-r border-slate-500 opacity-100" style={{ left: '285px' }}>Type</th>
                 <th className="sticky bg-emerald-200 px-3 py-2.5 whitespace-nowrap text-emerald-900 opacity-100" style={{ left: '375px' }}>Stock code</th>
                 <th className="sticky bg-emerald-200 px-3 py-2.5 whitespace-nowrap text-emerald-900 opacity-100" style={{ left: '505px' }}>Supplier SKU</th>
-                <th className="sticky bg-emerald-200 px-3 py-2.5 whitespace-nowrap text-emerald-900 opacity-100" style={{ left: '625px' }}>Description</th>
-                <th className="sticky bg-emerald-200 px-3 py-2.5 whitespace-nowrap text-emerald-900 opacity-100" style={{ left: '825px' }}>Order date</th>
-                <th className="sticky bg-emerald-200 px-3 py-2.5 whitespace-nowrap text-emerald-900 opacity-100" style={{ left: '925px' }}>ETA Arrow</th>
-                <th className="sticky bg-emerald-200 px-3 py-2.5 text-right whitespace-nowrap text-emerald-900 opacity-100" style={{ left: '1025px' }}>Ordered</th>
-                <th className="sticky bg-emerald-200 px-3 py-2.5 text-right whitespace-nowrap text-emerald-900 border-r-2 border-emerald-400 opacity-100" style={{ left: '1100px' }}>Received</th>
+                <th className="sticky bg-emerald-200 px-3 py-2.5 whitespace-nowrap text-emerald-900 opacity-100" style={{ left: '625px', maxWidth: '180px' }}>Description</th>
+                <th className="sticky bg-emerald-200 px-3 py-2.5 whitespace-nowrap text-emerald-900 opacity-100" style={{ left: '805px' }}>Order date</th>
+                <th className="sticky bg-emerald-200 px-3 py-2.5 whitespace-nowrap text-emerald-900 opacity-100" style={{ left: '905px' }}>ETA Arrow</th>
+                <th className="sticky bg-emerald-200 px-3 py-2.5 text-right whitespace-nowrap text-emerald-900 opacity-100" style={{ left: '1005px' }}>Ordered</th>
+                <th className="sticky bg-emerald-200 px-3 py-2.5 text-right whitespace-nowrap text-emerald-900 border-r-2 border-emerald-400 opacity-100" style={{ left: '1080px' }}>Received</th>
                 <th className="bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900 opacity-100">Arrow PO ref</th>
                 <th className="bg-amber-100 px-3 py-2.5 text-right whitespace-nowrap text-amber-900 opacity-100">ENT</th>
                 <th className="bg-amber-100 px-3 py-2.5 text-right whitespace-nowrap text-amber-900 opacity-100">SHPD</th>
@@ -830,14 +830,14 @@ export default function ReconciliationPage() {
                       </td>
                       <td className="sticky bg-emerald-50 px-3 py-2 font-mono text-[11px] whitespace-nowrap text-slate-800" style={{ left: '375px' }}>{r.arrowStock}</td>
                       <td className="sticky bg-emerald-50 px-3 py-2 font-mono text-[11px] whitespace-nowrap text-slate-700" style={{ left: '505px' }}>{r.supplierSku || '—'}</td>
-                      <td className="sticky bg-emerald-50 px-3 py-2 text-slate-800" style={{ left: '625px' }} title={r.description ?? ''}>{r.description ?? '—'}</td>
-                      <td className="sticky bg-emerald-50 px-3 py-2 whitespace-nowrap text-slate-500" style={{ left: '880px' }}>{fmt(r.orderDate)}</td>
-                      <td className="sticky bg-emerald-50 px-3 py-2 whitespace-nowrap text-slate-700" style={{ left: '980px' }}>
+                      <td className="sticky bg-emerald-50 px-3 py-2 text-slate-800" style={{ left: '625px', maxWidth: '180px', overflow: 'hidden', textOverflow: 'ellipsis' }} title={r.description ?? ''}>{r.description ?? '—'}</td>
+                      <td className="sticky bg-emerald-50 px-3 py-2 whitespace-nowrap text-slate-500" style={{ left: '805px' }}>{fmt(r.orderDate)}</td>
+                      <td className="sticky bg-emerald-50 px-3 py-2 whitespace-nowrap text-slate-700" style={{ left: '905px' }}>
                         {fmt(r.requestedDate)}
                         {r.lateVsRequest && <span className="ml-1 text-red-500" title="Late vs requested date">&#x26A0;</span>}
                       </td>
-                      <td className="sticky bg-emerald-50 px-3 py-2 text-right font-bold text-emerald-900" style={{ left: '1080px' }}>{r.qtyOrdered}</td>
-                      <td className="sticky bg-emerald-50 px-3 py-2 text-right text-slate-600 border-r-2 border-emerald-300" style={{ left: '1155px' }}>{r.qtyReceived}</td>
+                      <td className="sticky bg-emerald-50 px-3 py-2 text-right font-bold text-emerald-900" style={{ left: '1005px' }}>{r.qtyOrdered}</td>
+                      <td className="sticky bg-emerald-50 px-3 py-2 text-right text-slate-600 border-r-2 border-emerald-300" style={{ left: '1080px' }}>{r.qtyReceived}</td>
                       <td className="bg-amber-50 px-3 py-2 whitespace-nowrap font-mono text-[11px]">
                         {r.as400Ord === 0
                           ? <span className="text-red-400">—</span>
