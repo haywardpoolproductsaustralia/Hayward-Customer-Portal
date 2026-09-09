@@ -33,8 +33,8 @@ export async function GET(req: NextRequest) {
     `stock:${sku}`
   );
   
-  // Fetch list price from the new pricing:listprices cache
-  const listPrice = await getListPrice(sku);
+  // Fetch list price from the separate pricing:listprices cache if it exists
+  let listPrice = await getListPrice(sku);
   
   const rule = findRuleForSku(rules, sku, stockEntry?.stockCategory);
 
@@ -43,6 +43,11 @@ export async function GET(req: NextRequest) {
       { error: 'No specific pricing rule found for this SKU yet' },
       { status: 404 }
     );
+  }
+
+  // Fallback to rule's embedded listPrice if the separate key doesn't exist
+  if (listPrice == null && rule.listPrice != null) {
+    listPrice = rule.listPrice;
   }
 
   const price = computePrice(rule, qty, listPrice);
