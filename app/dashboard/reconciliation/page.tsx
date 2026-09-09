@@ -645,22 +645,15 @@ export default function ReconciliationPage() {
                 const headers = [
                   'PO','Customer PO','Status','Type','Stock Code','Supplier SKU','Description','Order Date','ETA Arrow',
                   'Ordered','Received','Arrow PO Ref','AS400 ENT','AS400 SHPD','AS400 Order Date','AS400 ETA','US SO#',
-                  'Ship To','City','State','Postcode','Addr OK',
                   'On Water','Container','Vessel','Container ETA','Supplier'
                 ];
                 const escape = (v: any) => `"${String(v ?? '').replace(/"/g, '""')}"`;
-                const addrOk = (r: ReconRow) => {
-                  if (!r.shipToCity) return '?';
-                  const city = r.shipToCity.toLowerCase();
-                  return ['dandenong','victoria','melbourne','sydney','brisbane','perth','adelaide'].some(c => city.includes(c)) ? 'AU' : 'Check';
-                };
                 const csvRows = filtered.map(r => [
                   r.po, r.deliveryNote4 ?? '', r.status, HAYWARD_CREDITORS.has(r.creditor ?? '') ? 'Hayward' : '3rd Party',
                   r.arrowStock, r.supplierSku, r.description ?? '', r.orderDate ?? '', r.requestedDate ?? '',
                   r.qtyOrdered, r.qtyReceived,
                   r.as400Ord > 0 ? r.po : '', r.as400Ord === 0 ? 'missing' : r.as400Ord, r.as400Shpd,
                   r.as400OrderDate ?? '', r.as400Eta ?? '', r.usSoNumber ?? '',
-                  r.shipToName ?? '', r.shipToCity ?? '', r.shipToState ?? '', r.shipToPostcode ?? '', addrOk(r),
                   r.onWater, r.container ?? '', r.vessel ?? '', r.containerEta ?? '',
                   creditorName[r.creditor ?? ''] ?? r.creditor ?? ''
                 ].map(escape).join(','));
@@ -740,15 +733,10 @@ export default function ReconciliationPage() {
               <col style={{ minWidth: '90px' }}  />
               <col style={{ minWidth: '80px' }}  />
               <col style={{ minWidth: '80px' }}  />
-              <col style={{ minWidth: '80px' }}  />
-              <col style={{ minWidth: '130px' }} />
-              <col style={{ minWidth: '160px' }} />
-              <col style={{ minWidth: '110px' }} />
-              <col style={{ minWidth: '120px' }} />
             </colgroup>
             <thead className="sticky top-0 z-20">
               <tr className="text-[11px] font-bold uppercase tracking-widest">
-                <th colSpan={5} style={{ background: '#334155', color: 'white', padding: '6px 12px', borderRight: '2px solid white', position: 'sticky', left: 0, zIndex: 11, opacity: 1 }}>
+                <th colSpan={4} style={{ background: '#334155', color: 'white', padding: '6px 12px', borderRight: '2px solid white', position: 'sticky', left: 0, zIndex: 11, opacity: 1 }}>
                   Order
                 </th>
                 <th colSpan={7} style={{ background: '#059669', color: 'white', padding: '6px 12px', borderRight: '2px solid white', opacity: 1 }}>
@@ -757,11 +745,8 @@ export default function ReconciliationPage() {
                 <th colSpan={6} style={{ background: '#f59e0b', color: 'white', padding: '6px 12px', borderRight: '2px solid white', opacity: 1 }}>
                   Supplier USA-China
                 </th>
-                <th colSpan={5} style={{ background: '#7c3aed', color: 'white', padding: '6px 12px', borderRight: '2px solid white', opacity: 1 }}>
+                <th colSpan={5} style={{ background: '#7c3aed', color: 'white', padding: '6px 12px', opacity: 1 }}>
                   Shipment On Water
-                </th>
-                <th colSpan={5} style={{ background: '#0ea5e9', color: 'white', padding: '6px 12px', opacity: 1 }}>
-                  AS400 Delivery Address
                 </th>
               </tr>
               <tr className="border-b border-slate-200 text-[11px] font-semibold uppercase tracking-wide">
@@ -792,7 +777,7 @@ export default function ReconciliationPage() {
             <tbody className="divide-y divide-slate-100">
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={27} className="py-12 text-center text-slate-400">
+                  <td colSpan={22} className="py-12 text-center text-slate-400">
                     No rows match the current filter.
                   </td>
                 </tr>
