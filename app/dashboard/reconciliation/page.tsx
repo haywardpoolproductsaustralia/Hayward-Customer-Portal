@@ -424,6 +424,7 @@ export default function ReconciliationPage() {
   const [uploadingA4, setUploadingA4] = useState(false);
   const [uploadingShip, setUploadingShip] = useState(false);
   const [showParamount,    setShowParamount]    = useState(false);
+  const [selectedCustomerPO, setSelectedCustomerPO] = useState<string | null>(null);
 
   useEffect(() => {
     Promise.all([
@@ -450,6 +451,13 @@ export default function ReconciliationPage() {
       setShowParamount(true);
     }
   }, [arrowLines]);
+
+  // Clear selectedCustomerPO when Paramount is turned off
+  useEffect(() => {
+    if (!showParamount) {
+      setSelectedCustomerPO(null);
+    }
+  }, [showParamount]);
 
   // AS400 CSV upload
   const handleAs400File = useCallback(async (file: File) => {
@@ -504,6 +512,9 @@ export default function ReconciliationPage() {
       r = r.filter((x) => x.stockCategory === 'PR');
     else
       r = r.filter((x) => x.stockCategory !== 'PR');
+    if (selectedCustomerPO) {
+      r = r.filter((x) => x.deliveryNote4 === selectedCustomerPO);
+    }
     if (tab === 'exceptions')   r = r.filter((x) => x.status === 'missing' || x.lateVsRequest);
     if (tab === 'not_received') r = r.filter((x) => x.status === 'not_received');
     if (tab === 'in_transit')   r = r.filter((x) => x.status === 'in_transit');
@@ -527,7 +538,7 @@ export default function ReconciliationPage() {
       );
     }
     return r;
-  }, [rows, tab, search, showParamount]);
+  }, [rows, tab, search, showParamount, selectedCustomerPO]);
 
   const stats = useMemo(() => ({
     total:      rows.length,
@@ -536,6 +547,17 @@ export default function ReconciliationPage() {
     delivered:  rows.filter((x) => x.status === 'delivered').length,
     late:       rows.filter((x) => x.lateVsRequest).length,
   }), [rows]);
+
+  // Get unique customer POs when Paramount is enabled
+  const paramountCustomerPOs = useMemo(() => {
+    if (!showParamount) return [];
+    const pos = new Set(
+      rows
+        .filter((x) => x.stockCategory === 'PR' && x.deliveryNote4)
+        .map((x) => x.deliveryNote4)
+    );
+    return Array.from(pos).sort();
+  }, [rows, showParamount]);
 
   const fmtMeta = (d: string | null) =>
     d ? new Date(d).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : null;
@@ -597,6 +619,21 @@ export default function ReconciliationPage() {
 
       {/* ── Filter row — sticky below dashboard header ── */}
       <div className="sticky top-0 z-30 -mx-8 bg-white/95 backdrop-blur px-8 py-3 border-b border-slate-100 shadow-sm flex flex-wrap items-center gap-2">
+        {/* Stock group toggles — LEFT */}
+        <div className="flex gap-2 mr-4">
+          <button
+            onClick={() => setShowParamount((v) => !v)}
+            className={`rounded-lg px-3 py-1.5 text-xs font-medium border transition-colors ${
+              showParamount
+                ? 'bg-purple-600 text-white border-purple-600'
+                : 'bg-white text-slate-500 border-slate-200 hover:border-purple-400 hover:text-purple-600'
+            }`}
+          >
+            {showParamount ? '✓' : '+'} Paramount
+          </button>
+        </div>
+
+        {/* Search and tabs — CENTER */}
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
@@ -618,19 +655,25 @@ export default function ReconciliationPage() {
             </button>
           ))}
         </div>
-        {/* Stock group toggles */}
-        <div className="ml-auto flex gap-2">
-          <button
-            onClick={() => setShowParamount((v) => !v)}
-            className={`rounded-lg px-3 py-1.5 text-xs font-medium border transition-colors ${
-              showParamount
-                ? 'bg-purple-600 text-white border-purple-600'
-                : 'bg-white text-slate-500 border-slate-200 hover:border-purple-400 hover:text-purple-600'
-            }`}
-          >
-            {showParamount ? '✓' : '+'} Paramount
-          </button>
-        </div>
+
+        {/* Customer PO buttons — RIGHT (only visible when Paramount is on) */}
+        {showParamount && paramountCustomerPOs.length > 0 && (
+          <div className="ml-auto flex flex-wrap gap-1 justify-end">
+            {paramountCustomerPOs.map((po) => (
+              <button
+                key={po}
+                onClick={() => setSelectedCustomerPO(selectedCustomerPO === po ? null : po)}
+                className={`rounded-lg px-2.5 py-1.5 text-xs font-medium border transition-colors ${
+                  selectedCustomerPO === po
+                    ? 'bg-purple-600 text-white border-purple-600'
+                    : 'bg-white text-slate-600 border-slate-200 hover:border-purple-300 hover:text-purple-600'
+                }`}
+              >
+                {po}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* ── Table ── */}
@@ -643,14 +686,14 @@ export default function ReconciliationPage() {
             <button
               onClick={() => {
                 const headers = [
-                  'PO','Customer PO','Status','Type','Stock Code','Supplier SKU','Description','Order Date','ETA Arrow',
+                  'PO','Customer PO','Status','Type','Stock Code','Supplier SKU','Order Date','ETA Arrow',
                   'Ordered','Received','Arrow PO Ref','AS400 ENT','AS400 SHPD','AS400 Order Date','AS400 ETA','US SO#',
                   'On Water','Container','Vessel','Container ETA','Supplier'
                 ];
                 const escape = (v: any) => `"${String(v ?? '').replace(/"/g, '""')}"`;
                 const csvRows = filtered.map(r => [
                   r.po, r.deliveryNote4 ?? '', r.status, HAYWARD_CREDITORS.has(r.creditor ?? '') ? 'Hayward' : '3rd Party',
-                  r.arrowStock, r.supplierSku, r.description ?? '', r.orderDate ?? '', r.requestedDate ?? '',
+                  r.arrowStock, r.supplierSku, r.orderDate ?? '', r.requestedDate ?? '',
                   r.qtyOrdered, r.qtyReceived,
                   r.as400Ord > 0 ? r.po : '', r.as400Ord === 0 ? 'missing' : r.as400Ord, r.as400Shpd,
                   r.as400OrderDate ?? '', r.as400Eta ?? '', r.usSoNumber ?? '',
@@ -717,7 +760,6 @@ export default function ReconciliationPage() {
               <col style={{ minWidth: '90px' }}  />{/* Supplier type */}
               <col style={{ minWidth: '130px' }} />
               <col style={{ minWidth: '120px' }} />
-              <col style={{ minWidth: '200px' }} />
               <col style={{ minWidth: '100px' }} />
               <col style={{ minWidth: '100px' }} />
               <col style={{ minWidth: '75px' }}  />
@@ -739,7 +781,7 @@ export default function ReconciliationPage() {
                 <th colSpan={4} style={{ background: '#334155', color: 'white', padding: '6px 12px', borderRight: '2px solid white', position: 'sticky', left: 0, zIndex: 11, opacity: 1 }}>
                   Order
                 </th>
-                <th colSpan={7} style={{ background: '#059669', color: 'white', padding: '6px 12px', borderRight: '2px solid white', opacity: 1 }}>
+                <th colSpan={6} style={{ background: '#059669', color: 'white', padding: '6px 12px', borderRight: '2px solid white', opacity: 1 }}>
                   Arrow AU
                 </th>
                 <th colSpan={6} style={{ background: '#f59e0b', color: 'white', padding: '6px 12px', borderRight: '2px solid white', opacity: 1 }}>
@@ -756,11 +798,10 @@ export default function ReconciliationPage() {
                 <th className="sticky bg-slate-600 px-3 py-2.5 whitespace-nowrap text-white border-r border-slate-500 opacity-100" style={{ left: '265px' }}>Type</th>
                 <th className="sticky bg-emerald-200 px-3 py-2.5 whitespace-nowrap text-emerald-900 opacity-100" style={{ left: '355px' }}>Stock code</th>
                 <th className="sticky bg-emerald-200 px-3 py-2.5 whitespace-nowrap text-emerald-900 opacity-100" style={{ left: '485px' }}>Supplier SKU</th>
-                <th className="sticky bg-emerald-200 px-3 py-2.5 whitespace-nowrap text-emerald-900 opacity-100" style={{ left: '605px', maxWidth: '200px' }}>Description</th>
-                <th className="sticky bg-emerald-200 px-3 py-2.5 whitespace-nowrap text-emerald-900 opacity-100" style={{ left: '805px' }}>Order date</th>
-                <th className="sticky bg-emerald-200 px-3 py-2.5 whitespace-nowrap text-emerald-900 opacity-100" style={{ left: '905px' }}>ETA Arrow</th>
-                <th className="sticky bg-emerald-200 px-3 py-2.5 text-right whitespace-nowrap text-emerald-900 opacity-100" style={{ left: '1005px' }}>Ordered</th>
-                <th className="sticky bg-emerald-200 px-3 py-2.5 text-right whitespace-nowrap text-emerald-900 border-r-2 border-emerald-400 opacity-100" style={{ left: '1080px' }}>Received</th>
+                <th className="sticky bg-emerald-200 px-3 py-2.5 whitespace-nowrap text-emerald-900 opacity-100" style={{ left: '605px' }}>Order date</th>
+                <th className="sticky bg-emerald-200 px-3 py-2.5 whitespace-nowrap text-emerald-900 opacity-100" style={{ left: '705px' }}>ETA Arrow</th>
+                <th className="sticky bg-emerald-200 px-3 py-2.5 text-right whitespace-nowrap text-emerald-900 opacity-100" style={{ left: '805px' }}>Ordered</th>
+                <th className="sticky bg-emerald-200 px-3 py-2.5 text-right whitespace-nowrap text-emerald-900 border-r-2 border-emerald-400 opacity-100" style={{ left: '880px' }}>Received</th>
                 <th className="bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900 opacity-100">Arrow PO ref</th>
                 <th className="bg-amber-100 px-3 py-2.5 text-right whitespace-nowrap text-amber-900 opacity-100">ENT</th>
                 <th className="bg-amber-100 px-3 py-2.5 text-right whitespace-nowrap text-amber-900 opacity-100">SHPD</th>
@@ -777,7 +818,7 @@ export default function ReconciliationPage() {
             <tbody className="divide-y divide-slate-100">
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={22} className="py-12 text-center text-slate-400">
+                  <td colSpan={21} className="py-12 text-center text-slate-400">
                     No rows match the current filter.
                   </td>
                 </tr>
@@ -802,14 +843,13 @@ export default function ReconciliationPage() {
                       </td>
                       <td className="sticky bg-emerald-50 px-3 py-2 font-mono text-[11px] whitespace-nowrap text-slate-800" style={{ left: '355px' }}>{r.arrowStock}</td>
                       <td className="sticky bg-emerald-50 px-3 py-2 font-mono text-[11px] whitespace-nowrap text-slate-700" style={{ left: '485px' }}>{r.supplierSku || '—'}</td>
-                      <td className="sticky bg-emerald-50 px-3 py-2 text-slate-800" style={{ left: '605px', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis' }} title={r.description ?? ''}>{r.description ?? '—'}</td>
-                      <td className="sticky bg-emerald-50 px-3 py-2 whitespace-nowrap text-slate-500" style={{ left: '805px' }}>{fmt(r.orderDate)}</td>
-                      <td className="sticky bg-emerald-50 px-3 py-2 whitespace-nowrap text-slate-700" style={{ left: '905px' }}>
+                      <td className="sticky bg-emerald-50 px-3 py-2 whitespace-nowrap text-slate-500" style={{ left: '605px' }}>{fmt(r.orderDate)}</td>
+                      <td className="sticky bg-emerald-50 px-3 py-2 whitespace-nowrap text-slate-700" style={{ left: '705px' }}>
                         {fmt(r.requestedDate)}
                         {r.lateVsRequest && <span className="ml-1 text-red-500" title="Late vs requested date">&#x26A0;</span>}
                       </td>
-                      <td className="sticky bg-emerald-50 px-3 py-2 text-right font-bold text-emerald-900" style={{ left: '1005px' }}>{r.qtyOrdered}</td>
-                      <td className="sticky bg-emerald-50 px-3 py-2 text-right text-slate-600 border-r-2 border-emerald-300" style={{ left: '1080px' }}>{r.qtyReceived}</td>
+                      <td className="sticky bg-emerald-50 px-3 py-2 text-right font-bold text-emerald-900" style={{ left: '805px' }}>{r.qtyOrdered}</td>
+                      <td className="sticky bg-emerald-50 px-3 py-2 text-right text-slate-600 border-r-2 border-emerald-300" style={{ left: '880px' }}>{r.qtyReceived}</td>
                       <td className="bg-amber-50 px-3 py-2 whitespace-nowrap font-mono text-[11px]">
                         {r.as400Ord === 0
                           ? <span className="text-red-400">—</span>
