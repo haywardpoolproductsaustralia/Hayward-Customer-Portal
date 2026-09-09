@@ -1,22 +1,13 @@
 'use client';
 
 // app/dashboard/reconciliation/page.tsx
-// Chunky scrollbar styles injected at runtime so they apply to both
-// the top mirror div and the bottom table scroll container.
+// Hidden scrollbar styles - removes scrollbars from both top and bottom
+// while keeping scroll functionality intact
 const SCROLLBAR_STYLE = `
   #top-scroll::-webkit-scrollbar,
-  #bottom-scroll::-webkit-scrollbar { height: 28px; }
-  #top-scroll::-webkit-scrollbar-track,
-  #bottom-scroll::-webkit-scrollbar-track { background: #f1f5f9; border-radius: 99px; }
-  #top-scroll::-webkit-scrollbar-thumb,
-  #bottom-scroll::-webkit-scrollbar-thumb {
-    background: #94a3b8;
-    border-radius: 99px;
-    border: 5px solid #f1f5f9;
-    min-width: 80px;
-  }
-  #top-scroll::-webkit-scrollbar-thumb:hover,
-  #bottom-scroll::-webkit-scrollbar-thumb:hover { background: #64748b; }
+  #bottom-scroll::-webkit-scrollbar { display: none; }
+  #top-scroll { -ms-overflow-style: none; scrollbar-width: none; }
+  #bottom-scroll { -ms-overflow-style: none; scrollbar-width: none; }
 `;
 // Full-width PO reconciliation: Arrow AU vs AS400 (Snowflake upload) vs CDS-Net shipments.
 // Both AS400 data and CDS-Net shipment file can be uploaded directly in the browser.
@@ -790,11 +781,6 @@ export default function ReconciliationPage() {
                 <th className="bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900 opacity-100">Order date</th>
                 <th className="bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900 opacity-100">ETA</th>
                 <th className="bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900 border-r-2 border-amber-300 opacity-100">US SO#</th>
-                <th className="bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900 opacity-100">Ship to</th>
-                <th className="bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900 opacity-100">City</th>
-                <th className="bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900 opacity-100">State</th>
-                <th className="bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900 opacity-100">Postcode</th>
-                <th className="bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900 border-r-2 border-amber-300 opacity-100">Addr OK?</th>
                 <th className="bg-violet-100 px-3 py-2.5 text-right whitespace-nowrap text-violet-900 opacity-100">On water</th>
                 <th className="bg-violet-100 px-3 py-2.5 whitespace-nowrap text-violet-900 opacity-100">Container</th>
                 <th className="bg-violet-100 px-3 py-2.5 whitespace-nowrap text-violet-900 opacity-100">Vessel</th>
@@ -805,7 +791,7 @@ export default function ReconciliationPage() {
             <tbody className="divide-y divide-slate-100">
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={27} className="py-12 text-center text-slate-400">
+                  <td colSpan={22} className="py-12 text-center text-slate-400">
                     No rows match the current filter.
                   </td>
                 </tr>
@@ -863,21 +849,6 @@ export default function ReconciliationPage() {
                       <td className="bg-violet-50 px-3 py-2 whitespace-nowrap text-slate-600">{fmt(r.containerEta)}</td>
                       <td className="bg-violet-50 px-3 py-2 whitespace-nowrap text-slate-500">
                         {creditorName[r.creditor ?? ''] ?? r.creditor ?? '—'}
-                      </td>
-                      <td className="bg-sky-50 px-3 py-2 text-slate-700" title={r.shipToName ?? ''}>{r.shipToName ?? '—'}</td>
-                      <td className="bg-sky-50 px-3 py-2 whitespace-nowrap text-slate-700">{r.shipToCity ?? '—'}</td>
-                      <td className="bg-sky-50 px-3 py-2 text-slate-600">{r.shipToState ?? '—'}</td>
-                      <td className="bg-sky-50 px-3 py-2 text-slate-600">{r.shipToPostcode ?? '—'}</td>
-                      <td className="bg-sky-50 px-3 py-2 border-r-2 border-sky-200">
-                        {r.as400Ord === 0 ? (
-                          <span className="text-slate-300">—</span>
-                        ) : addr === 'ok' ? (
-                          <span className="font-semibold text-green-600">&#10003; AU</span>
-                        ) : addr === 'warn' ? (
-                          <span className="font-semibold text-red-600" title={`Unexpected: ${r.shipToCity}, ${r.shipToState}`}>&#x26A0; Check</span>
-                        ) : (
-                          <span className="text-slate-400">?</span>
-                        )}
                       </td>
                     </tr>
                   );
