@@ -643,7 +643,7 @@ export default function ReconciliationPage() {
             <button
               onClick={() => {
                 const headers = [
-                  'PO','Status','Type','Stock Code','Supplier SKU','Description','Order Date','ETA Arrow',
+                  'PO','Customer PO','Status','Type','Stock Code','Supplier SKU','Description','Order Date','ETA Arrow',
                   'Ordered','Received','Arrow PO Ref','AS400 ENT','AS400 SHPD','AS400 Order Date','AS400 ETA','US SO#',
                   'Ship To','City','State','Postcode','Addr OK',
                   'On Water','Container','Vessel','Container ETA','Supplier'
@@ -655,7 +655,7 @@ export default function ReconciliationPage() {
                   return ['dandenong','victoria','melbourne','sydney','brisbane','perth','adelaide'].some(c => city.includes(c)) ? 'AU' : 'Check';
                 };
                 const csvRows = filtered.map(r => [
-                  r.po, r.status, HAYWARD_CREDITORS.has(r.creditor ?? '') ? 'Hayward' : '3rd Party',
+                  r.po, r.deliveryNote4 ?? '', r.status, HAYWARD_CREDITORS.has(r.creditor ?? '') ? 'Hayward' : '3rd Party',
                   r.arrowStock, r.supplierSku, r.description ?? '', r.orderDate ?? '', r.requestedDate ?? '',
                   r.qtyOrdered, r.qtyReceived,
                   r.as400Ord > 0 ? r.po : '', r.as400Ord === 0 ? 'missing' : r.as400Ord, r.as400Shpd,
@@ -719,6 +719,7 @@ export default function ReconciliationPage() {
           <table className="w-full text-left text-xs" style={{ minWidth: '2400px', tableLayout: 'auto', borderCollapse: 'collapse' }}>
             <colgroup>
               <col style={{ minWidth: '75px' }}  />
+              <col style={{ minWidth: '100px' }} />{/* Customer PO column added */}
               <col style={{ minWidth: '90px' }}  />
               <col style={{ minWidth: '90px' }}  />{/* Supplier type */}
               <col style={{ minWidth: '130px' }} />
@@ -747,7 +748,7 @@ export default function ReconciliationPage() {
             </colgroup>
             <thead className="sticky top-0 z-20">
               <tr className="text-[11px] font-bold uppercase tracking-widest">
-                <th colSpan={4} style={{ background: '#334155', color: 'white', padding: '6px 12px', borderRight: '2px solid white', position: 'sticky', left: 0, zIndex: 11, opacity: 1 }}>
+                <th colSpan={5} style={{ background: '#334155', color: 'white', padding: '6px 12px', borderRight: '2px solid white', position: 'sticky', left: 0, zIndex: 11, opacity: 1 }}>
                   Order
                 </th>
                 <th colSpan={7} style={{ background: '#059669', color: 'white', padding: '6px 12px', borderRight: '2px solid white', opacity: 1 }}>
@@ -766,11 +767,11 @@ export default function ReconciliationPage() {
               <tr className="border-b border-slate-200 text-[11px] font-semibold uppercase tracking-wide">
                 <th className="sticky left-0 z-10 bg-slate-800 px-3 py-2.5 whitespace-nowrap text-white opacity-100">PO</th>
                 <th className="sticky bg-slate-700 px-3 py-2.5 whitespace-nowrap text-white opacity-100" style={{ left: '75px' }}>Customer PO</th>
-                <th className="sticky bg-slate-700 px-3 py-2.5 whitespace-nowrap text-white opacity-100" style={{ left: '195px' }}>Status</th>
-                <th className="sticky bg-slate-600 px-3 py-2.5 whitespace-nowrap text-white border-r border-slate-500 opacity-100" style={{ left: '285px' }}>Type</th>
-                <th className="sticky bg-emerald-200 px-3 py-2.5 whitespace-nowrap text-emerald-900 opacity-100" style={{ left: '375px' }}>Stock code</th>
-                <th className="sticky bg-emerald-200 px-3 py-2.5 whitespace-nowrap text-emerald-900 opacity-100" style={{ left: '505px' }}>Supplier SKU</th>
-                <th className="sticky bg-emerald-200 px-3 py-2.5 whitespace-nowrap text-emerald-900 opacity-100" style={{ left: '625px', maxWidth: '180px' }}>Description</th>
+                <th className="sticky bg-slate-700 px-3 py-2.5 whitespace-nowrap text-white opacity-100" style={{ left: '175px' }}>Status</th>
+                <th className="sticky bg-slate-600 px-3 py-2.5 whitespace-nowrap text-white border-r border-slate-500 opacity-100" style={{ left: '265px' }}>Type</th>
+                <th className="sticky bg-emerald-200 px-3 py-2.5 whitespace-nowrap text-emerald-900 opacity-100" style={{ left: '355px' }}>Stock code</th>
+                <th className="sticky bg-emerald-200 px-3 py-2.5 whitespace-nowrap text-emerald-900 opacity-100" style={{ left: '485px' }}>Supplier SKU</th>
+                <th className="sticky bg-emerald-200 px-3 py-2.5 whitespace-nowrap text-emerald-900 opacity-100" style={{ left: '605px', maxWidth: '200px' }}>Description</th>
                 <th className="sticky bg-emerald-200 px-3 py-2.5 whitespace-nowrap text-emerald-900 opacity-100" style={{ left: '805px' }}>Order date</th>
                 <th className="sticky bg-emerald-200 px-3 py-2.5 whitespace-nowrap text-emerald-900 opacity-100" style={{ left: '905px' }}>ETA Arrow</th>
                 <th className="sticky bg-emerald-200 px-3 py-2.5 text-right whitespace-nowrap text-emerald-900 opacity-100" style={{ left: '1005px' }}>Ordered</th>
@@ -791,7 +792,7 @@ export default function ReconciliationPage() {
             <tbody className="divide-y divide-slate-100">
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={22} className="py-12 text-center text-slate-400">
+                  <td colSpan={27} className="py-12 text-center text-slate-400">
                     No rows match the current filter.
                   </td>
                 </tr>
@@ -808,15 +809,15 @@ export default function ReconciliationPage() {
                         <Link href={`/dashboard/reconciliation?po=${r.po}`} className="font-bold text-white hover:text-wave">{r.po}</Link>
                       </td>
                       <td className="sticky bg-slate-800 px-3 py-2 font-mono text-[11px] whitespace-nowrap text-slate-200" style={{ left: '75px' }}>{r.deliveryNote4 || '—'}</td>
-                      <td className="sticky bg-slate-800 px-3 py-2" style={{ left: '195px' }}>
+                      <td className="sticky bg-slate-800 px-3 py-2" style={{ left: '175px' }}>
                         {statusBadge(r.status)}
                       </td>
-                      <td className="sticky bg-slate-700 px-3 py-2 border-r border-slate-600" style={{ left: '285px' }}>
+                      <td className="sticky bg-slate-700 px-3 py-2 border-r border-slate-600" style={{ left: '265px' }}>
                         {supplierTypeBadge(r.creditor, r.stockCategory)}
                       </td>
-                      <td className="sticky bg-emerald-50 px-3 py-2 font-mono text-[11px] whitespace-nowrap text-slate-800" style={{ left: '375px' }}>{r.arrowStock}</td>
-                      <td className="sticky bg-emerald-50 px-3 py-2 font-mono text-[11px] whitespace-nowrap text-slate-700" style={{ left: '505px' }}>{r.supplierSku || '—'}</td>
-                      <td className="sticky bg-emerald-50 px-3 py-2 text-slate-800" style={{ left: '625px', maxWidth: '180px', overflow: 'hidden', textOverflow: 'ellipsis' }} title={r.description ?? ''}>{r.description ?? '—'}</td>
+                      <td className="sticky bg-emerald-50 px-3 py-2 font-mono text-[11px] whitespace-nowrap text-slate-800" style={{ left: '355px' }}>{r.arrowStock}</td>
+                      <td className="sticky bg-emerald-50 px-3 py-2 font-mono text-[11px] whitespace-nowrap text-slate-700" style={{ left: '485px' }}>{r.supplierSku || '—'}</td>
+                      <td className="sticky bg-emerald-50 px-3 py-2 text-slate-800" style={{ left: '605px', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis' }} title={r.description ?? ''}>{r.description ?? '—'}</td>
                       <td className="sticky bg-emerald-50 px-3 py-2 whitespace-nowrap text-slate-500" style={{ left: '805px' }}>{fmt(r.orderDate)}</td>
                       <td className="sticky bg-emerald-50 px-3 py-2 whitespace-nowrap text-slate-700" style={{ left: '905px' }}>
                         {fmt(r.requestedDate)}
