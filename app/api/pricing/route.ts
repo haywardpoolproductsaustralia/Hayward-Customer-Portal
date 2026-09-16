@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getCustomerAccess, resolvePriceType } from '@/lib/access';
+import { getCustomerAccess, resolvePriceType, stockKeysForSku } from '@/lib/access';
 import { getJSON } from '@/lib/redis';
 import { computePrice, findRuleForSku, getListPrice, PricingRule } from '@/lib/pricing';
+
+interface StockEntryLite {
+  stockCategory?: string | null;
+  listPrice?: number | null;
+}
 
 export async function GET(req: NextRequest) {
   const access = await getCustomerAccess();
@@ -28,14 +33,35 @@ export async function GET(req: NextRequest) {
 
   const rules = (await getJSON<PricingRule[]>(`pricing:${priceType}`)) ?? [];
 
-  // Fetch category from stock entry (still needed for category-fallback pricing)
-  const stockEntry = await getJSON<{ stockCategory: string | null }>(
-    `stock:${sku}`
-  );
-  
-  // Fetch list price from the separate pricing:listprices cache if it exists
+  // The stock entry carries BOTH the category (for category-fallback rules) and
+  // STKMAST.SELLING_PRICE1 as `listPrice`.
+  //
+  // Probe only the catalogues this org holds, matching /api/stock. The previous
+  // hard-coded `stock:{sku}` meant Paramount and Flow Control SKUs never found
+  // an entry here even for orgs entitled to them.
+  let stockEntry: StockEntryLite | null = null;
+  for (const key of stockKeysForSku(access, sku)) {
+    stockEntry = await getJSON<StockEntryLite>(key);
+    if (stockEntry) break;
+  }
+
+  // List price resolution, most to least authoritative:
+  //   1. pricing:listprices     - the refreshed list published by the pricing sync
+  //   2. stock:{sku}.listPrice  - STKMAST.SELLING_PRICE1, written every stock sync
+  //   3. rule.listPrice         - the SKU's own price embedded in its rule
+  //
+  // Step 2 is the fix for the product modal showing "On request" while the grid
+  // beside it showed a price: /api/pricing/batch is HANDED listPrice by the
+  // products page (which reads it off the stock entry), whereas this route only
+  // ever looked at pricing:listprices. Whenever that key was missing or stale,
+  // computePrice() got a null base and returned null, so the modal rendered
+  // "On request" with no error - the same SKU priced fine in the grid.
+  // Reading the stock entry here makes both paths agree by construction.
   let listPrice = await getListPrice(sku);
-  
+  if (listPrice == null && stockEntry?.listPrice != null) {
+    listPrice = stockEntry.listPrice;
+  }
+
   const rule = findRuleForSku(rules, sku, stockEntry?.stockCategory);
 
   if (!rule) {
@@ -45,7 +71,6 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  // Fallback to rule's embedded listPrice if the separate key doesn't exist
   if (listPrice == null && rule.listPrice != null) {
     listPrice = rule.listPrice;
   }
