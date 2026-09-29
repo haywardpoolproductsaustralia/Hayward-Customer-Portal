@@ -93,6 +93,13 @@ export interface PortalOrder extends PortalOrderData {
   /** Free-text reason captured when staff cancel/reject an order. */
   cancelReason: string | null;
 
+  // Set when the order is exported to Arrow's sales-order import CSV. The
+  // export is the replacement for keying, so a set exportedAt means "this
+  // order is on its way into Arrow - do not export or key it again".
+  exportedAt: number | null;
+  exportedBy: string | null;
+  exportedByName: string | null;
+
   // Set by portal-sync on AZ-Grey when a matching sales order appears in Arrow.
   // Field names match lib/au-orders-inbox.ts exactly so the existing matcher
   // can be pointed at this keyspace without rewriting it.
@@ -118,6 +125,7 @@ export function customerStatus(o: PortalOrder): { label: string; detail: string 
     return { label: "Accepted", detail: `Hayward order ${o.arrowOrderNo}` };
   }
   if (o.status === "keyed") return { label: "Accepted", detail: "Entered into our system" };
+  if (o.exportedAt) return { label: "Being processed", detail: null };
   if (o.status === "claimed") return { label: "Being processed", detail: null };
   return { label: "Received", detail: null };
 }
@@ -137,6 +145,9 @@ function rowToRecord(id: string, h: Record<string, unknown>): PortalOrder {
     keyedByName: (h.keyedByName as string) || null,
     keyedAt: num(h.keyedAt),
     cancelReason: (h.cancelReason as string) || null,
+    exportedAt: num(h.exportedAt) || null,
+    exportedBy: (h.exportedBy as string) || null,
+    exportedByName: (h.exportedByName as string) || null,
     seenInArrow: h.seenInArrow === "1" || h.seenInArrow === 1,
     seenInArrowAt: num(h.seenInArrowAt),
     arrowOrderNo: (h.arrowOrderNo as string) || null,
@@ -168,12 +179,17 @@ async function hydrate(ids: string[]): Promise<PortalOrder[]> {
   return out;
 }
 
-/** Staff view: newest first. Hides keyed/cancelled unless asked. */
+/**
+ * Staff view: newest first. Hides closed orders unless asked. An order is
+ * closed once it is keyed, cancelled, or has been seen in Arrow - the last one
+ * matters now orders go in by CSV import: nobody presses "Mark keyed", so the
+ * Arrow matcher finding the order is what takes it off the open queue.
+ */
 export async function listPortalOrders(opts: { includeClosed?: boolean } = {}): Promise<PortalOrder[]> {
   const ids = await redis.zrange<string[]>(INDEX, 0, -1, { rev: true });
   const all = await hydrate(ids);
   if (opts.includeClosed) return all;
-  return all.filter((o) => o.status !== "keyed" && o.status !== "cancelled");
+  return all.filter((o) => o.status !== "keyed" && o.status !== "cancelled" && !o.seenInArrow);
 }
 
 /** Customer view: their own orders across every account code they can see. */
@@ -221,6 +237,9 @@ export async function createPortalOrder(data: PortalOrderData): Promise<string> 
     keyedByName: "",
     keyedAt: "0",
     cancelReason: "",
+    exportedAt: "0",
+    exportedBy: "",
+    exportedByName: "",
     seenInArrow: "0",
     seenInArrowAt: "0",
     arrowOrderNo: "",
@@ -341,4 +360,56 @@ export async function heartbeatOrder(id: string, userId: string): Promise<ClaimO
     [userId, String(Date.now()), String(CLAIM_TTL_MS)]
   )) as string;
   return toOutcome(res);
+}
+
+// --- export to Arrow CSV ---------------------------------------------------
+
+export type ExportSkipReason = "not_found" | "cancelled" | "keyed" | "in_arrow" | "exported" | "claimed";
+
+/**
+ * Atomically stamp an order as exported, unless something says it must not
+ * go into Arrow again. `force` re-exports an order already exported (e.g. the
+ * import failed and the file is needed again) but never one that is cancelled,
+ * keyed by hand, or already seen in Arrow - those would create a duplicate SO.
+ * A live claim by someone else is respected too: they may be keying it.
+ */
+const EXPORT_LUA = `
+if redis.call('EXISTS', KEYS[1]) == 0 then return 'NOT_FOUND' end
+local status = redis.call('HGET', KEYS[1], 'status')
+if status == 'cancelled' then return 'CANCELLED' end
+if status == 'keyed' then return 'KEYED' end
+if redis.call('HGET', KEYS[1], 'seenInArrow') == '1' then return 'IN_ARROW' end
+local exported = tonumber(redis.call('HGET', KEYS[1], 'exportedAt')) or 0
+if exported > 0 and ARGV[4] ~= '1' then return 'EXPORTED' end
+local owner = redis.call('HGET', KEYS[1], 'claimedBy')
+local expires = tonumber(redis.call('HGET', KEYS[1], 'claimExpiresAt')) or 0
+if status == 'claimed' and owner and owner ~= '' and owner ~= ARGV[1] and expires > tonumber(ARGV[3]) then
+  return 'CLAIMED'
+end
+redis.call('HSET', KEYS[1], 'exportedAt', ARGV[3], 'exportedBy', ARGV[1], 'exportedByName', ARGV[2])
+return 'OK'
+`;
+
+const EXPORT_REASON: Record<string, ExportSkipReason> = {
+  NOT_FOUND: "not_found",
+  CANCELLED: "cancelled",
+  KEYED: "keyed",
+  IN_ARROW: "in_arrow",
+  EXPORTED: "exported",
+  CLAIMED: "claimed",
+};
+
+export async function markExported(
+  id: string,
+  userId: string,
+  userName: string,
+  force = false
+): Promise<{ ok: true } | { ok: false; reason: ExportSkipReason }> {
+  const res = (await redis.eval(
+    EXPORT_LUA,
+    [itemKey(id)],
+    [userId, userName, String(Date.now()), force ? "1" : "0"]
+  )) as string;
+  if (res === "OK") return { ok: true };
+  return { ok: false, reason: EXPORT_REASON[res] ?? "not_found" };
 }
