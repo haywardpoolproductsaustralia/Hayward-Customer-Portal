@@ -12,6 +12,9 @@ import {
   AlertTriangle,
   History,
   X,
+  RotateCcw,
+  PackageCheck,
+  Clock,
 } from 'lucide-react';
 import { ProductCombobox } from '@/components/ProductCombobox';
 import { useSelectedCustomer } from '@/components/SelectedCustomerContext';
@@ -23,7 +26,24 @@ interface StockEntry {
   name?: string | null;
   stockCategory?: string | null;
   supplierStock?: string | null;
+  byLocation?: Record<string, { onHand: number; allocated: number; backordered: number }> | null;
+  incoming?: { onOrderQty: number; nextEta: string | null } | null;
 }
+
+/** What's shown under each line: free stock now, and when a shortfall lands. */
+interface Availability {
+  free: number | null; // null = no stock record for this SKU
+  shortfall: number; // units on this line not covered by free stock
+  eta: Date | null; // next inbound supply + 6 days, only when there's a shortfall
+}
+
+// Backorder ETA rule (agreed Sep 2026): next container ETA for the SKU plus
+// 6 days for unpack and put-away.
+const ETA_BUFFER_DAYS = 6;
+
+// Draft quote survives refresh and navigation. Only SKU/name/qty are kept -
+// prices are always refetched, so a stored draft can never carry a stale price.
+const DRAFT_KEY = 'hayward-quote-draft-v1';
 
 interface PriceTier {
   qty: number;
@@ -53,6 +73,7 @@ interface AccountOption {
 
 /** A previously submitted portal order, as shown back to the customer. */
 interface MyOrder {
+  lines?: { sku: string; description: string | null; qty: number }[];
   id: string;
   ref: string;
   poRef: string;
@@ -86,6 +107,28 @@ function profileAddress(a: AccountOption | undefined): string {
     .map((p) => (p ?? '').trim())
     .filter(Boolean)
     .join(', ');
+}
+
+function availabilityFor(entry: StockEntry | undefined, qty: number): Availability {
+  if (!entry?.byLocation) return { free: null, shortfall: 0, eta: null };
+  const free = Math.max(
+    0,
+    Object.values(entry.byLocation).reduce((sum, l) => sum + ((l?.onHand ?? 0) - (l?.allocated ?? 0)), 0)
+  );
+  const shortfall = Math.max(0, qty - free);
+  let eta: Date | null = null;
+  if (shortfall > 0 && entry.incoming?.nextEta) {
+    const d = new Date(entry.incoming.nextEta);
+    if (!Number.isNaN(d.getTime())) {
+      d.setDate(d.getDate() + ETA_BUFFER_DAYS);
+      eta = d;
+    }
+  }
+  return { free, shortfall, eta };
+}
+
+function formatEta(d: Date) {
+  return d.toLocaleDateString('en-AU', { timeZone: 'Australia/Melbourne', day: 'numeric', month: 'short' });
 }
 
 // Arrow's SPRTRAN thresholds are UPPER bounds:
@@ -166,6 +209,41 @@ export default function PricingPage() {
   const linesRef = useRef<QuoteLine[]>([]);
   useEffect(() => {
     linesRef.current = lines;
+  }, [lines]);
+
+  // Per-SKU request counter. Switching customer re-prices every line; if the
+  // earlier customer's response lands after the new one, it must be dropped,
+  // otherwise the page shows one customer's price under another's name.
+  const reqSeq = useRef<Record<string, number>>({});
+
+  // --- draft persistence ---------------------------------------------------
+  const draftRestored = useRef(false);
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(DRAFT_KEY);
+      const saved = raw ? (JSON.parse(raw) as { sku: string; name: string; qty: number }[]) : [];
+      if (Array.isArray(saved) && saved.length > 0) {
+        addLines(saved.filter((l) => l && typeof l.sku === 'string'));
+      }
+    } catch {
+      /* a corrupt draft is just discarded */
+    }
+    draftRestored.current = true;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    // Don't overwrite the saved draft with the empty initial state before the
+    // restore above has run.
+    if (!draftRestored.current) return;
+    try {
+      window.localStorage.setItem(
+        DRAFT_KEY,
+        JSON.stringify(lines.map((l) => ({ sku: l.sku, name: l.name, qty: l.qty })))
+      );
+    } catch {
+      /* private mode / quota - the draft is a convenience, never block on it */
+    }
   }, [lines]);
 
   useEffect(() => {
@@ -252,9 +330,11 @@ export default function PricingPage() {
   }
 
   async function refetchLine(sku: string, name: string) {
+    const seq = (reqSeq.current[sku] = (reqSeq.current[sku] ?? 0) + 1);
     try {
       const res = await fetch(pricingUrl(sku, 1));
       const data = await res.json();
+      if (reqSeq.current[sku] !== seq) return; // superseded by a newer request
       setLines((prev) =>
         prev.map((l) =>
           l.sku !== sku
@@ -273,25 +353,67 @@ export default function PricingPage() {
         )
       );
     } catch {
+      if (reqSeq.current[sku] !== seq) return;
       setLines((prev) =>
         prev.map((l) => (l.sku !== sku ? l : { ...l, loading: false, error: 'Could not reach pricing' }))
       );
     }
   }
 
-  async function addToQuote(item: StockEntry) {
-    const newLine: QuoteLine = {
-      sku: item.sku,
-      name: item.name || item.sku,
-      qty: 1,
-      listPrice: null,
-      tiers: [],
-      loading: true,
-      error: null,
-    };
+  /**
+   * Add several lines at once (draft restore, reorder). A SKU already on the
+   * quote has its qty increased rather than being added twice - the submit
+   * endpoint rejects duplicate SKUs.
+   */
+  function addLines(items: { sku: string; name?: string | null; qty?: number }[]) {
+    const current = new Map(linesRef.current.map((l) => [l.sku, l]));
+    const fresh: QuoteLine[] = [];
+    const bumped = new Map<string, number>();
+    for (const it of items) {
+      const sku = it.sku.trim().toUpperCase();
+      const qty = Math.max(1, Math.floor(Number(it.qty) || 1));
+      if (current.has(sku)) {
+        bumped.set(sku, (bumped.get(sku) ?? 0) + qty);
+      } else if (!fresh.some((f) => f.sku === sku)) {
+        fresh.push({
+          sku,
+          name: it.name || sku,
+          qty,
+          listPrice: null,
+          tiers: [],
+          loading: true,
+          error: null,
+        });
+      }
+    }
+    const next = [
+      ...linesRef.current.map((l) =>
+        bumped.has(l.sku) ? { ...l, qty: l.qty + (bumped.get(l.sku) ?? 0) } : l
+      ),
+      ...fresh,
+    ];
+    // Update the ref immediately so a second add in the same tick (double
+    // click, restore + reorder) sees these lines and can't create a duplicate.
+    linesRef.current = next;
     setSubmitted(null);
-    setLines((prev) => [...prev, newLine]);
-    await refetchLine(item.sku, newLine.name);
+    setLines(next);
+    fresh.forEach((f) => refetchLine(f.sku, f.name));
+  }
+
+  function addToQuote(item: StockEntry) {
+    addLines([{ sku: item.sku, name: item.name, qty: 1 }]);
+  }
+
+  function reorder(o: MyOrder) {
+    if (!o.lines || o.lines.length === 0) return;
+    addLines(o.lines.map((l) => ({ sku: l.sku, name: l.description, qty: l.qty })));
+    setHistoryOpen(false);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function clearQuote() {
+    setLines([]);
+    setOrderOpen(false);
   }
 
   function updateQty(sku: string, qty: number) {
@@ -308,6 +430,8 @@ export default function PricingPage() {
   }, 0);
 
   const addedSkus = new Set<string>(lines.map((l) => l.sku));
+  const stockBySku = new Map<string, StockEntry>(allStock.map((e) => [e.sku, e]));
+  const backorderLines = lines.filter((l) => availabilityFor(stockBySku.get(l.sku), l.qty).shortfall > 0);
 
   // A line that never priced can't be ordered - that would be sending Hayward
   // an order line with no agreed price on it.
@@ -373,9 +497,13 @@ export default function PricingPage() {
     <div className="space-y-6">
       <div className="flex items-end justify-between flex-wrap gap-3">
         <div>
-          <h1 className="font-display text-3xl text-deep font-bold">Quote builder</h1>
+          <h1 className="font-display text-3xl text-deep font-bold">
+            {PORTAL_ORDERS_ENABLED ? 'Quote & order' : 'Quote builder'}
+          </h1>
           <p className="text-ink/50 mt-1">
-            Add products, set quantities, get your discounted price per line - then send it to us as an order.
+            {PORTAL_ORDERS_ENABLED
+              ? 'Add products, see your price and availability per line, then place your order.'
+              : 'Add products, set quantities, get your discounted price per line.'}
           </p>
         </div>
         <div className="flex items-center gap-2 print:hidden">
@@ -385,6 +513,14 @@ export default function PricingPage() {
               className="rounded-xl border border-ink/10 bg-white px-4 py-2.5 text-sm font-medium shadow-soft hover:border-wave/30 flex items-center gap-2"
             >
               <History className="h-4 w-4" /> My orders
+            </button>
+          )}
+          {lines.length > 0 && (
+            <button
+              onClick={clearQuote}
+              className="rounded-xl border border-ink/10 bg-white px-4 py-2.5 text-sm font-medium shadow-soft hover:border-coral/30 hover:text-coral flex items-center gap-2"
+            >
+              <Trash2 className="h-4 w-4" /> Clear
             </button>
           )}
           {lines.length > 0 && (
@@ -403,7 +539,7 @@ export default function PricingPage() {
               }}
               className="rounded-xl bg-wave text-white px-4 py-2.5 text-sm font-semibold shadow-soft hover:bg-deep flex items-center gap-2"
             >
-              <ShoppingCart className="h-4 w-4" /> Convert to order
+              <ShoppingCart className="h-4 w-4" /> Place order
             </button>
           )}
         </div>
@@ -416,8 +552,8 @@ export default function PricingPage() {
             <p className="font-semibold text-deep">Order received - your reference is {submitted.ref}</p>
             <p className="text-ink/60 mt-1">
               {submitted.lineCount} line{submitted.lineCount === 1 ? '' : 's'}, {formatMoney(submitted.subTotal)} ex
-              GST. Our customer service team will enter it and confirm. Prices and availability are confirmed on
-              our order acknowledgement, not here.
+              GST. You can follow its progress under My orders. Prices and availability are confirmed on our order
+              acknowledgement.
             </p>
           </div>
         </div>
@@ -434,6 +570,7 @@ export default function PricingPage() {
                 <th className="px-5 py-3.5 font-medium">Submitted</th>
                 <th className="px-5 py-3.5 font-medium text-right">Total</th>
                 <th className="px-5 py-3.5 font-medium">Status</th>
+                <th className="px-5 py-3.5 font-medium"></th>
               </tr>
             </thead>
             <tbody>
@@ -449,6 +586,16 @@ export default function PricingPage() {
                       {o.statusLabel}
                     </span>
                     {o.statusDetail && <span className="text-xs text-ink/40 ml-2">{o.statusDetail}</span>}
+                  </td>
+                  <td className="px-5 py-3 text-right">
+                    {o.lines && o.lines.length > 0 && (
+                      <button
+                        onClick={() => reorder(o)}
+                        className="rounded-lg border border-ink/10 bg-white px-3 py-1.5 text-xs font-medium hover:border-wave/30 hover:text-wave inline-flex items-center gap-1.5"
+                      >
+                        <RotateCcw className="h-3.5 w-3.5" /> Reorder
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -492,7 +639,11 @@ export default function PricingPage() {
       {lines.length === 0 ? (
         <div className="rounded-2xl bg-white border border-ink/10 shadow-soft py-16 flex flex-col items-center gap-2">
           <FileText className="h-8 w-8 text-ink/20" />
-          <p className="text-ink/40">Search above and add products to start a quote.</p>
+          <p className="text-ink/40">
+            {PORTAL_ORDERS_ENABLED
+              ? 'Search above and add products to start your order.'
+              : 'Search above and add products to start a quote.'}
+          </p>
         </div>
       ) : (
         <div className="overflow-x-auto rounded-2xl border border-ink/10 bg-white shadow-soft">
@@ -516,6 +667,7 @@ export default function PricingPage() {
                     : null;
                 const suggestion = getNextTierSuggestion(l.tiers, l.qty, unitPrice);
                 const sortedTiers = [...l.tiers].sort((a, b) => a.qty - b.qty);
+                const avail = availabilityFor(stockBySku.get(l.sku), l.qty);
 
                 return (
                   <Fragment key={l.sku}>
@@ -523,6 +675,26 @@ export default function PricingPage() {
                       <td className="px-5 py-3.5">
                         <p className="font-medium text-ink">{l.name}</p>
                         <p className="text-xs text-ink/40 font-mono">{l.sku}</p>
+                        {avail.free != null && (
+                          <p
+                            className={`mt-1 text-xs font-medium flex items-center gap-1 print:hidden ${
+                              avail.shortfall === 0 ? 'text-splash' : 'text-amber'
+                            }`}
+                          >
+                            {avail.shortfall === 0 ? (
+                              <>
+                                <PackageCheck className="h-3.5 w-3.5" /> In stock
+                              </>
+                            ) : (
+                              <>
+                                <Clock className="h-3.5 w-3.5" />
+                                {avail.free > 0 ? `${avail.free} available, ` : ''}
+                                {avail.shortfall} on backorder
+                                {avail.eta ? ` - ETA ${formatEta(avail.eta)}` : ' - ETA to be confirmed'}
+                              </>
+                            )}
+                          </p>
+                        )}
                       </td>
                       <td className="px-5 py-3.5 text-right">
                         <input
@@ -616,7 +788,7 @@ export default function PricingPage() {
       {PORTAL_ORDERS_ENABLED && orderOpen && lines.length > 0 && (
         <div className="rounded-2xl border border-wave/30 bg-white shadow-soft print:hidden">
           <div className="flex items-center justify-between px-5 py-4 border-b border-ink/10">
-            <h2 className="font-display text-xl text-deep font-bold">Send this to Hayward as an order</h2>
+            <h2 className="font-display text-xl text-deep font-bold">Place your order</h2>
             <button onClick={() => setOrderOpen(false)} className="p-1.5 rounded-full hover:bg-ink/5">
               <X className="h-4 w-4 text-ink/40" />
             </button>
@@ -630,6 +802,17 @@ export default function PricingPage() {
                   {unpricedLines.map((l) => l.sku).join(', ')} {unpricedLines.length === 1 ? 'has' : 'have'} no
                   price yet, so this order can&apos;t be sent. Remove {unpricedLines.length === 1 ? 'it' : 'them'}{' '}
                   and ask us to quote separately.
+                </span>
+              </div>
+            )}
+
+            {backorderLines.length > 0 && unpricedLines.length === 0 && (
+              <div className="rounded-xl bg-foam border border-wave/20 px-4 py-3 text-sm text-ink/70 flex items-start gap-2">
+                <Clock className="h-4 w-4 text-wave flex-shrink-0 mt-0.5" />
+                <span>
+                  {backorderLines.length === 1 ? 'One line is' : `${backorderLines.length} lines are`} partly or
+                  fully on backorder. Available stock ships now and the balance follows when it lands, unless you
+                  tell us otherwise in the notes.
                 </span>
               </div>
             )}
@@ -747,8 +930,8 @@ export default function PricingPage() {
                 className="mt-0.5 h-4 w-4 rounded border-ink/20"
               />
               <span>
-                I&apos;m authorised to place this order for the selected account. I understand prices and
-                availability shown here are indicative and are confirmed on Hayward&apos;s order acknowledgement.
+                I&apos;m authorised to place this order for the selected account. Prices and availability are
+                confirmed on Hayward&apos;s order acknowledgement.
               </span>
             </label>
 
@@ -800,7 +983,7 @@ export default function PricingPage() {
                 className="rounded-xl bg-wave text-white px-5 py-2.5 text-sm font-semibold shadow-soft hover:bg-deep disabled:opacity-40 disabled:hover:bg-wave flex items-center gap-2"
               >
                 {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShoppingCart className="h-4 w-4" />}
-                Submit order
+                Place order
               </button>
             </div>
           </div>
