@@ -10,9 +10,14 @@ import { isPageHidden } from '@/lib/page-visibility';
 
 const NAV_ITEMS = [
   { href: '/dashboard', label: 'Home', icon: Home },
+  // The ordering entry point sits directly under Home. Same route as the old
+  // "Pricing" item, so bookmarks and page-visibility rules are unaffected.
+  ...(PORTAL_ORDERS_ENABLED
+    ? [{ href: '/dashboard/pricing', label: 'Place an order', icon: ShoppingCart }]
+    : []),
   { href: '/dashboard/products', label: 'Products', icon: Boxes },
   { href: '/dashboard/orders', label: 'Orders', icon: Receipt },
-  { href: '/dashboard/pricing', label: 'Pricing', icon: Tag },
+  ...(PORTAL_ORDERS_ENABLED ? [] : [{ href: '/dashboard/pricing', label: 'Pricing', icon: Tag }]),
   { href: '/dashboard/manuals', label: 'Manuals', icon: BookOpen },
   { href: '/dashboard/warranty', label: 'Warranty', icon: ShieldCheck },
 ];
