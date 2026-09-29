@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth, currentUser } from "@clerk/nextjs/server";
-import { getCustomerAccess, resolvePriceType } from "@/lib/access";
+import { getCustomerAccess, resolvePriceType, stockKeysForSku } from "@/lib/access";
 import { getJSON } from "@/lib/redis";
 import { computePrice, findRuleForSku, getListPrice, PricingRule } from "@/lib/pricing";
 import { PORTAL_ORDERS_ENABLED } from "@/lib/features";
@@ -61,6 +61,7 @@ interface SubmitLine {
 interface StockRecord {
   name?: string | null;
   stockCategory?: string | null;
+  listPrice?: number | null;
   byLocation?: Record<string, { onHand: number; allocated: number; backordered: number }>;
 }
 
@@ -212,9 +213,20 @@ export async function POST(req: NextRequest) {
   }
 
   const rules = (await getJSON<PricingRule[]>(`pricing:${priceType}`)) ?? [];
-  const stockEntries = await Promise.all(
-    cleaned.map((l) => getJSON<StockRecord>(`stock:${l.sku}`))
-  );
+
+  // Probe every catalogue this org holds, exactly as /api/pricing and
+  // /api/stock do. The previous hard-coded `stock:${sku}` meant a Paramount
+  // (pr:stock:*) SKU that priced fine in the quote builder was rejected here
+  // as "no longer available" - the customer would see a price, press Place
+  // order, and be told the product doesn't exist.
+  async function findStock(sku: string): Promise<StockRecord | null> {
+    for (const key of stockKeysForSku(access!, sku)) {
+      const entry = await getJSON<StockRecord>(key);
+      if (entry) return entry;
+    }
+    return null;
+  }
+  const stockEntries = await Promise.all(cleaned.map((l) => findStock(l.sku)));
 
   const missing = cleaned.filter((l, i) => !stockEntries[i]).map((l) => l.sku);
   if (missing.length > 0) {
@@ -231,8 +243,13 @@ export async function POST(req: NextRequest) {
 
   const lines: PortalOrderLine[] = cleaned.map((l, i) => {
     const entry = stockEntries[i]!;
-    const listPrice = listPrices[i];
     const rule = findRuleForSku(rules, l.sku, entry.stockCategory ?? null);
+    // Same list-price precedence as /api/pricing, so the price stored on the
+    // order is by construction the price the quote builder displayed:
+    //   pricing:listprices -> stock entry (STKMAST.SELLING_PRICE1) -> rule.
+    // Without the two fallbacks a SKU missing from pricing:listprices priced
+    // on screen but was stored here with a null price and a $0 line total.
+    const listPrice = listPrices[i] ?? entry.listPrice ?? rule?.listPrice ?? null;
     // Price at the LINE's own quantity, so quantity breaks apply per line
     // exactly as the quote builder displayed them.
     const unitPriceServer = rule ? computePrice(rule, l.qty, listPrice) : null;
@@ -252,6 +269,21 @@ export async function POST(req: NextRequest) {
       onHandAtSubmit: freeStock(entry),
     };
   });
+
+  // A line with no agreed price must never reach the order desk. The quote
+  // builder already blocks this, but the browser isn't trusted - a stale tab
+  // or a direct POST would otherwise store a $0 line that looks legitimate.
+  const unpriced = lines.filter((l) => l.unitPriceServer == null).map((l) => l.sku);
+  if (unpriced.length > 0) {
+    return NextResponse.json(
+      {
+        error: `We don't have an agreed price for ${unpriced.join(", ")} on this account. Remove ${
+          unpriced.length === 1 ? "it" : "them"
+        } and contact Hayward for a quote.`,
+      },
+      { status: 400 }
+    );
+  }
 
   const subTotal =
     Math.round(lines.reduce((sum, l) => sum + (l.lineTotal ?? 0), 0) * 100) / 100;
