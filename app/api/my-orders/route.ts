@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getCustomerAccess } from "@/lib/access";
+import { isFeatureHidden } from "@/lib/page-visibility";
 import { customerStatus, listOrdersForCustomer } from "@/lib/portal-orders";
 
 export const dynamic = "force-dynamic";
@@ -23,8 +24,12 @@ export async function GET() {
 
   // An aggregate (staff) login holds every code in the business; fanning out
   // over all of them would be a pointless read. Staff have their own queue page.
+  // Whether this login may place orders. The quote builder already calls this
+  // route on load, so it carries the flag rather than adding another request.
+  const orderingEnabled = !isFeatureHidden("ordering", access.groupKey, access.isAggregate);
+
   if (access.isAggregate) {
-    return NextResponse.json({ orders: [], isAggregate: true });
+    return NextResponse.json({ orders: [], isAggregate: true, orderingEnabled });
   }
 
   const records = await listOrdersForCustomer(access.customerCodes, 25);
@@ -50,5 +55,5 @@ export async function GET() {
     };
   });
 
-  return NextResponse.json({ orders, isAggregate: false });
+  return NextResponse.json({ orders, isAggregate: false, orderingEnabled });
 }
