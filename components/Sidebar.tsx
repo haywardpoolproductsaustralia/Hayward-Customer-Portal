@@ -6,12 +6,14 @@ import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import { Boxes, Receipt, Tag, BookOpen, Menu, X, Home, Sparkles, Warehouse, TrendingUp, Inbox, UserSearch, ShieldCheck, GitCompareArrows, ShoppingCart } from 'lucide-react';
 import { PORTAL_ORDERS_ENABLED } from '@/lib/features';
-import { isPageHidden } from '@/lib/page-visibility';
+import { isPageHidden, isFeatureHidden } from '@/lib/page-visibility';
 
 const NAV_ITEMS = [
   { href: '/dashboard', label: 'Home', icon: Home },
   // The ordering entry point sits directly under Home. Same route as the old
   // "Pricing" item, so bookmarks and page-visibility rules are unaffected.
+  // Groups that opted out of ordering get it relabelled back to "Pricing"
+  // in NavLinks below.
   ...(PORTAL_ORDERS_ENABLED
     ? [{ href: '/dashboard/pricing', label: 'Place an order', icon: ShoppingCart }]
     : []),
@@ -58,7 +60,14 @@ function NavLinks({
   // Per-group hiding (lib/page-visibility.ts). This only removes the LINK -
   // the page and its API route enforce the same rule server-side, since a
   // hidden link is still a reachable URL.
-  const items = base.filter((item) => !isPageHidden(item.href, groupKey, isAggregate));
+  const orderingHidden = isFeatureHidden('ordering', groupKey, isAggregate);
+  const items = base
+    .filter((item) => !isPageHidden(item.href, groupKey, isAggregate))
+    .map((item) =>
+      orderingHidden && item.href === '/dashboard/pricing'
+        ? { ...item, label: 'Pricing', icon: Tag }
+        : item
+    );
 
   return (
     <nav className="flex flex-col gap-1">
