@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { PortalOrder } from "@/lib/portal-orders";
-import { Copy, Check, ChevronRight, Lock, Download, AlertTriangle, ShoppingCart } from "lucide-react";
+import { Copy, Check, ChevronRight, Lock, Download, AlertTriangle, ShoppingCart, FileUp } from "lucide-react";
 import * as XLSX from "xlsx";
 
 const POLL_MS = 7_000;
@@ -45,6 +45,7 @@ export default function PortalOrderQueue({ meId, meName }: { meId: string; meNam
   const [toast, setToast] = useState<Toast>(null);
   const [copied, setCopied] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [exporting, setExporting] = useState(false);
 
   const [fCode, setFCode] = useState("");
   const [fName, setFName] = useState("");
@@ -177,6 +178,89 @@ export default function PortalOrderQueue({ meId, meName }: { meId: string; meNam
     XLSX.writeFile(wb, `portal-orders-${melbDay(Date.now())}.xlsx`);
   }
 
+  /**
+   * Build the Arrow import CSV on the server and download it. The server marks
+   * each order exported in the same step, so it can't land in a second file.
+   * `force` re-exports a single order already exported (failed import).
+   */
+  async function exportArrow(ids: string[], force = false) {
+    if (ids.length === 0) return;
+    setExporting(true);
+    try {
+      const res = await fetch("/api/portal-orders/export-arrow", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids, force }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setToast({ text: data.error ?? "Export failed.", tone: "warn" });
+        return;
+      }
+      if (data.csv) {
+        const blob = new Blob([data.csv], { type: "text/csv;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = data.filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+      }
+      const n = data.exported?.length ?? 0;
+      const skipped: { ref: string | null; reason: string }[] = data.skipped ?? [];
+      const skippedText = skipped.map((x) => `${x.ref ?? "an order"} ${x.reason}`).join("; ");
+      setToast(
+        n === 0
+          ? { text: `Nothing exported. ${skippedText}`, tone: "warn" }
+          : skipped.length > 0
+            ? { text: `Exported ${n} order${n === 1 ? "" : "s"}. Skipped: ${skippedText}`, tone: "warn" }
+            : { text: `Exported ${n} order${n === 1 ? "" : "s"} - import the file into Arrow.`, tone: "info" }
+      );
+      await load();
+    } catch {
+      setToast({ text: "Couldn't reach the server - nothing was exported.", tone: "warn" });
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  // What the bulk button sends: open orders nobody else is working on that
+  // haven't been exported or entered yet. The server re-checks all of this.
+  const exportable = filtered.filter(
+    (o) =>
+      !o.exportedAt &&
+      !o.seenInArrow &&
+      (o.status === "new" || (o.status === "claimed" && o.claimedBy === meId))
+  );
+
+  function exportAllToArrow() {
+    const n = exportable.length;
+    const lines = exportable.reduce((sum, o) => sum + o.lines.length, 0);
+    if (
+      !window.confirm(
+        `Export ${n} order${n === 1 ? "" : "s"} (${lines} line${lines === 1 ? "" : "s"}) to an Arrow import file?\n\n` +
+          "They'll be marked as sent to Arrow and won't be included in the next export."
+      )
+    )
+      return;
+    exportArrow(exportable.map((o) => o.id));
+  }
+
+  function exportOneToArrow(o: PortalOrder) {
+    if (
+      o.exportedAt &&
+      !window.confirm(
+        `${o.ref} was already exported${o.exportedByName ? ` by ${o.exportedByName}` : ""} at ${fmtTime(
+          o.exportedAt
+        )}.\n\nOnly export it again if that import failed - otherwise Arrow will get a duplicate order.`
+      )
+    )
+      return;
+    exportArrow([o.id], !!o.exportedAt);
+  }
+
   const mismatchCount = filtered.filter((o) => o.lines.some((l) => l.priceMismatch)).length;
 
   return (
@@ -185,8 +269,8 @@ export default function PortalOrderQueue({ meId, meName }: { meId: string; meNam
         <div>
           <h1 className="font-display text-3xl text-deep font-bold">Portal orders</h1>
           <p className="text-ink/50 mt-1">
-            Orders customers raised themselves on the portal. Account code and SKUs are already confirmed - these
-            just need keying into Arrow.
+            Orders customers raised themselves on the portal. Account code and SKUs are already confirmed - export
+            them to an Arrow import file. Orders drop off this list once they appear in Arrow.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -199,7 +283,16 @@ export default function PortalOrderQueue({ meId, meName }: { meId: string; meNam
               onClick={exportXlsx}
               className="rounded-xl border border-ink/10 bg-white px-4 py-2.5 text-sm font-medium shadow-soft hover:border-wave/30 flex items-center gap-2"
             >
-              <Download className="h-4 w-4" /> Export
+              <Download className="h-4 w-4" /> Export (Excel)
+            </button>
+          )}
+          {exportable.length > 0 && (
+            <button
+              onClick={exportAllToArrow}
+              disabled={exporting}
+              className="rounded-xl bg-wave text-white px-4 py-2.5 text-sm font-semibold shadow-soft hover:bg-deep disabled:opacity-50 flex items-center gap-2"
+            >
+              <FileUp className="h-4 w-4" /> Export {exportable.length} to Arrow (CSV)
             </button>
           )}
         </div>
@@ -292,6 +385,14 @@ export default function PortalOrderQueue({ meId, meName }: { meId: string; meNam
                         {hasMismatch && (
                           <span className="rounded-full bg-amber/15 text-amber px-2 py-0.5 text-xs font-medium">
                             price differs
+                          </span>
+                        )}
+                        {o.exportedAt && !o.seenInArrow && (
+                          <span
+                            className="rounded-full bg-wave/10 text-wave px-2 py-0.5 text-xs font-medium"
+                            title={`Exported${o.exportedByName ? ` by ${o.exportedByName}` : ""} ${fmtTime(o.exportedAt)}`}
+                          >
+                            sent to Arrow {fmtTime(o.exportedAt)}
                           </span>
                         )}
                         {o.status === "keyed" && (
@@ -389,7 +490,17 @@ export default function PortalOrderQueue({ meId, meName }: { meId: string; meNam
                       )}
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {o.status !== "cancelled" && o.status !== "keyed" && !o.seenInArrow && (
+                        <button
+                          onClick={() => exportOneToArrow(o)}
+                          disabled={exporting || (o.status === "claimed" && o.claimedBy !== meId)}
+                          className="flex items-center gap-1.5 text-xs rounded-lg border border-wave/30 bg-white text-wave px-3 py-1.5 font-medium disabled:opacity-40"
+                        >
+                          <FileUp className="h-3.5 w-3.5" />
+                          {o.exportedAt ? "Re-export Arrow CSV" : "Export this order (CSV)"}
+                        </button>
+                      )}
                       <button
                         onClick={() => copyLines(o)}
                         className="flex items-center gap-1.5 text-xs rounded-lg border border-ink/10 bg-white px-3 py-1.5 font-medium"
