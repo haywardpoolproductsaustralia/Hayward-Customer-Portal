@@ -13,4 +13,4 @@
 //
 // The submit endpoint is gated too, deliberately. Hiding only the button would
 // leave a live route writing orders into a queue nobody is looking at.
-export const PORTAL_ORDERS_ENABLED = false;
+export const PORTAL_ORDERS_ENABLED = true;
