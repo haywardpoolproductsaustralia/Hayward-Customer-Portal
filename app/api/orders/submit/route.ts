@@ -4,6 +4,7 @@ import { getCustomerAccess, resolvePriceType, stockKeysForSku } from "@/lib/acce
 import { getJSON } from "@/lib/redis";
 import { computePrice, findRuleForSku, getListPrice, PricingRule } from "@/lib/pricing";
 import { PORTAL_ORDERS_ENABLED } from "@/lib/features";
+import { isFeatureHidden } from "@/lib/page-visibility";
 import {
   createPortalOrder,
   findDuplicate,
@@ -98,6 +99,16 @@ export async function POST(req: NextRequest) {
   const access = await getCustomerAccess();
   if (!access) {
     return NextResponse.json({ error: "No organization selected" }, { status: 403 });
+  }
+
+  // Groups that have opted out of portal ordering (lib/page-visibility.ts).
+  // Enforced here, not just by hiding the button - a hidden button is still a
+  // reachable endpoint.
+  if (isFeatureHidden("ordering", access.groupKey, access.isAggregate)) {
+    return NextResponse.json(
+      { error: "Online ordering isn't enabled for your account. Please contact Hayward to place an order." },
+      { status: 403 }
+    );
   }
 
   const body = await req.json().catch(() => null);
