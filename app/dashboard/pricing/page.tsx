@@ -203,6 +203,11 @@ export default function PricingPage() {
   const [submitted, setSubmitted] = useState<{ ref: string; lineCount: number; subTotal: number } | null>(null);
   const [myOrders, setMyOrders] = useState<MyOrder[]>([]);
   const [historyOpen, setHistoryOpen] = useState(false);
+  // Per-group opt-out (lib/page-visibility.ts, e.g. Reece). Starts false so an
+  // opted-out group never sees the order button flash up before the check
+  // lands; the server also refuses their submits regardless.
+  const [orderingAllowed, setOrderingAllowed] = useState(false);
+  const orderingOn = PORTAL_ORDERS_ENABLED && orderingAllowed;
 
   // Always-current view of `lines` so the re-price effect below reads the
   // latest list (incl. a just-added line) rather than a render-time snapshot.
@@ -287,6 +292,7 @@ export default function PricingPage() {
       if (!res.ok) return;
       const data = await res.json();
       setMyOrders(data.orders ?? []);
+      setOrderingAllowed(data.orderingEnabled === true);
     } catch {
       /* the receipt list is a nicety - never block ordering on it */
     }
@@ -498,10 +504,10 @@ export default function PricingPage() {
       <div className="flex items-end justify-between flex-wrap gap-3">
         <div>
           <h1 className="font-display text-3xl text-deep font-bold">
-            {PORTAL_ORDERS_ENABLED ? 'Quote & order' : 'Quote builder'}
+            {orderingOn ? 'Quote & order' : 'Quote builder'}
           </h1>
           <p className="text-ink/50 mt-1">
-            {PORTAL_ORDERS_ENABLED
+            {orderingOn
               ? 'Add products, see your price and availability per line, then place your order.'
               : 'Add products, set quantities, get your discounted price per line.'}
           </p>
@@ -531,7 +537,7 @@ export default function PricingPage() {
               <Printer className="h-4 w-4" /> Print quote
             </button>
           )}
-          {PORTAL_ORDERS_ENABLED && lines.length > 0 && !orderOpen && (
+          {orderingOn && lines.length > 0 && !orderOpen && (
             <button
               onClick={() => {
                 setOrderOpen(true);
@@ -640,7 +646,7 @@ export default function PricingPage() {
         <div className="rounded-2xl bg-white border border-ink/10 shadow-soft py-16 flex flex-col items-center gap-2">
           <FileText className="h-8 w-8 text-ink/20" />
           <p className="text-ink/40">
-            {PORTAL_ORDERS_ENABLED
+            {orderingOn
               ? 'Search above and add products to start your order.'
               : 'Search above and add products to start a quote.'}
           </p>
@@ -785,7 +791,7 @@ export default function PricingPage() {
       )}
 
       {/* ---------------- Convert to order ---------------- */}
-      {PORTAL_ORDERS_ENABLED && orderOpen && lines.length > 0 && (
+      {orderingOn && orderOpen && lines.length > 0 && (
         <div className="rounded-2xl border border-wave/30 bg-white shadow-soft print:hidden">
           <div className="flex items-center justify-between px-5 py-4 border-b border-ink/10">
             <h2 className="font-display text-xl text-deep font-bold">Place your order</h2>
