@@ -44,6 +44,9 @@ export async function GET() {
       requiredBy: o.requiredBy,
       statusLabel: status.label,
       statusDetail: status.detail,
+      // SKU + qty only, for "Reorder". Prices are deliberately NOT returned -
+      // a reorder is always repriced fresh against today's rules.
+      lines: o.lines.map((l) => ({ sku: l.sku, description: l.description, qty: l.qty })),
     };
   });
 
