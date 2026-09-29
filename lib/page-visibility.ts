@@ -41,3 +41,33 @@ export function isPageHidden(
   if (!hidden) return false;
   return hidden.some((p) => href === p || href.startsWith(`${p}/`));
 }
+
+// ---------------------------------------------------------------------------
+// Per-group FEATURE hiding - for things that live inside a page rather than
+// being a page of their own. Same blocklist rules as HIDDEN_PAGES above:
+// default is "has it", Hayward staff (aggregate) always have it.
+//
+// 'ordering' = placing orders on the portal: the Place order button and panel
+// on the quote builder, the "Place an order" nav label, and /api/orders/submit.
+// The quote builder itself stays - the group still sees its pricing.
+//
+// Reece asked not to use portal ordering, Sep 2026. They keep ordering through
+// their own channel; staff can still place an order on a Reece account from
+// the "Pricing as" picker, since staff logins are aggregate.
+// ---------------------------------------------------------------------------
+export type PortalFeature = 'ordering';
+
+export const HIDDEN_FEATURES: Record<string, PortalFeature[]> = {
+  Reece: ['ordering'],
+};
+
+/** True when this login must not have `feature`. */
+export function isFeatureHidden(
+  feature: PortalFeature,
+  groupKey?: string | null,
+  isAggregate: boolean = false
+): boolean {
+  if (isAggregate) return false;
+  if (!groupKey) return false;
+  return HIDDEN_FEATURES[groupKey]?.includes(feature) ?? false;
+}
