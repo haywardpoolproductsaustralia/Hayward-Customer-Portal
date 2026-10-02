@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth, currentUser } from "@clerk/nextjs/server";
 import { getCustomerAccess, resolvePriceType, stockKeysForSku } from "@/lib/access";
 import { getJSON } from "@/lib/redis";
-import { computePrice, findRuleForSku, getListPrice, PricingRule } from "@/lib/pricing";
+import { computePrice, findRuleForSku, getCustomerRules, getListPrice, PricingRule } from "@/lib/pricing";
 import { PORTAL_ORDERS_ENABLED } from "@/lib/features";
 import { isFeatureHidden } from "@/lib/page-visibility";
 import {
@@ -224,6 +224,8 @@ export async function POST(req: NextRequest) {
   }
 
   const rules = (await getJSON<PricingRule[]>(`pricing:${priceType}`)) ?? [];
+  // Customer-specific SPRTRAN rows for the ordering debtor - these win over the price type, as in Arrow.
+  const customerRules = await getCustomerRules(debtorCode);
 
   // Probe every catalogue this org holds, exactly as /api/pricing and
   // /api/stock do. The previous hard-coded `stock:${sku}` meant a Paramount
@@ -254,7 +256,7 @@ export async function POST(req: NextRequest) {
 
   const lines: PortalOrderLine[] = cleaned.map((l, i) => {
     const entry = stockEntries[i]!;
-    const rule = findRuleForSku(rules, l.sku, entry.stockCategory ?? null);
+    const rule = findRuleForSku(rules, l.sku, entry.stockCategory ?? null, customerRules);
     // Same list-price precedence as /api/pricing, so the price stored on the
     // order is by construction the price the quote builder displayed:
     //   pricing:listprices -> stock entry (STKMAST.SELLING_PRICE1) -> rule.
