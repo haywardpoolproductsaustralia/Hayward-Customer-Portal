@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCustomerAccess, resolvePriceType, stockKeysForSku } from '@/lib/access';
 import { getJSON } from '@/lib/redis';
-import { computePrice, findRuleForSku, getListPrice, PricingRule } from '@/lib/pricing';
+import { computePrice, findRuleForSku, getCustomerRules, getListPrice, PricingRule } from '@/lib/pricing';
 
 interface StockEntryLite {
   stockCategory?: string | null;
@@ -32,6 +32,7 @@ export async function GET(req: NextRequest) {
   }
 
   const rules = (await getJSON<PricingRule[]>(`pricing:${priceType}`)) ?? [];
+  const customerRules = await getCustomerRules(representativeCode);
 
   // The stock entry carries BOTH the category (for category-fallback rules) and
   // STKMAST.SELLING_PRICE1 as `listPrice`.
@@ -62,7 +63,7 @@ export async function GET(req: NextRequest) {
     listPrice = stockEntry.listPrice;
   }
 
-  const rule = findRuleForSku(rules, sku, stockEntry?.stockCategory);
+  const rule = findRuleForSku(rules, sku, stockEntry?.stockCategory, customerRules);
 
   if (!rule) {
     return NextResponse.json(
