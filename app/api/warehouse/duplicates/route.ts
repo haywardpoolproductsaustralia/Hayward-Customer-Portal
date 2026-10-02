@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getCustomerAccess } from '@/lib/access';
 import { redis, getJSON } from '@/lib/redis';
-import { computePrice, findRuleForSku, PricingRule } from '@/lib/pricing';
+import { computePrice, findRuleForSku, getCustomerRules, PricingRule } from '@/lib/pricing';
 
 interface OrderLine {
   orderNo: string;
@@ -106,6 +106,10 @@ export async function GET() {
   const pricingRulesValues = await Promise.all(
     uniquePriceTypes.map((pt) => getJSON<PricingRule[]>(`pricing:${pt}`))
   );
+  // Customer-specific SPRTRAN rules (pricing:cust:{code}), one per debtor.
+  const customerRulesValues = await Promise.all(uniqueCodes.map((c) => getCustomerRules(c)));
+  const customerRulesByCode = new Map<string, PricingRule[]>();
+  uniqueCodes.forEach((c, i) => customerRulesByCode.set(c, customerRulesValues[i]));
   const rulesByPriceType = new Map<string, PricingRule[]>();
   uniquePriceTypes.forEach((pt, i) => {
     rulesByPriceType.set(pt, pricingRulesValues[i] ?? []);
@@ -116,7 +120,7 @@ export async function GET() {
     if (!priceType) return null;
     const rules = rulesByPriceType.get(priceType) ?? [];
     const stock = stockBySkuMap.get(sku);
-    const rule = findRuleForSku(rules, sku, stock?.stockCategory);
+    const rule = findRuleForSku(rules, sku, stock?.stockCategory, customerRulesByCode.get(customerCode));
     if (!rule) return null;
     const price = computePrice(rule, qty, stock?.listPrice ?? null);
     return price != null ? price * qty : null;
