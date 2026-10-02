@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCustomerAccess, resolvePriceType } from '@/lib/access';
 import { getJSON } from '@/lib/redis';
-import { computePrice, findRuleForSku, PricingRule } from '@/lib/pricing';
+import { computePrice, findRuleForSku, getCustomerRules, PricingRule } from '@/lib/pricing';
 
 interface BatchItem {
   sku: string;
@@ -37,9 +37,10 @@ export async function POST(req: NextRequest) {
 
   // One rules fetch, reused for every item in the batch.
   const rules = (await getJSON<PricingRule[]>(`pricing:${priceType}`)) ?? [];
+  const customerRules = await getCustomerRules(representativeCode);
 
   const results = items.map(({ sku, stockCategory, listPrice }) => {
-    const rule = findRuleForSku(rules, sku, stockCategory);
+    const rule = findRuleForSku(rules, sku, stockCategory, customerRules);
     if (!rule) {
       return { sku, listPrice: listPrice ?? null, price: null, discountPercent: null };
     }
