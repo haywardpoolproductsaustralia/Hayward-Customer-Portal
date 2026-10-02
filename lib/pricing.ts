@@ -65,6 +65,13 @@ export function computePrice(rule: PricingRule, qty: number, listPrice: number |
     .filter((b) => b.qty > 0)
     .sort((a, b) => a.qty - b.qty);
 
+  // BREAK_FLAG='N' rows can carry stale QUANTITY_n values in Arrow - Arrow
+  // ignores them and charges the flat PRICE_DISCOUNT, so we do too.
+  const flat = String(rule.breakFlag ?? '').trim().toUpperCase() === 'N';
+  if (flat) {
+    return rule.priceDiscount != null ? round2(listPrice * (1 - rule.priceDiscount / 100)) : null;
+  }
+
   if (sortedBreaks.length > 0) {
     const tier = sortedBreaks.find((b) => qty <= b.qty) ?? sortedBreaks[sortedBreaks.length - 1];
     return round2(listPrice * (1 - tier.discount / 100));
@@ -76,21 +83,55 @@ export function computePrice(rule: PricingRule, qty: number, listPrice: number |
 }
 
 /**
- * Finds the pricing rule for a specific SKU within a price type's rule
- * set: an exact SKU match first, falling back to a category-level rule
- * (where the rule's own `sku` is blank but its `stockCategory` matches)
- * if the SKU has no rule of its own.
+ * A rule that prices nothing: BREAK_FLAG='Y' with every QUANTITY_n zero and
+ * no flat discount. Arrow has customer-level rows like this (e.g. 111270,
+ * 111335); they are skipped so they don't block the price-type rule beneath.
+ */
+function isEmptyRule(r: PricingRule): boolean {
+  const flat = String(r.breakFlag ?? '').trim().toUpperCase() === 'N';
+  const hasBreaks = (r.breaks ?? []).some((b) => b.qty > 0);
+  return !flat && !hasBreaks && !r.priceDiscount;
+}
+
+function matchIn(rules: PricingRule[], sku: string, stockCategory?: string | null): PricingRule | null {
+  const exact = rules.find((r) => r.sku === sku && !isEmptyRule(r));
+  if (exact) return exact;
+  if (stockCategory) {
+    const cat = rules.find((r) => r.sku === '' && r.stockCategory === stockCategory && !isEmptyRule(r));
+    if (cat) return cat;
+  }
+  return null;
+}
+
+/**
+ * Finds the pricing rule for a SKU, in Arrow's precedence order:
+ *   1. customer-specific SKU rule        (SPRTRAN.CUSTOMER_CODE = debtor)
+ *   2. customer-specific category rule
+ *   3. price-type SKU rule               (SPRTRAN.AUTO_PRICE_TYPE)
+ *   4. price-type category rule
+ * `customerRules` comes from getCustomerRules(); omit it to price on the
+ * price type alone (old behaviour).
  */
 export function findRuleForSku(
   rules: PricingRule[],
   sku: string,
-  stockCategory?: string | null
+  stockCategory?: string | null,
+  customerRules?: PricingRule[] | null
 ): PricingRule | null {
-  const exact = rules.find((r) => r.sku === sku);
-  if (exact) return exact;
-  if (stockCategory) {
-    const categoryMatch = rules.find((r) => r.sku === '' && r.stockCategory === stockCategory);
-    if (categoryMatch) return categoryMatch;
+  if (customerRules && customerRules.length > 0) {
+    const c = matchIn(customerRules, sku, stockCategory);
+    if (c) return c;
   }
-  return null;
+  return matchIn(rules, sku, stockCategory);
+}
+
+/**
+ * Customer-specific SPRTRAN rules for one debtor, written by the portal sync
+ * to pricing:cust:{code}. Most customers have none -> [].
+ */
+export async function getCustomerRules(customerCode: string | null | undefined): Promise<PricingRule[]> {
+  const code = String(customerCode ?? '').trim();
+  if (!code) return [];
+  const rules = await getJSON<PricingRule[]>(`pricing:cust:${code}`);
+  return Array.isArray(rules) ? rules : [];
 }
