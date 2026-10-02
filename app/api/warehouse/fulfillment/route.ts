@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getCustomerAccess } from '@/lib/access';
 import { redis, getJSON } from '@/lib/redis';
-import { computePrice, findRuleForSku, PricingRule } from '@/lib/pricing';
+import { computePrice, findRuleForSku, getCustomerRules, PricingRule } from '@/lib/pricing';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -149,6 +149,10 @@ export async function GET() {
   const pricingRulesValues = await Promise.all(
     uniquePriceTypes.map((pt) => getJSON<PricingRule[]>(`pricing:${pt}`))
   );
+  // Customer-specific SPRTRAN rules (pricing:cust:{code}), one per debtor.
+  const customerRulesValues = await Promise.all(uniqueCodes.map((c) => getCustomerRules(c)));
+  const customerRulesByCode = new Map<string, PricingRule[]>();
+  uniqueCodes.forEach((c, i) => customerRulesByCode.set(c, customerRulesValues[i]));
   const rulesByPriceType = new Map<string, PricingRule[]>();
   uniquePriceTypes.forEach((pt, i) => {
     rulesByPriceType.set(pt, pricingRulesValues[i] ?? []);
@@ -179,7 +183,7 @@ export async function GET() {
       const onHandTotal = Math.max(0, rawOnHand);
       const fulfillableQty = Math.max(0, Math.min(l.qtyBackordered, onHandTotal));
       const canFullyFulfil = onHandTotal >= l.qtyBackordered;
-      const rule = findRuleForSku(rules, l.sku, stock?.stockCategory);
+      const rule = findRuleForSku(rules, l.sku, stock?.stockCategory, customerRulesByCode.get(customerCode));
       const listPrice = stock?.listPrice ?? null;
       const unitPrice = rule ? computePrice(rule, l.qtyOrdered, listPrice) : null;
       const lineBackorderValue = unitPrice != null ? unitPrice * l.qtyBackordered : null;
