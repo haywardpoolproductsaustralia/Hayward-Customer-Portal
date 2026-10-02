@@ -7,7 +7,7 @@ import { findRelevantManuals } from '@/lib/manuals';
 
 interface StockEntry {
   sku: string;
-  name?: string | null;
+  name?: string | null;         
   stockCategory?: string | null;
   listPrice?: number | null;
   supplierStock?: string | null;
