@@ -39,36 +39,38 @@ export async function getListPrice(sku: string): Promise<number | null> {
 }
 
 /**
- * Computes a final price for a quantity, using the same logic as the
- * existing Pricing Tool: the highest quantity-break threshold the qty
- * meets or exceeds wins; if none match, fall back to the flat discount,
- * then to the lowest tier's discount as a last resort.
+ * Computes a final price for a quantity, matching Arrow exactly.
  *
- * `listPrice` is passed in explicitly (the SKU's own STKMAST.SELLING_PRICE1,
- * now fetched from pricing:listprices) rather than read from `rule.listPrice` -
- * category-level rules have no SKU of their own in SPRTRAN, so their
- * `listPrice` is always null even though the discount itself is perfectly
- * valid. Using the SKU's own list price means category-fallback pricing
- * actually produces a price instead of silently coming back empty.
+ * Arrow's SPRTRAN QUANTITY_n values are UPPER bounds ("up to"):
+ *   QUANTITY_1=5  PRICE_DISC_1=69   -> qty 1-5    gets 69%
+ *   QUANTITY_2=1000 PRICE_DISC_2=71 -> qty 6-1000 gets 71%
+ * So the applicable tier is the LOWEST threshold the qty is <= to.
+ * (Fixed 2 Oct 2026: this previously took the highest threshold <= qty,
+ * which is one tier short at every break boundary - e.g. qty 6 got 69%
+ * instead of 71%, qty 40 got 71.5% instead of 73.5% - and is what raised
+ * the "price differs" flag on portal orders. app/dashboard/pricing/page.tsx
+ * resolvePrice() already used the correct upper-bound rule.)
+ *
+ * Qty above the last threshold uses the last tier. No breaks at all ->
+ * the flat PRICE_DISCOUNT.
+ *
+ * `listPrice` is passed in explicitly (the SKU's own STKMAST.SELLING_PRICE1)
+ * rather than read from `rule.listPrice` - category-level rules have no SKU
+ * of their own in SPRTRAN, so their `listPrice` is always null.
  */
 export function computePrice(rule: PricingRule, qty: number, listPrice: number | null): number | null {
   if (listPrice == null) return null;
 
-  const sortedBreaks = [...rule.breaks].sort((a, b) => a.qty - b.qty);
+  const sortedBreaks = [...(rule.breaks ?? [])]
+    .filter((b) => b.qty > 0)
+    .sort((a, b) => a.qty - b.qty);
 
-  let bestDiscount: number | null = null;
-  for (const b of sortedBreaks) {
-    if (qty >= b.qty) bestDiscount = b.discount;
-  }
-
-  if (bestDiscount != null) {
-    return round2(listPrice * (1 - bestDiscount / 100));
+  if (sortedBreaks.length > 0) {
+    const tier = sortedBreaks.find((b) => qty <= b.qty) ?? sortedBreaks[sortedBreaks.length - 1];
+    return round2(listPrice * (1 - tier.discount / 100));
   }
   if (rule.priceDiscount) {
     return round2(listPrice * (1 - rule.priceDiscount / 100));
-  }
-  if (sortedBreaks.length > 0) {
-    return round2(listPrice * (1 - sortedBreaks[0].discount / 100));
   }
   return null;
 }
