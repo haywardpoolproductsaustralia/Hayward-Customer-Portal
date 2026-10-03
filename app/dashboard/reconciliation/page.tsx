@@ -80,8 +80,13 @@ type ReconRow = ArrowLine & {
   vessel: string | null;
   containerEta: string | null;
   carrier: string | null;
-  status: 'missing' | 'not_received' | 'in_transit' | 'delivered' | 'ok';
+  status: 'missing' | 'not_received' | 'shipped' | 'in_transit' | 'delivered' | 'ok';
   lateVsRequest: boolean;
+  qtyMismatch: boolean;
+  matchType: 'exact' | 'alias' | null;   // alias = matched on PO + qty because SKU codes differ
+  as400Item: string | null;              // the supplier's own item code from AS400
+  shipped: boolean;                      // supplier has shipped (SHPD > 0 or ship date reached)
+  bestEta: string | null;                // container ETA, else AS400 ETA
 };
 
 type As400Meta  = { uploadedAt: string | null; rows: number; filename: string | null };
@@ -131,13 +136,18 @@ const AUNZ_PORTS = new Set([
 function statusBadge(s: ReconRow['status']) {
   const map: Record<ReconRow['status'], { label: string; cls: string }> = {
     missing:      { label: 'Missing',     cls: 'bg-red-500 text-white' },
-    not_received: { label: 'Not rcvd',    cls: 'bg-orange-400 text-white' },
+    not_received: { label: 'Awaiting',    cls: 'bg-orange-400 text-white' },
+    shipped:      { label: 'Shipped',     cls: 'bg-sky-500 text-white' },
     in_transit:   { label: 'In transit',  cls: 'bg-blue-500 text-white' },
     delivered:    { label: 'Delivered',   cls: 'bg-green-500 text-white' },
     ok:           { label: 'OK',          cls: 'bg-slate-400 text-white' },
   };
   const { label, cls } = map[s];
   return <span className={`inline-block rounded px-2 py-0.5 text-[11px] font-semibold ${cls}`}>{label}</span>;
+}
+
+function isException(x: ReconRow) {
+  return x.status === 'missing' || x.qtyMismatch || x.matchType === 'alias' || x.lateVsRequest;
 }
 
 function addrMatch(row: ReconRow): 'ok' | 'warn' | 'unknown' {
@@ -171,7 +181,7 @@ function parseCsvLine(line: string): string[] {
 }
 
 function parseAs400Csv(text: string): As400Line[] {
-  const lines = text.trim().split('\n');
+  const lines = text.replace(/\r/g, '').trim().split('\n');
   if (lines.length < 2) return [];
   const hdr = parseCsvLine(lines[0]).map((h) => h.toLowerCase().replace(/"/g, ''));
   const idx = (n: string) => hdr.indexOf(n);
@@ -205,6 +215,20 @@ function parseAs400Csv(text: string): As400Line[] {
       usSoNumber: cols[c.so] || null,
     }];
   });
+}
+
+// AS400 export may also arrive as .xlsx — convert the sheet holding the
+// AS400_ORD header to CSV text and reuse the CSV parser.
+async function readAs400File(file: File): Promise<As400Line[]> {
+  if (!/\.xlsx?$/i.test(file.name)) return parseAs400Csv(await file.text());
+  const XLSX = await loadSheetJS();
+  const wb = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: true });
+  for (const name of wb.SheetNames) {
+    const csv: string = XLSX.utils.sheet_to_csv(wb.Sheets[name], { dateNF: 'yyyy-mm-dd', blankrows: false });
+    const first = csv.split('\n')[0]?.toUpperCase() ?? '';
+    if (first.includes('AS400_ORD')) return parseAs400Csv(csv);
+  }
+  return [];
 }
 
 // ---------------------------------------------------------------------------
@@ -243,10 +267,14 @@ async function parseShipmentXlsx(file: File): Promise<ShipLine[]> {
   const XLSX = await loadSheetJS();
   const buf = await file.arrayBuffer();
   const wb = XLSX.read(buf, { type: 'array', cellDates: true });
-  const ws = wb.Sheets[wb.SheetNames[0]];
-  const raw: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true });
-
-  const hi = raw.findIndex((r: any[]) => Array.isArray(r) && r.includes('PO #'));
+  // The CDS-Net sheet may not be the first sheet — find whichever has a "PO #" header row.
+  let raw: any[][] = [];
+  let hi = -1;
+  for (const name of wb.SheetNames) {
+    const rowsOfSheet: any[][] = XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, raw: true });
+    const idx = rowsOfSheet.findIndex((r: any[]) => Array.isArray(r) && r.some((v: any) => String(v ?? '').trim() === 'PO #'));
+    if (idx >= 0) { raw = rowsOfSheet; hi = idx; break; }
+  }
   if (hi < 0) throw new Error('Column "PO #" not found — is this a Shipment Activity by Container file?');
 
   const H = raw[hi];
@@ -311,58 +339,148 @@ async function parseShipmentXlsx(file: File): Promise<ShipLine[]> {
 // Reconcile Arrow + AS400 + Shipment
 // ---------------------------------------------------------------------------
 
+// Matching key: uppercase, strip everything that isn't A-Z / 0-9. Removes
+// trailing spaces, hidden characters from Arrow, and hyphen differences.
+const normKey = (v: string | null | undefined) => String(v ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+type As400Agg = {
+  item: string; ord: number; shpd: number;
+  eta: string | null; shipDate: string | null; orderDate: string | null;
+  usSo: string | null; shipToName: string | null; shipToCity: string | null;
+  shipToState: string | null; shipToPostcode: string | null;
+};
+
 function reconcile(arrow: ArrowLine[], as400: As400Line[], ship: ShipLine[]): ReconRow[] {
-  const a4Map = new Map<string, As400Line>();
+  const today = new Date().toISOString().slice(0, 10);
+  const maxDate = (a: string | null, b: string | null) => (!a ? b : !b ? a : a > b ? a : b);
+
+  // ── AS400: Wuxi lines appear twice (US intercompany SO + Wuxi SO) with the
+  //    same qty. Sum within each SO (keeps genuine split lines), then take the
+  //    MAX across SOs so the duplicate never doubles the quantity.
+  const perSo = new Map<string, Map<string, As400Agg>>(); // po|key -> so -> agg
   for (const r of as400) {
-    const key = `${r.po}-${r.item}`;
-    const ex = a4Map.get(key);
-    if (!ex) { a4Map.set(key, r); continue; }
-    a4Map.set(key, { ...ex, as400Ord: ex.as400Ord + r.as400Ord, as400Shpd: ex.as400Shpd + r.as400Shpd });
+    const k = `${r.po}|${normKey(r.item)}`;
+    const so = String(r.usSoNumber ?? '').trim();
+    if (!perSo.has(k)) perSo.set(k, new Map());
+    const bySo = perSo.get(k)!;
+    const ex = bySo.get(so);
+    if (!ex) {
+      bySo.set(so, {
+        item: r.item, ord: r.as400Ord, shpd: r.as400Shpd, eta: r.eta, shipDate: r.shipDate,
+        orderDate: r.as400OrderDate, usSo: so || null, shipToName: r.shipToName,
+        shipToCity: r.shipToCity, shipToState: r.shipToState, shipToPostcode: r.shipToPostcode,
+      });
+    } else {
+      ex.ord += r.as400Ord; ex.shpd += r.as400Shpd;
+      ex.eta = maxDate(ex.eta, r.eta); ex.shipDate = maxDate(ex.shipDate, r.shipDate);
+    }
   }
+  const a4Map = new Map<string, As400Agg>();
+  const a4ByPo = new Map<string, string[]>(); // po -> keys
+  perSo.forEach((bySo, k) => {
+    const list = Array.from(bySo.values());
+    const best = list.reduce((x, y) => (y.ord > x.ord ? y : x));
+    a4Map.set(k, {
+      ...best,
+      shpd: Math.max(...list.map((x) => x.shpd)),
+      eta: list.reduce<string | null>((m, x) => maxDate(m, x.eta), null),
+      shipDate: list.reduce<string | null>((m, x) => maxDate(m, x.shipDate), null),
+      usSo: list.map((x) => x.usSo).filter(Boolean).join(', ') || null,
+    });
+    const po = k.split('|')[0];
+    if (!a4ByPo.has(po)) a4ByPo.set(po, []);
+    a4ByPo.get(po)!.push(k);
+  });
 
+  // ── Shipments (AU/NZ only, already filtered on upload)
   const shipMap = new Map<string, ShipLine[]>();
-  for (const s of ship) {
-    const key = `${s.po}-${s.item}`;
-    if (!shipMap.has(key)) shipMap.set(key, []);
-    shipMap.get(key)!.push(s);
+  for (const sl of ship) {
+    const k = `${sl.po}|${normKey(sl.item)}`;
+    if (!shipMap.has(k)) shipMap.set(k, []);
+    shipMap.get(k)!.push(sl);
   }
 
-  return arrow.map((a): ReconRow => {
-    const key  = `${a.po}-${a.supplierSku}`;
-    const a4   = a4Map.get(key);
-    const ships = (shipMap.get(key) ?? []).sort((x, y) => (y.eta ?? '').localeCompare(x.eta ?? ''));
+  // ── Pass 1: exact (normalised) SKU match
+  const matched = new Map<number, { key: string; type: 'exact' | 'alias' }>();
+  const usedA4 = new Set<string>();
+  arrow.forEach((a, i) => {
+    const k = `${a.po}|${normKey(a.supplierSku)}`;
+    if (normKey(a.supplierSku) && a4Map.has(k)) { matched.set(i, { key: k, type: 'exact' }); usedA4.add(k); }
+  });
+
+  // ── Pass 2: SKU codes differ between Arrow and AS400 (e.g. C150SWAU vs C150S,
+  //    or Arrow sundry code 00.06.3260.00). Match on same PO + same qty, only
+  //    when exactly one unmatched line on each side has that qty.
+  const unmatchedByPo = new Map<string, number[]>();
+  arrow.forEach((a, i) => {
+    if (matched.has(i)) return;
+    if (!unmatchedByPo.has(a.po)) unmatchedByPo.set(a.po, []);
+    unmatchedByPo.get(a.po)!.push(i);
+  });
+  unmatchedByPo.forEach((idxs, po) => {
+    const free = (a4ByPo.get(po) ?? []).filter((k) => !usedA4.has(k));
+    for (const i of idxs) {
+      const q = Math.round(arrow[i].qtyOrdered);
+      const sameQtyArrow = idxs.filter((j) => Math.round(arrow[j].qtyOrdered) === q && !matched.has(j));
+      const cands = free.filter((k) => !usedA4.has(k) && Math.round(a4Map.get(k)!.ord) === q);
+      if (cands.length === 1 && sameQtyArrow.length === 1) {
+        matched.set(i, { key: cands[0], type: 'alias' });
+        usedA4.add(cands[0]);
+      }
+    }
+  });
+
+  return arrow.map((a, i): ReconRow => {
+    const m = matched.get(i) ?? null;
+    const a4 = m ? a4Map.get(m.key)! : null;
+    // container lookup: try the supplier's item code first, then Arrow's
+    const ships = [
+      ...(a4 ? shipMap.get(`${a.po}|${normKey(a4.item)}`) ?? [] : []),
+      ...(!a4 || normKey(a4.item) !== normKey(a.supplierSku) ? shipMap.get(`${a.po}|${normKey(a.supplierSku)}`) ?? [] : []),
+    ].sort((x, y) => (y.eta ?? '').localeCompare(x.eta ?? ''));
     const latest = ships[0] ?? null;
 
-    const as400Ord  = a4?.as400Ord  ?? 0;
-    const as400Shpd = a4?.as400Shpd ?? 0;
-    const onWater   = Math.max(0, as400Shpd - a.qtyReceived);
+    const as400Ord  = a4?.ord  ?? 0;
+    const as400Shpd = a4?.shpd ?? 0;
+    const shipped = !!a4 && (as400Shpd > 0 || (!!a4.shipDate && a4.shipDate <= today));
+    const onWater = !shipped ? 0
+      : as400Shpd > 0 ? Math.max(0, as400Shpd - a.qtyReceived)
+      : a.qtyOutstanding;
 
     let status: ReconRow['status'] = 'ok';
-    if (!a4)                                              status = 'missing';
-    else if (latest?.delivered)                           status = 'delivered';
-    else if (onWater > 0 || latest)                       status = 'in_transit';
-    else if (as400Shpd === 0 && a.qtyOutstanding > 0)    status = 'not_received';
+    if (!a4)                       status = 'missing';
+    else if (latest?.delivered)    status = 'delivered';
+    else if (latest)               status = 'in_transit';
+    else if (shipped)              status = 'shipped';
+    else if (a.qtyOutstanding > 0) status = 'not_received';
 
-    const lateVsRequest = !!(a.requestedDate && a4?.eta && a4.eta > a.requestedDate && a.qtyOutstanding > 0);
+    const qtyMismatch = !!a4 && Math.round(as400Ord) !== Math.round(a.qtyOrdered);
+    const bestEta = latest?.eta ?? a4?.eta ?? null;
+    const lateVsRequest = !!(a.requestedDate && bestEta && bestEta > a.requestedDate && a.qtyOutstanding > 0);
 
     return {
       ...a,
       as400Ord, as400Shpd,
-      as400OrderDate: a4?.as400OrderDate ?? null,
-      as400Eta:      a4?.eta        ?? null,
-      shipDate:      a4?.shipDate   ?? null,
-      shipToName:    a4?.shipToName    ?? null,
-      shipToCity:    a4?.shipToCity    ?? null,
-      shipToState:   a4?.shipToState   ?? null,
-      shipToPostcode:a4?.shipToPostcode ?? null,
-      usSoNumber:    a4?.usSoNumber    ?? null,
+      as400OrderDate: a4?.orderDate ?? null,
+      as400Eta:       a4?.eta ?? null,
+      shipDate:       a4?.shipDate ?? null,
+      shipToName:     a4?.shipToName ?? null,
+      shipToCity:     a4?.shipToCity ?? null,
+      shipToState:    a4?.shipToState ?? null,
+      shipToPostcode: a4?.shipToPostcode ?? null,
+      usSoNumber:     a4?.usSo ?? null,
       onWater,
-      container:    latest?.container ?? null,
-      vessel:       latest?.vessel    ?? null,
-      containerEta: latest?.eta       ?? null,
-      carrier:      latest?.carrier   ?? null,
+      container:    ships.length ? Array.from(new Set(ships.map((x) => x.container).filter(Boolean))).join(', ') || null : null,
+      vessel:       latest?.vessel ?? null,
+      containerEta: latest?.eta ?? null,
+      carrier:      latest?.carrier ?? null,
       status,
       lateVsRequest,
+      qtyMismatch,
+      matchType: m?.type ?? null,
+      as400Item: a4?.item ?? null,
+      shipped,
+      bestEta,
     };
   });
 }
@@ -409,7 +527,7 @@ function UploadBanner({
 // Page
 // ---------------------------------------------------------------------------
 
-type FilterTab = 'all' | 'exceptions' | 'not_received' | 'in_transit' | 'delivered' | 'awaiting';
+type FilterTab = 'all' | 'exceptions' | 'not_received' | 'shipped' | 'in_transit' | 'delivered';
 
 export default function ReconciliationPage() {
   const [arrowLines, setArrowLines] = useState<ArrowLine[]>([]);
@@ -463,8 +581,7 @@ export default function ReconciliationPage() {
   const handleAs400File = useCallback(async (file: File) => {
     setUploadingA4(true);
     try {
-      const text = await file.text();
-      const lines = parseAs400Csv(text);
+      const lines = await readAs400File(file);
       if (!lines.length) { alert('No valid AU PO rows found. Check the column headers match the Snowflake query output.'); return; }
       const res = await fetch('/api/recon/as400-upload', {
         method: 'POST',
@@ -515,11 +632,11 @@ export default function ReconciliationPage() {
     if (selectedCustomerPO) {
       r = r.filter((x) => x.deliveryNote4 === selectedCustomerPO);
     }
-    if (tab === 'exceptions')   r = r.filter((x) => x.status === 'missing' || x.lateVsRequest);
+    if (tab === 'exceptions')   r = r.filter(isException);
     if (tab === 'not_received') r = r.filter((x) => x.status === 'not_received');
+    if (tab === 'shipped')      r = r.filter((x) => x.status === 'shipped');
     if (tab === 'in_transit')   r = r.filter((x) => x.status === 'in_transit');
     if (tab === 'delivered')    r = r.filter((x) => x.status === 'delivered');
-    if (tab === 'awaiting')     r = r.filter((x) => x.as400Ord === 0 && x.status !== 'missing');
     if (search.trim()) {
       const q = search.trim().toLowerCase();
       r = r.filter((x) =>
@@ -531,6 +648,7 @@ export default function ReconciliationPage() {
         (x.creditor ?? '').toLowerCase().includes(q) ||
         (creditorName[x.creditor ?? ''] ?? '').toLowerCase().includes(q) ||
         (x.usSoNumber ?? '').toLowerCase().includes(q) ||
+        (x.as400Item ?? '').toLowerCase().includes(q) ||
         (x.container ?? '').toLowerCase().includes(q) ||
         (x.vessel ?? '').toLowerCase().includes(q) ||
         (x.shipToName ?? '').toLowerCase().includes(q) ||
@@ -540,13 +658,29 @@ export default function ReconciliationPage() {
     return r;
   }, [rows, tab, search, showParamount, selectedCustomerPO]);
 
-  const stats = useMemo(() => ({
-    total:      rows.length,
-    exceptions: rows.filter((x) => x.status === 'missing' || x.lateVsRequest).length,
-    inTransit:  rows.filter((x) => x.status === 'in_transit').length,
-    delivered:  rows.filter((x) => x.status === 'delivered').length,
-    late:       rows.filter((x) => x.lateVsRequest).length,
-  }), [rows]);
+  const stats = useMemo(() => {
+    const scope = rows.filter((x) => (showParamount ? x.stockCategory === 'PR' : x.stockCategory !== 'PR'));
+    return {
+      total:      scope.length,
+      exceptions: scope.filter(isException).length,
+      missing:    scope.filter((x) => x.status === 'missing').length,
+      awaiting:   scope.filter((x) => x.status === 'not_received').length,
+      shipped:    scope.filter((x) => x.status === 'shipped').length,
+      inTransit:  scope.filter((x) => x.status === 'in_transit').length,
+      delivered:  scope.filter((x) => x.status === 'delivered').length,
+      late:       scope.filter((x) => x.lateVsRequest).length,
+    };
+  }, [rows, showParamount]);
+
+  // Data freshness — warn when any source is out of date
+  const staleWarnings = useMemo(() => {
+    const ageH = (d: string | null) => (d ? (Date.now() - new Date(d).getTime()) / 3_600_000 : Infinity);
+    const w: string[] = [];
+    if (ageH(arrowMeta.generatedAt) > 24) w.push(`Arrow POs last synced ${arrowMeta.generatedAt ? new Date(arrowMeta.generatedAt).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' }) : 'never'} — check arrow-recon.js is scheduled on AZ-Grey`);
+    if (ageH(as400Meta.uploadedAt) > 72) w.push(`AS400 data uploaded ${as400Meta.uploadedAt ? new Date(as400Meta.uploadedAt).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' }) : 'never'} — upload a fresh export below`);
+    if (ageH(shipMeta.receivedAt) > 72) w.push(`CDS-Net shipment file uploaded ${shipMeta.receivedAt ? new Date(shipMeta.receivedAt).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' }) : 'never'} — upload today's file below`);
+    return w;
+  }, [arrowMeta, as400Meta, shipMeta]);
 
   // Get unique customer POs when Paramount is enabled
   const paramountCustomerPOs = useMemo(() => {
@@ -565,10 +699,10 @@ export default function ReconciliationPage() {
   const tabs: { id: FilterTab; label: string; count?: number }[] = [
     { id: 'all',          label: 'All',           count: stats.total },
     { id: 'exceptions',   label: 'Exceptions',    count: stats.exceptions },
-    { id: 'not_received', label: 'Not received' },
+    { id: 'not_received', label: 'Awaiting ship', count: stats.awaiting },
+    { id: 'shipped',      label: 'Shipped · no container', count: stats.shipped },
     { id: 'in_transit',   label: 'In transit',    count: stats.inTransit },
     { id: 'delivered',    label: 'Delivered',      count: stats.delivered },
-    { id: 'awaiting',     label: 'Awaiting ship' },
   ];
 
   return (
@@ -590,6 +724,15 @@ export default function ReconciliationPage() {
         </div>
       </div>
 
+      {staleWarnings.length > 0 && (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-xs text-amber-900">
+          <p className="mb-1 font-semibold">Some data is out of date — figures below may be wrong</p>
+          <ul className="list-disc pl-5 space-y-0.5">
+            {staleWarnings.map((w) => <li key={w}>{w}</li>)}
+          </ul>
+        </div>
+      )}
+
       {/* ── KPI cards — hidden when scrolled (sticky bar takes over) ── */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-5 transition-all duration-200 overflow-hidden"
            style={{ maxHeight: '120px' }}
@@ -606,7 +749,7 @@ export default function ReconciliationPage() {
         {[
           { label: 'PO Lines',        value: stats.total,      color: 'text-ink' },
           { label: 'Exceptions',      value: stats.exceptions,  color: 'text-amber-600' },
-          { label: 'In Transit',      value: stats.inTransit,   color: 'text-blue-600' },
+          { label: 'In Transit',      value: stats.inTransit + stats.shipped, color: 'text-blue-600' },
           { label: 'Delivered',       value: stats.delivered,   color: 'text-green-700' },
           { label: 'Late vs request', value: stats.late,        color: 'text-red-600' },
         ].map((k) => (
@@ -687,7 +830,7 @@ export default function ReconciliationPage() {
               onClick={() => {
                 const headers = [
                   'PO','Customer PO','Status','Type','Stock Code','Supplier SKU','Order Date','ETA Arrow',
-                  'Ordered','Received','Arrow PO Ref','AS400 ENT','AS400 SHPD','AS400 Order Date','AS400 ETA','US SO#',
+                  'Ordered','Received','Arrow PO Ref','AS400 Item','Match','AS400 ENT','AS400 SHPD','Qty Mismatch','Ship Date','AS400 ETA','US SO#',
                   'On Water','Container','Vessel','Container ETA','Supplier'
                 ];
                 const escape = (v: any) => `"${String(v ?? '').replace(/"/g, '""')}"`;
@@ -695,8 +838,9 @@ export default function ReconciliationPage() {
                   r.po, r.deliveryNote4 ?? '', r.status, HAYWARD_CREDITORS.has(r.creditor ?? '') ? 'Hayward' : '3rd Party',
                   r.arrowStock, r.supplierSku, r.orderDate ?? '', r.requestedDate ?? '',
                   r.qtyOrdered, r.qtyReceived,
-                  r.as400Ord > 0 ? r.po : '', r.as400Ord === 0 ? 'missing' : r.as400Ord, r.as400Shpd,
-                  r.as400OrderDate ?? '', r.as400Eta ?? '', r.usSoNumber ?? '',
+                  r.matchType ? r.po : '', r.as400Item ?? '', r.matchType ?? 'missing',
+                  r.matchType ? r.as400Ord : 'missing', r.as400Shpd, r.qtyMismatch ? 'YES' : '',
+                  r.shipDate ?? '', r.as400Eta ?? '', r.usSoNumber ?? '',
                   r.onWater, r.container ?? '', r.vessel ?? '', r.containerEta ?? '',
                   creditorName[r.creditor ?? ''] ?? r.creditor ?? ''
                 ].map(escape).join(','));
@@ -805,7 +949,7 @@ export default function ReconciliationPage() {
                 <th className="bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900 opacity-100">Arrow PO ref</th>
                 <th className="bg-amber-100 px-3 py-2.5 text-right whitespace-nowrap text-amber-900 opacity-100">ENT</th>
                 <th className="bg-amber-100 px-3 py-2.5 text-right whitespace-nowrap text-amber-900 opacity-100">SHPD</th>
-                <th className="bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900 opacity-100">Order date</th>
+                <th className="bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900 opacity-100">Ship date</th>
                 <th className="bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900 opacity-100">ETA</th>
                 <th className="bg-amber-100 px-3 py-2.5 whitespace-nowrap text-amber-900 border-r-2 border-amber-300 opacity-100">US SO#</th>
                 <th className="bg-violet-100 px-3 py-2.5 text-right whitespace-nowrap text-violet-900 opacity-100">On water</th>
@@ -851,18 +995,22 @@ export default function ReconciliationPage() {
                       <td className="sticky bg-emerald-50 px-3 py-2 text-right font-bold text-emerald-900" style={{ left: '805px' }}>{r.qtyOrdered}</td>
                       <td className="sticky bg-emerald-50 px-3 py-2 text-right text-slate-600 border-r-2 border-emerald-300" style={{ left: '880px' }}>{r.qtyReceived}</td>
                       <td className="bg-amber-50 px-3 py-2 whitespace-nowrap font-mono text-[11px]">
-                        {r.as400Ord === 0
+                        {!r.matchType
                           ? <span className="text-red-400">—</span>
-                          : <span className="text-green-700 font-semibold">&#10003; {r.po}</span>
+                          : r.matchType === 'alias'
+                            ? <span className="text-amber-700 font-semibold" title={`SKU differs — supplier entered ${r.as400Item}. Matched on PO + qty. Fix STKMAST.SUPPLIER_STOCK.`}>&#8776; {r.as400Item}</span>
+                            : <span className="text-green-700 font-semibold">&#10003; {r.po}</span>
                         }
                       </td>
                       <td className="bg-amber-50 px-3 py-2 text-right">
-                        {r.as400Ord === 0
+                        {!r.matchType
                           ? <span className="font-semibold text-red-600">missing</span>
-                          : <span className="font-semibold text-amber-900">{r.as400Ord}</span>}
+                          : r.qtyMismatch
+                            ? <span className="rounded bg-red-100 px-1.5 font-semibold text-red-700" title={`Arrow ordered ${r.qtyOrdered}, supplier entered ${r.as400Ord}`}>{r.as400Ord}</span>
+                            : <span className="font-semibold text-amber-900">{r.as400Ord}</span>}
                       </td>
                       <td className="bg-amber-50 px-3 py-2 text-right text-amber-800">{r.as400Shpd || '—'}</td>
-                      <td className="bg-amber-50 px-3 py-2 whitespace-nowrap text-slate-600">{fmt(r.as400OrderDate)}</td>
+                      <td className="bg-amber-50 px-3 py-2 whitespace-nowrap text-slate-600">{fmt(r.shipDate)}</td>
                       <td className="bg-amber-50 px-3 py-2 whitespace-nowrap text-slate-600">{fmt(r.as400Eta)}</td>
                       <td className="bg-amber-50 px-3 py-2 font-mono text-[11px] text-slate-500 border-r-2 border-amber-200">{r.usSoNumber ?? '—'}</td>
                       <td className="bg-violet-50 px-2 py-2 text-center">
@@ -896,10 +1044,10 @@ export default function ReconciliationPage() {
         <UploadBanner
           label="AS400 data"
           sublabel="manual until Snowflake service account is live"
-          hint="Run the AS400 query in Snowsight, download as CSV, and drop it here. Columns: PO, ITEM, AS400_ORD, AS400_SHPD, ETA, SHIP_DATE, SHIP_TO_NAME, SHIP_TO_CITY, SHIP_TO_STATE, SHIP_TO_COUNTRY, SHIP_TO_POSTCODE, US_SO_NUMBER."
+          hint="Run the AS400 query in Snowsight, download as CSV or Excel, and drop it here. Columns: PO, ITEM, AS400_ORD, AS400_SHPD, ETA, SHIP_DATE, SHIP_TO_NAME, SHIP_TO_CITY, SHIP_TO_STATE, SHIP_TO_COUNTRY, SHIP_TO_POSTCODE, US_SO_NUMBER."
           meta={as400Meta.rows > 0 ? `${as400Meta.rows.toLocaleString()} lines · ${fmtMeta(as400Meta.uploadedAt) ?? ''} · ${as400Meta.filename ?? ''}` : 'not uploaded'}
           uploading={uploadingA4}
-          accept=".csv"
+          accept=".csv,.xlsx,.xls"
           onFile={handleAs400File}
         />
         <UploadBanner
