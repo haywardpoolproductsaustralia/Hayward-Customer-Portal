@@ -541,7 +541,9 @@ export default function ReconciliationPage() {
   const [search,     setSearch]     = useState('');
   const [uploadingA4, setUploadingA4] = useState(false);
   const [uploadingShip, setUploadingShip] = useState(false);
-  const [showParamount,    setShowParamount]    = useState(false);
+  // Stock scope: 'all' (default) shows every Arrow line; the other two narrow it.
+  const [scope,            setScope]            = useState<'all' | 'hayward' | 'paramount'>('all');
+  const showParamount = scope === 'paramount';
   const [selectedCustomerPO, setSelectedCustomerPO] = useState<string | null>(null);
 
   useEffect(() => {
@@ -566,7 +568,7 @@ export default function ReconciliationPage() {
     const hasParamount = arrowLines.some((l) => l.stockCategory === 'PR');
     const hasNonParamount = arrowLines.some((l) => l.stockCategory !== 'PR');
     if (hasParamount && !hasNonParamount) {
-      setShowParamount(true);
+      setScope('paramount');
     }
   }, [arrowLines]);
 
@@ -624,11 +626,8 @@ export default function ReconciliationPage() {
 
   const filtered = useMemo(() => {
     let r = rows;
-    // When Paramount button is active, show ONLY Paramount (PR). Otherwise exclude it.
-    if (showParamount)
-      r = r.filter((x) => x.stockCategory === 'PR');
-    else
-      r = r.filter((x) => x.stockCategory !== 'PR');
+    if (scope === 'paramount') r = r.filter((x) => x.stockCategory === 'PR');
+    if (scope === 'hayward')   r = r.filter((x) => x.stockCategory !== 'PR');
     if (selectedCustomerPO) {
       r = r.filter((x) => x.deliveryNote4 === selectedCustomerPO);
     }
@@ -656,21 +655,24 @@ export default function ReconciliationPage() {
       );
     }
     return r;
-  }, [rows, tab, search, showParamount, selectedCustomerPO]);
+  }, [rows, tab, search, scope, selectedCustomerPO]);
 
   const stats = useMemo(() => {
-    const scope = rows.filter((x) => (showParamount ? x.stockCategory === 'PR' : x.stockCategory !== 'PR'));
+    const inScope = rows.filter((x) =>
+      scope === 'paramount' ? x.stockCategory === 'PR'
+      : scope === 'hayward' ? x.stockCategory !== 'PR'
+      : true);
     return {
-      total:      scope.length,
-      exceptions: scope.filter(isException).length,
-      missing:    scope.filter((x) => x.status === 'missing').length,
-      awaiting:   scope.filter((x) => x.status === 'not_received').length,
-      shipped:    scope.filter((x) => x.status === 'shipped').length,
-      inTransit:  scope.filter((x) => x.status === 'in_transit').length,
-      delivered:  scope.filter((x) => x.status === 'delivered').length,
-      late:       scope.filter((x) => x.lateVsRequest).length,
+      total:      inScope.length,
+      exceptions: inScope.filter(isException).length,
+      missing:    inScope.filter((x) => x.status === 'missing').length,
+      awaiting:   inScope.filter((x) => x.status === 'not_received').length,
+      shipped:    inScope.filter((x) => x.status === 'shipped').length,
+      inTransit:  inScope.filter((x) => x.status === 'in_transit').length,
+      delivered:  inScope.filter((x) => x.status === 'delivered').length,
+      late:       inScope.filter((x) => x.lateVsRequest).length,
     };
-  }, [rows, showParamount]);
+  }, [rows, scope]);
 
   // Data freshness — warn when any source is out of date
   const staleWarnings = useMemo(() => {
@@ -764,16 +766,23 @@ export default function ReconciliationPage() {
       <div className="sticky top-0 z-30 -mx-8 bg-white/95 backdrop-blur px-8 py-3 border-b border-slate-100 shadow-sm flex flex-wrap items-center gap-2">
         {/* Stock group toggles — LEFT */}
         <div className="flex gap-2 mr-4">
-          <button
-            onClick={() => setShowParamount((v) => !v)}
-            className={`rounded-lg px-3 py-1.5 text-xs font-medium border transition-colors ${
-              showParamount
-                ? 'bg-purple-600 text-white border-purple-600'
-                : 'bg-white text-slate-500 border-slate-200 hover:border-purple-400 hover:text-purple-600'
-            }`}
-          >
-            {showParamount ? '✓' : '+'} Paramount
-          </button>
+          {([
+            { id: 'all',       label: 'All stock' },
+            { id: 'hayward',   label: 'Hayward' },
+            { id: 'paramount', label: 'Paramount' },
+          ] as const).map((o) => (
+            <button
+              key={o.id}
+              onClick={() => setScope(o.id)}
+              className={`rounded-lg px-3 py-1.5 text-xs font-medium border transition-colors ${
+                scope === o.id
+                  ? (o.id === 'paramount' ? 'bg-purple-600 text-white border-purple-600' : 'bg-ink text-white border-ink')
+                  : 'bg-white text-slate-500 border-slate-200 hover:border-purple-400 hover:text-purple-600'
+              }`}
+            >
+              {o.label}
+            </button>
+          ))}
         </div>
 
         {/* Search and tabs — CENTER */}
