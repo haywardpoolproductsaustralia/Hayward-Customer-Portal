@@ -15,9 +15,9 @@ const SCROLLBAR_STYLE = `
 // so change a width here and the frozen columns stay aligned.
 const COL_W = [
   66, 84, 80, 78,                 // Order: PO, Customer PO, Status, Type
-  120, 112, 70, 70, 60, 64,       // Arrow AU: Stock, Supplier SKU, Order date, ETA, Ordered, Received
-  100, 56, 56, 70, 70, 104,       // Supplier: PO ref, ENT, SHPD, Ship date, ETA, US SO#
-  64, 110, 130, 70, 100,          // Shipment: On water, Container, Vessel, Cont. ETA, Supplier
+  120, 112, 76, 76, 60, 64,       // Arrow AU: Stock, Supplier SKU, Order date, ETA, Ordered, Received
+  100, 56, 56, 76, 76, 104,       // Supplier: PO ref, ENT, SHPD, Ship date, ETA, US SO#
+  64, 110, 130, 76, 100,          // Shipment: On water, Container, Vessel, Cont. ETA, Supplier
 ];
 const TABLE_W = COL_W.reduce((a, b) => a + b, 0);
 const MIN_ZOOM = 0.55;
@@ -754,7 +754,7 @@ export default function ReconciliationPage() {
       </div>
 
       {staleWarnings.length > 0 && (
-        <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-xs text-amber-900">
+        <div className="rounded-xl border border-[#fcd34d] bg-[#fffbeb] px-4 py-3 text-xs text-[#78350f]">
           <p className="mb-1 font-semibold">Some data is out of date — figures below may be wrong</p>
           <ul className="list-disc pl-5 space-y-0.5">
             {staleWarnings.map((w) => <li key={w}>{w}</li>)}
@@ -777,7 +777,7 @@ export default function ReconciliationPage() {
       >
         {[
           { label: 'PO Lines',        value: stats.total,      color: 'text-ink' },
-          { label: 'Exceptions',      value: stats.exceptions,  color: 'text-amber-600' },
+          { label: 'Exceptions',      value: stats.exceptions,  color: 'text-[#d97706]' },
           { label: 'In Transit',      value: stats.inTransit + stats.shipped, color: 'text-blue-600' },
           { label: 'Delivered',       value: stats.delivered,   color: 'text-green-700' },
           { label: 'Late vs request', value: stats.late,        color: 'text-red-600' },
@@ -959,27 +959,27 @@ export default function ReconciliationPage() {
                   Shipment On Water
                 </th>
               </tr>
-              <tr className="border-b border-slate-200 text-[11px] font-semibold uppercase tracking-wide">
+              <tr className="border-b border-slate-200 text-[11px] font-semibold uppercase tracking-normal">
                 <th className="sticky left-0 z-10 bg-slate-800 px-2 py-2 whitespace-nowrap text-white opacity-100">PO</th>
-                <th className="sticky bg-slate-700 px-2 py-2 whitespace-nowrap text-white opacity-100" style={{ left: '66px' }}>Customer PO</th>
+                <th title="Customer PO (DELIVERY_NOTE_4)" className="sticky bg-slate-700 px-2 py-2 whitespace-nowrap text-white opacity-100" style={{ left: '66px' }}>Cust PO</th>
                 <th className="sticky bg-slate-700 px-2 py-2 whitespace-nowrap text-white opacity-100" style={{ left: '150px' }}>Status</th>
                 <th className="sticky bg-slate-600 px-2 py-2 whitespace-nowrap text-white border-r border-slate-500 opacity-100" style={{ left: '230px' }}>Type</th>
                 <th className="sticky bg-emerald-200 px-2 py-2 whitespace-nowrap text-emerald-900 opacity-100" style={{ left: '308px' }}>Stock code</th>
                 <th className="sticky bg-emerald-200 px-2 py-2 whitespace-nowrap text-emerald-900 opacity-100" style={{ left: '428px' }}>Supplier SKU</th>
-                <th className="sticky bg-emerald-200 px-2 py-2 whitespace-nowrap text-emerald-900 opacity-100" style={{ left: '540px' }}>Order date</th>
-                <th className="sticky bg-emerald-200 px-2 py-2 whitespace-nowrap text-emerald-900 opacity-100" style={{ left: '610px' }}>ETA Arrow</th>
-                <th className="sticky bg-emerald-200 px-2 py-2 text-right whitespace-nowrap text-emerald-900 opacity-100" style={{ left: '680px' }}>Ordered</th>
-                <th className="sticky bg-emerald-200 px-2 py-2 text-right whitespace-nowrap text-emerald-900 border-r-2 border-emerald-400 opacity-100" style={{ left: '740px' }}>Received</th>
-                <th className="bg-amber-100 px-2 py-2 whitespace-nowrap text-amber-900 opacity-100">Arrow PO ref</th>
-                <th className="bg-amber-100 px-2 py-2 text-right whitespace-nowrap text-amber-900 opacity-100">ENT</th>
-                <th className="bg-amber-100 px-2 py-2 text-right whitespace-nowrap text-amber-900 opacity-100">SHPD</th>
-                <th className="bg-amber-100 px-2 py-2 whitespace-nowrap text-amber-900 opacity-100">Ship date</th>
-                <th className="bg-amber-100 px-2 py-2 whitespace-nowrap text-amber-900 opacity-100">ETA</th>
-                <th className="bg-amber-100 px-2 py-2 whitespace-nowrap text-amber-900 border-r-2 border-amber-300 opacity-100">US SO#</th>
-                <th className="bg-violet-100 px-2 py-2 text-right whitespace-nowrap text-violet-900 opacity-100">On water</th>
+                <th title="PO order date" className="sticky bg-emerald-200 px-2 py-2 whitespace-nowrap text-emerald-900 opacity-100" style={{ left: '540px' }}>Order dt</th>
+                <th title="Requested date in Arrow" className="sticky bg-emerald-200 px-2 py-2 whitespace-nowrap text-emerald-900 opacity-100" style={{ left: '616px' }}>ETA</th>
+                <th title="Qty ordered in Arrow" className="sticky bg-emerald-200 px-2 py-2 text-right whitespace-nowrap text-emerald-900 opacity-100" style={{ left: '692px' }}>Qty</th>
+                <th title="Qty received in Arrow" className="sticky bg-emerald-200 px-2 py-2 text-right whitespace-nowrap text-emerald-900 border-r-2 border-emerald-400 opacity-100" style={{ left: '752px' }}>Rcvd</th>
+                <th title="Matched AS400 PO / item" className="bg-[#fef3c7] px-2 py-2 whitespace-nowrap text-[#78350f] opacity-100">Arrow PO</th>
+                <th className="bg-[#fef3c7] px-2 py-2 text-right whitespace-nowrap text-[#78350f] opacity-100">ENT</th>
+                <th className="bg-[#fef3c7] px-2 py-2 text-right whitespace-nowrap text-[#78350f] opacity-100">SHPD</th>
+                <th title="AS400 ship date" className="bg-[#fef3c7] px-2 py-2 whitespace-nowrap text-[#78350f] opacity-100">Ship dt</th>
+                <th className="bg-[#fef3c7] px-2 py-2 whitespace-nowrap text-[#78350f] opacity-100">ETA</th>
+                <th className="bg-[#fef3c7] px-2 py-2 whitespace-nowrap text-[#78350f] border-r-2 border-[#fcd34d] opacity-100">US SO#</th>
+                <th title="Qty shipped, not yet received" className="bg-violet-100 px-2 py-2 text-right whitespace-nowrap text-violet-900 opacity-100">On water</th>
                 <th className="bg-violet-100 px-2 py-2 whitespace-nowrap text-violet-900 opacity-100">Container</th>
                 <th className="bg-violet-100 px-2 py-2 whitespace-nowrap text-violet-900 opacity-100">Vessel</th>
-                <th className="bg-violet-100 px-2 py-2 whitespace-nowrap text-violet-900 opacity-100">Cont. ETA</th>
+                <th title="Container ETA (CDS-Net)" className="bg-violet-100 px-2 py-2 whitespace-nowrap text-violet-900 opacity-100">Cont ETA</th>
                 <th className="bg-violet-100 px-2 py-2 whitespace-nowrap text-violet-900 opacity-100">Supplier</th>
               </tr>
             </thead>
@@ -1012,31 +1012,31 @@ export default function ReconciliationPage() {
                       <td className="sticky bg-emerald-50 px-2 py-1.5 font-mono text-[11px] whitespace-nowrap text-slate-800" style={{ left: '308px' }}>{r.arrowStock}</td>
                       <td className="sticky bg-emerald-50 px-2 py-1.5 font-mono text-[11px] whitespace-nowrap text-slate-700" style={{ left: '428px' }}>{r.supplierSku || '—'}</td>
                       <td className="sticky bg-emerald-50 px-2 py-1.5 whitespace-nowrap text-slate-500" style={{ left: '540px' }}>{fmt(r.orderDate)}</td>
-                      <td className="sticky bg-emerald-50 px-2 py-1.5 whitespace-nowrap text-slate-700" style={{ left: '610px' }}>
+                      <td className="sticky bg-emerald-50 px-2 py-1.5 whitespace-nowrap text-slate-700" style={{ left: '616px' }}>
                         {fmt(r.requestedDate)}
                         {r.lateVsRequest && <span className="ml-1 text-red-500" title="Late vs requested date">&#x26A0;</span>}
                       </td>
-                      <td className="sticky bg-emerald-50 px-2 py-1.5 text-right font-bold text-emerald-900" style={{ left: '680px' }}>{r.qtyOrdered}</td>
-                      <td className="sticky bg-emerald-50 px-2 py-1.5 text-right text-slate-600 border-r-2 border-emerald-300" style={{ left: '740px' }}>{r.qtyReceived}</td>
-                      <td className="bg-amber-50 px-2 py-1.5 whitespace-nowrap font-mono text-[11px]">
+                      <td className="sticky bg-emerald-50 px-2 py-1.5 text-right font-bold text-emerald-900" style={{ left: '692px' }}>{r.qtyOrdered}</td>
+                      <td className="sticky bg-emerald-50 px-2 py-1.5 text-right text-slate-600 border-r-2 border-emerald-300" style={{ left: '752px' }}>{r.qtyReceived}</td>
+                      <td className="bg-[#fffbeb] px-2 py-1.5 whitespace-nowrap font-mono text-[11px]">
                         {!r.matchType
                           ? <span className="text-red-400">—</span>
                           : r.matchType === 'alias'
-                            ? <span className="text-amber-700 font-semibold" title={`SKU differs — supplier entered ${r.as400Item}. Matched on PO + qty. Fix STKMAST.SUPPLIER_STOCK.`}>&#8776; {r.as400Item}</span>
+                            ? <span className="text-[#b45309] font-semibold" title={`SKU differs — supplier entered ${r.as400Item}. Matched on PO + qty. Fix STKMAST.SUPPLIER_STOCK.`}>&#8776; {r.as400Item}</span>
                             : <span className="text-green-700 font-semibold">&#10003; {r.po}</span>
                         }
                       </td>
-                      <td className="bg-amber-50 px-2 py-1.5 text-right">
+                      <td className="bg-[#fffbeb] px-2 py-1.5 text-right">
                         {!r.matchType
                           ? <span className="font-semibold text-red-600">missing</span>
                           : r.qtyMismatch
                             ? <span className="rounded bg-red-100 px-1.5 font-semibold text-red-700" title={`Arrow ordered ${r.qtyOrdered}, supplier entered ${r.as400Ord}`}>{r.as400Ord}</span>
-                            : <span className="font-semibold text-amber-900">{r.as400Ord}</span>}
+                            : <span className="font-semibold text-[#78350f]">{r.as400Ord}</span>}
                       </td>
-                      <td className="bg-amber-50 px-2 py-1.5 text-right text-amber-800">{r.as400Shpd || '—'}</td>
-                      <td className="bg-amber-50 px-2 py-1.5 whitespace-nowrap text-slate-600">{fmt(r.shipDate)}</td>
-                      <td className="bg-amber-50 px-2 py-1.5 whitespace-nowrap text-slate-600">{fmt(r.as400Eta)}</td>
-                      <td className="bg-amber-50 px-2 py-1.5 font-mono text-[11px] text-slate-500 border-r-2 border-amber-200"><span title={r.usSoNumber ?? ''}>{r.usSoNumber ?? '—'}</span></td>
+                      <td className="bg-[#fffbeb] px-2 py-1.5 text-right text-[#92400e]">{r.as400Shpd || '—'}</td>
+                      <td className="bg-[#fffbeb] px-2 py-1.5 whitespace-nowrap text-slate-600">{fmt(r.shipDate)}</td>
+                      <td className="bg-[#fffbeb] px-2 py-1.5 whitespace-nowrap text-slate-600">{fmt(r.as400Eta)}</td>
+                      <td className="bg-[#fffbeb] px-2 py-1.5 font-mono text-[11px] text-slate-500 border-r-2 border-[#fde68a]"><span title={r.usSoNumber ?? ''}>{r.usSoNumber ?? '—'}</span></td>
                       <td className="bg-violet-50 px-2 py-2 text-center">
                         {r.onWater > 0
                           ? <span className="font-bold text-violet-700">{r.onWater}</span>
