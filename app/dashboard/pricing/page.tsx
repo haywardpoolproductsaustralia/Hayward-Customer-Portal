@@ -660,7 +660,7 @@ export default function PricingPage() {
                 <th className="px-5 py-3.5 font-medium text-right">Qty</th>
                 <th className="px-5 py-3.5 font-medium text-right">List price</th>
                 <th className="px-5 py-3.5 font-medium text-right">Unit price</th>
-                <th className="px-5 py-3.5 font-medium text-right">Line total</th>
+                <th className="px-5 py-3.5 font-medium text-right">Line total(ex GST)</th>
                 <th className="px-5 py-3.5 font-medium print:hidden"></th>
               </tr>
             </thead>
