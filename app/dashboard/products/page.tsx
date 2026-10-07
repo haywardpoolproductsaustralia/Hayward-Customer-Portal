@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Search, PackageX, Loader2, AlertCircle, Truck } from 'lucide-react';
 import { ProductDetailModal, StockEntry } from '@/components/ProductDetailModal';
 import { useSelectedCustomer } from '@/components/SelectedCustomerContext';
+import { PriceListExportButton } from '@/components/PriceListExportButton';
 
 const PAGE_SIZE = 30;
 
@@ -161,9 +162,12 @@ export default function ProductsPage() {
 
   return (
     <div className="space-y-5">
-      <div>
-        <h1 className="font-display text-3xl text-deep font-bold">Products</h1>
-        <p className="text-ink/50 mt-1">Search stock and pricing across every location.</p>
+      <div className="flex items-end justify-between flex-wrap gap-3">
+        <div>
+          <h1 className="font-display text-3xl text-deep font-bold">Products</h1>
+          <p className="text-ink/50 mt-1">Search stock and pricing across every location.</p>
+        </div>
+        <PriceListExportButton />
       </div>
 
       {availableViews.length > 1 && (
