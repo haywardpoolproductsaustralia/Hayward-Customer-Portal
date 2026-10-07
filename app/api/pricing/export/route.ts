@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import * as XLSX from 'xlsx';
-import { getCustomerAccess, resolvePriceType, resolveStockScope } from '@/lib/access';
+import {
+  getCustomerAccess,
+  resolvePriceType,
+  canSeeCatalogue,
+  STOCK_ALL_KEY,
+  PARAMOUNT_CATEGORY,
+  FLOW_CONTROL_SUPPLIER_CODES,
+} from '@/lib/access';
 import { getJSON } from '@/lib/redis';
 import { computePrice, findRuleForSku, getCustomerRules, PricingRule } from '@/lib/pricing';
 
@@ -17,8 +24,14 @@ import { computePrice, findRuleForSku, getCustomerRules, PricingRule } from '@/l
 // ~100 batch calls.
 //
 // Scope:
-//   - SKUs come from resolveStockScope(access, 'all'), i.e. only catalogues
-//     the org is entitled to. Paramount never leaks to a Hayward-only org.
+//   - Hayward SKUs only, for everyone - EXCEPT accounts in Poolwater Products
+//     and Compass, whose export also includes Paramount. Flow Control is never
+//     exported. Decided on the group of the account being PRICED (so staff
+//     exporting "as" a PWP/Compass account get Paramount, and staff exporting
+//     as anyone else don't), and still intersected with the caller's own
+//     catalogue permission, so this can only ever narrow access, never widen.
+//   - Every row is re-checked against STOCK_CATEGORY / SUPPLIER_CODE, so a
+//     PR or 17300 SKU that slips into stock:all is still left out.
 //   - customerCode is honoured only if it's inside access.customerCodes
 //     (resolvePriceType enforces that).
 //   - Hayward staff (aggregate org) MUST pass customerCode. Without it,
@@ -33,7 +46,19 @@ interface StockEntry {
   sku: string;
   name?: string | null;
   stockCategory?: string | null;
+  supplierCode?: string | null;
   listPrice?: number | null;
+}
+
+/** Groups (lib/access.ts groupKey) whose price list export includes Paramount. */
+const PARAMOUNT_EXPORT_GROUPS: ReadonlySet<string> = new Set(['PoolwaterProducts', 'Compass']);
+
+function isParamount(e: StockEntry): boolean {
+  return str(e.stockCategory).toUpperCase() === PARAMOUNT_CATEGORY;
+}
+
+function isFlowControl(e: StockEntry): boolean {
+  return FLOW_CONTROL_SUPPLIER_CODES.has(str(e.supplierCode));
 }
 
 const GST_RATE = 0.1;
@@ -118,10 +143,21 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'No price type found for this customer' }, { status: 404 });
   }
 
-  const scope = resolveStockScope(access, 'all');
+  // Which catalogues go in the file - see the Scope note at the top.
+  const codeToGroup = await getJSON<Record<string, string>>('codeToGroup');
+  const pricedGroup = str(codeToGroup?.[representativeCode]) || access.groupKey;
+  const includeParamount =
+    PARAMOUNT_EXPORT_GROUPS.has(pricedGroup) && canSeeCatalogue(access, 'paramount');
+
+  const sources: { key: string; keep: (e: StockEntry) => boolean }[] = [
+    { key: STOCK_ALL_KEY.hayward, keep: (e) => !isParamount(e) && !isFlowControl(e) },
+  ];
+  if (includeParamount) {
+    sources.push({ key: STOCK_ALL_KEY.paramount, keep: (e) => isParamount(e) && !isFlowControl(e) });
+  }
 
   const [lists, listPrices, rulesRaw, customerRules, customerNames] = await Promise.all([
-    Promise.all(scope.keys.map((key) => getJSON<StockEntry[]>(key))),
+    Promise.all(sources.map((src) => getJSON<StockEntry[]>(src.key))),
     getJSON<Record<string, number>>('pricing:listprices'),
     getJSON<PricingRule[]>(`pricing:${priceType}`),
     getCustomerRules(representativeCode),
@@ -132,14 +168,14 @@ export async function GET(req: NextRequest) {
   // De-dupe across catalogues (first one wins - Hayward is pinned first).
   const seen = new Set<string>();
   const stock: StockEntry[] = [];
-  for (const list of lists) {
+  lists.forEach((list, i) => {
     for (const e of Array.isArray(list) ? list : []) {
       const sku = str(e?.sku);
-      if (!sku || seen.has(sku)) continue;
+      if (!sku || seen.has(sku) || !sources[i].keep(e)) continue;
       seen.add(sku);
       stock.push({ ...e, sku });
     }
-  }
+  });
   stock.sort((a, b) => a.sku.localeCompare(b.sku));
 
   // --- price every SKU ----------------------------------------------------
