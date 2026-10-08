@@ -255,6 +255,37 @@ export async function getCustomerAccess(): Promise<CustomerAccess | null> {
   };
 }
 
+/**
+ * Narrows a STAFF login to the catalogues of the customer chosen in the
+ * "Pricing as" picker, so staff see exactly what that customer sees:
+ * pricing as Reece Berrimah shows Hayward stock only - no Paramount, no
+ * Flow Control - while pricing as Poolwater Products or Compass also shows
+ * Paramount (their configured catalogues above).
+ *
+ * Only ever narrows. Non-staff logins, no selection, or a code outside the
+ * caller's customerCodes all return `access` unchanged. A code whose group
+ * isn't configured gets the default ('hayward' only), and the result is still
+ * intersected with the caller's own catalogues.
+ */
+export async function accessForPricingAs(
+  access: CustomerAccess,
+  customerCode?: string | null
+): Promise<CustomerAccess> {
+  const code = (customerCode ?? '').trim();
+  if (!access.isAggregate || !code || !access.customerCodes.includes(code)) return access;
+
+  const codeToGroup = await getJSON<Record<string, string>>('codeToGroup');
+  const groupKey = String(codeToGroup?.[code] ?? '').trim();
+  const group = Object.values(ORG_ID_TO_GROUP).find((g) => g.groupKey === groupKey && !g.isAggregate);
+
+  const catalogues = cataloguesFor(group ?? {}).filter((c) => access.catalogues.includes(c));
+  return {
+    ...access,
+    catalogues,
+    showFilters: Boolean(group?.showFilters),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Stock scope — the single enforcement point
 // ---------------------------------------------------------------------------
