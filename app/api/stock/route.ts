@@ -6,6 +6,7 @@ import {
   stockViewFilter,
   parseStockView,
   stockKeysForSku,
+  accessForPricingAs,
   STOCK_KEY_PREFIX,
   STOCK_VIEW_LABEL,
 } from '@/lib/access';
@@ -45,12 +46,18 @@ type IncomingMap = Record<string, IncomingInfo>;
 // ---------------------------------------------------------------------------
 
 export async function GET(req: NextRequest) {
-  const access = await getCustomerAccess();
-  if (!access) {
+  const callerAccess = await getCustomerAccess();
+  if (!callerAccess) {
     return NextResponse.json({ error: 'No organization selected' }, { status: 403 });
   }
 
   const { searchParams } = new URL(req.url);
+
+  // Staff "Pricing as" a customer see that customer's catalogues only (e.g.
+  // Reece -> Hayward stock, no Paramount / Flow Control). Narrow-only; a
+  // customer login is returned unchanged whatever customerCode it sends.
+  const access = await accessForPricingAs(callerAccess, searchParams.get('customerCode'));
+
   const sku = searchParams.get('sku')?.trim().toUpperCase();
   const prefix = searchParams.get('prefix')?.trim().toUpperCase();
 
