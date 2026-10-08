@@ -251,9 +251,15 @@ export default function PricingPage() {
     }
   }, [lines]);
 
+  // Product list for the search box. Staff "Pricing as" a customer get only
+  // that customer's catalogues (e.g. no Paramount / Flow Control for Reece).
   useEffect(() => {
     let cancelled = false;
-    fetch('/api/stock')
+    setStockLoading(true);
+    const qs = selectedCustomer?.code
+      ? `?customerCode=${encodeURIComponent(selectedCustomer.code)}`
+      : '';
+    fetch(`/api/stock${qs}`)
       .then((r) => r.json())
       .then((data) => {
         if (!cancelled) setAllStock(data.results ?? []);
@@ -264,7 +270,7 @@ export default function PricingPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [selectedCustomer?.code]);
 
   // The accounts this login may raise an order against. This is the same list
   // the submit endpoint validates against, so anything offered here is
