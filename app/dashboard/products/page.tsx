@@ -71,7 +71,10 @@ export default function ProductsPage() {
       setLoading(true);
       setError(null);
       try {
-        const res = await fetch(`/api/stock?view=${view}`);
+        const params = new URLSearchParams({ view });
+        // Staff "Pricing as" a customer: show only what that customer can see.
+        if (selectedCustomer?.code) params.set('customerCode', selectedCustomer.code);
+        const res = await fetch(`/api/stock?${params.toString()}`);
         const data = await res.json();
         if (!cancelled) {
           if (!res.ok) setError(data.error ?? 'Could not load products right now.');
@@ -95,7 +98,8 @@ export default function ProductsPage() {
     return () => {
       cancelled = true;
     };
-  }, [view]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view, selectedCustomer?.code]);
 
   const filtered = useMemo(() => {
     const trimmed = query.trim().toUpperCase();
