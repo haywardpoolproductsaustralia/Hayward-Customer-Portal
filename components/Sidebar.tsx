@@ -4,7 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname } from 'next/navigation';
-import { Boxes, Receipt, Tag, BookOpen, Menu, X, Home, Sparkles, Warehouse, TrendingUp, Inbox, UserSearch, ShieldCheck, GitCompareArrows, ShoppingCart } from 'lucide-react';
+import { Boxes, Receipt, Tag, BookOpen, Menu, X, Home, Sparkles, Warehouse, TrendingUp, Inbox, UserSearch, ShieldCheck, GitCompareArrows, ShoppingCart, Hourglass } from 'lucide-react';
 import { PORTAL_ORDERS_ENABLED } from '@/lib/features';
 import { isPageHidden, isFeatureHidden } from '@/lib/page-visibility';
 
@@ -34,6 +34,7 @@ const STAFF_ONLY_NAV_ITEMS = [
   { href: '/dashboard/lookup', label: 'Customers', icon: UserSearch },
   { href: '/dashboard/warehouse', label: 'Warehouse', icon: Warehouse },
   { href: '/dashboard/forecast', label: 'Forecast', icon: TrendingUp },
+  { href: '/dashboard/slow-stock', label: 'Slow stock', icon: Hourglass },
 ];
 
 // Reconciliation access: Hayward staff + approved customers (Poolwater Products)
