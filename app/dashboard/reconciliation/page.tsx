@@ -742,7 +742,7 @@ export default function ReconciliationPage() {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="flex items-center gap-2 text-2xl font-bold text-ink">
-            <span className="text-wave">⚓</span> Order Reconciliation &amp; ETA
+            <span className="text-wave">⚓</span> Purchasing
           </h1>
           <p className="text-sm text-slate-500">Arrow POs vs AS400 supplier entry vs CDS-Net shipment portal · Australia &amp; New Zealand</p>
           <div className="mt-1 flex gap-3 text-xs text-slate-400">
