@@ -4,7 +4,9 @@ import { useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname } from 'next/navigation';
-import { Boxes, Receipt, Tag, BookOpen, Menu, X, Home, Sparkles, Warehouse, TrendingUp, Inbox, UserSearch, ShieldCheck, GitCompareArrows, ShoppingCart, Hourglass } from 'lucide-react';
+// Inbox, TrendingUp and Hourglass are intentionally not imported while their
+// nav items are commented out below - re-add them when restoring those pages.
+import { Boxes, Receipt, Tag, BookOpen, Menu, X, Home, Sparkles, Warehouse, UserSearch, ShieldCheck, GitCompareArrows, ShoppingCart } from 'lucide-react';
 import { PORTAL_ORDERS_ENABLED } from '@/lib/features';
 import { isPageHidden, isFeatureHidden } from '@/lib/page-visibility';
 
@@ -30,11 +32,14 @@ const STAFF_ONLY_NAV_ITEMS = [
   ...(PORTAL_ORDERS_ENABLED
     ? [{ href: '/dashboard/portal-orders', label: 'Portal orders', icon: ShoppingCart }]
     : []),
-  { href: '/dashboard/au-orders-inbox', label: 'AU-orders inbox', icon: Inbox },
+  // AU-orders inbox, Forecast and Slow stock hidden from the sidebar, Oct 2026.
+  // The pages and their API routes still exist and are reachable by URL for
+  // staff; uncomment a line to put it back in the nav.
+  // { href: '/dashboard/au-orders-inbox', label: 'AU-orders inbox', icon: Inbox },
   { href: '/dashboard/lookup', label: 'Customers', icon: UserSearch },
   { href: '/dashboard/warehouse', label: 'Warehouse', icon: Warehouse },
-  { href: '/dashboard/forecast', label: 'Forecast', icon: TrendingUp },
-  { href: '/dashboard/slow-stock', label: 'Slow stock', icon: Hourglass },
+  // { href: '/dashboard/forecast', label: 'Forecast', icon: TrendingUp },
+  // { href: '/dashboard/slow-stock', label: 'Slow stock', icon: Hourglass },
 ];
 
 // Reconciliation access: Hayward staff + approved customers (Poolwater Products)
@@ -93,8 +98,8 @@ function NavLinks({
   );
 }
 
-// isAggregate gates the staff-only nav items (au-orders inbox, Lookup,
-// Warehouse, Forecast) - these only show for the Hayward aggregate org.
+// isAggregate gates the staff-only nav items (Customers, Warehouse, and any
+// others in STAFF_ONLY_NAV_ITEMS) - these only show for the Hayward aggregate org.
 // app/dashboard/layout.tsx passes it through, and other components
 // (CustomerPicker) key off it too.
 //
