@@ -38,7 +38,7 @@ const STAFF_ONLY_NAV_ITEMS = [
 ];
 
 // Reconciliation access: Hayward staff + approved customers (Poolwater Products)
-const RECONCILIATION_NAV_ITEM = { href: '/dashboard/reconciliation', label: 'Reconciliation', icon: GitCompareArrows };
+const RECONCILIATION_NAV_ITEM = { href: '/dashboard/reconciliation', label: 'Purchasing', icon: GitCompareArrows };
 
 
 function NavLinks({
