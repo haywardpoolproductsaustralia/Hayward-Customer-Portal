@@ -6,7 +6,7 @@ import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 // Inbox, TrendingUp and Hourglass are intentionally not imported while their
 // nav items are commented out below - re-add them when restoring those pages.
-import { Boxes, Receipt, Tag, BookOpen, Menu, X, Home, Sparkles, Warehouse, UserSearch, ShieldCheck, GitCompareArrows, ShoppingCart } from 'lucide-react';
+import { Boxes, Receipt, Tag, BookOpen, Menu, X, Home, Sparkles, Warehouse, UserSearch, ShieldCheck, GitCompareArrows, ShoppingCart, Container } from 'lucide-react';
 import { PORTAL_ORDERS_ENABLED } from '@/lib/features';
 import { isPageHidden, isFeatureHidden } from '@/lib/page-visibility';
 
@@ -38,6 +38,9 @@ const STAFF_ONLY_NAV_ITEMS = [
   // { href: '/dashboard/au-orders-inbox', label: 'AU-orders inbox', icon: Inbox },
   { href: '/dashboard/lookup', label: 'Customers', icon: UserSearch },
   { href: '/dashboard/warehouse', label: 'Warehouse', icon: Warehouse },
+  // Direct container orders: SO -> Wuxi/US PO -> container + ETA. Staff only
+  // for now (Oct 2026); the API route enforces isAggregate too.
+  { href: '/dashboard/container-orders', label: 'Container orders', icon: Container },
   // { href: '/dashboard/forecast', label: 'Forecast', icon: TrendingUp },
   // { href: '/dashboard/slow-stock', label: 'Slow stock', icon: Hourglass },
 ];
