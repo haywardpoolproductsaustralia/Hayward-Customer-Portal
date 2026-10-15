@@ -223,6 +223,11 @@ function OrderRow({ o, expanded, toggle, links, onLinks }: {
               <div className="font-semibold text-ink text-sm leading-tight">{o.so.customerName}</div>
               <div className="text-xs text-ink/40 font-mono">{o.so.customerCode}</div>
             </>
+          ) : o.shipTo === 'customer' ? (
+            <>
+              <div className="font-semibold text-ink text-sm leading-tight">{o.poDeliveryAddress[0] ?? 'Direct to customer'}</div>
+              <div className="text-[10px] uppercase tracking-wide text-wave">Direct to customer — per PO address</div>
+            </>
           ) : (
             <div className="text-xs text-ink/40 italic">{o.customerPoRef ? `Ref "${o.customerPoRef}"` : 'No customer ref'}</div>
           )}
@@ -235,7 +240,9 @@ function OrderRow({ o, expanded, toggle, links, onLinks }: {
               <div className="font-mono text-sm text-ink">SO {o.so.orderNo}</div>
               <div className="text-xs text-ink/50">{shortDate(o.so.orderDate)} · {SO_STATUS[o.so.statusFlag] ?? o.so.statusFlag}</div>
               {o.so.customerOrderNo && <div className="text-xs text-ink/50">Cust PO <span className="font-mono text-ink/70">{o.so.customerOrderNo}</span></div>}
-              {o.matchMethod === 'manual' && <div className="text-[10px] uppercase tracking-wide text-wave">pinned</div>}
+              {o.matchMethod === 'manual' && <div className="text-[10px] uppercase tracking-wide text-wave">pinned on portal — add &quot;SO {o.so.orderNo}&quot; to the PO despatch notes</div>}
+              {o.matchMethod === 'soNumber' && <div className="text-[10px] uppercase tracking-wide text-splash">linked by SO on PO</div>}
+              {o.matchMethod === 'customerPo' && <div className="text-[10px] uppercase tracking-wide text-amber">linked by customer PO ref — add &quot;SO {o.so.orderNo}&quot; to the PO despatch notes</div>}
               {o.ambiguousCandidates > 1 && (
                 <div className="text-[10px] uppercase tracking-wide text-amber inline-flex items-center gap-0.5"><AlertTriangle className="h-3 w-3" />{o.ambiguousCandidates} SOs share this ref</div>
               )}
@@ -243,6 +250,7 @@ function OrderRow({ o, expanded, toggle, links, onLinks }: {
           ) : (
             <div className="space-y-1">
               <div className="text-xs font-semibold text-amber inline-flex items-center gap-1"><AlertTriangle className="h-3 w-3" /> No SO found</div>
+              {o.poSoRef && <div className="text-[11px] text-coral">PO says SO {o.poSoRef} — not in Arrow&apos;s last 24 months of orders</div>}
               {pinPending && <div className="text-[11px] text-wave">Pinned to SO {pinnedTo} — shows after next sync</div>}
               <LinkSo po={o.po} current={pinnedTo} onDone={onLinks} />
             </div>
@@ -254,6 +262,7 @@ function OrderRow({ o, expanded, toggle, links, onLinks }: {
           <div className="font-mono text-sm text-ink">PO {o.po}</div>
           <div className="text-xs text-ink/50">{o.supplierName} · {shortDate(o.poDate)}</div>
           <div className="text-xs text-ink/50">{qty(o.poQty)} units{o.poReceived > 0 && <> · {qty(o.poReceived)} rec&apos;d</>}</div>
+          <div className={`text-[10px] uppercase tracking-wide ${o.shipTo === 'customer' ? 'text-wave' : 'text-ink/30'}`}>{o.shipTo === 'customer' ? 'ships direct' : o.shipTo === 'hayward' ? 'via Melbourne' : ''}</div>
         </td>
 
         {/* Containers */}
@@ -274,7 +283,20 @@ function OrderRow({ o, expanded, toggle, links, onLinks }: {
         </td>
 
         {/* Deliver to */}
-        <td className="px-2 py-3 min-w-[12rem]"><Address so={o.so} /></td>
+        <td className="px-2 py-3 min-w-[12rem]">
+          {o.so ? (
+            <Address so={o.so} />
+          ) : o.shipTo === 'customer' && o.poDeliveryAddress.length ? (
+            <div className="text-xs leading-snug">
+              {o.poDeliveryAddress.map((l, i) => (
+                <div key={i} className={i === 0 ? 'text-ink' : 'text-ink/60'}>{l}</div>
+              ))}
+              <div className="mt-0.5 text-[10px] uppercase tracking-wide text-ink/40">from PO — link the SO for the account</div>
+            </div>
+          ) : (
+            <span className="text-ink/30">—</span>
+          )}
+        </td>
 
         {/* Original ETA */}
         <td className="px-2 py-3 text-sm text-ink/70 whitespace-nowrap">{shortDate(o.poRequestedDate)}</td>
@@ -369,6 +391,7 @@ function OrderRow({ o, expanded, toggle, links, onLinks }: {
                     <p className="text-ink/50">SO delivery lines: {o.so.deliveryNotes.join(', ')}</p>
                   )}
                   {o.poDeliveryAddress.length > 0 && <p className="text-ink/50">PO delivery address: {o.poDeliveryAddress.join(', ')}</p>}
+                  {(o.poDespatchNotes?.length ?? 0) > 0 && <p className="text-ink/50">PO despatch notes: {o.poDespatchNotes!.join(' / ')}</p>}
                   {o.customerPoRef && <p className="text-ink/50">PO ref field: <span className="font-mono">{o.customerPoRef}</span></p>}
                   <div className="pt-1 border-t border-ink/5">
                     <p className="text-[10px] uppercase tracking-wide text-ink/40 font-semibold mb-1">{o.so ? 'Re-link to a different SO' : 'Link to SO'}</p>
@@ -477,12 +500,14 @@ export default function ContainerOrdersPage() {
         'Customer PO': o.so?.customerOrderNo ?? o.customerPoRef ?? '',
         'Arrow PO': o.po,
         'Supplier': o.supplierName,
+        'Ships': o.shipTo === 'customer' ? 'Direct to customer' : o.shipTo === 'hayward' ? 'Via Melbourne' : '',
         'PO date': o.poDate ?? '',
         'PO units': o.poQty,
         'Received': o.poReceived,
         'Container(s)': o.shipments.map((c) => c.container).join(', '),
         'Vessel': o.shipments.map((c) => c.vessel).filter(Boolean).join(', '),
-        'Deliver to': o.so?.address.lines.join(', ') ?? '',
+        'Deliver to': o.so?.address.lines.join(', ') ?? (o.shipTo === 'customer' ? o.poDeliveryAddress.join(', ') : ''),
+        'Link': o.matchMethod === 'soNumber' ? 'SO on PO' : o.matchMethod === 'manual' ? 'Pinned' : o.matchMethod === 'customerPo' ? 'Customer PO ref' : 'None',
         'Contact': o.so?.contactName ?? '',
         'Phone': o.so?.phone ?? '',
         'Original ETA': o.poRequestedDate ?? '',
