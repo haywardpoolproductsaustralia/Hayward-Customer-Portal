@@ -8,6 +8,7 @@ import { usePathname } from 'next/navigation';
 const FULL_WIDTH_ROUTES = [
   '/dashboard/orders',
   '/dashboard/reconciliation',
+  '/dashboard/container-orders',
 ];
 export function MainContainer({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() ?? '';
