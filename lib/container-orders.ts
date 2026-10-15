@@ -70,6 +70,12 @@ export interface ContainerOrderRaw {
   poStatusFlag: string;
   /** DELIVERY_NOTE_1-3 on the PO = the delivery-address lines printed on it. */
   poDeliveryAddress: string[];
+  /** Where the supplier ships the PO: Hayward (via Melbourne) or straight to a customer site. */
+  shipTo: 'hayward' | 'customer' | 'unknown';
+  /** Despatch Notes on the PO form (ORDER_DESCN1-3). */
+  poDespatchNotes?: string[];
+  /** The SO number purchasing wrote on the Despatch Notes ("SO 446304"), if any. */
+  poSoRef?: string | null;
   customerPoRef: string | null;
   poNetValue: number | null;
   poQty: number;
