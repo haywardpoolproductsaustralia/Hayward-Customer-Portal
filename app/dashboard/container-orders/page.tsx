@@ -366,9 +366,9 @@ function OrderRow({ o, expanded, toggle, links, onLinks }: {
                   {o.so?.netValue != null && <p className="text-ink/70">SO value {AUD(o.so.netValue)}</p>}
                   {o.so?.deliveryDate && <p className="text-ink/70">SO promised {shortDate(o.so.deliveryDate)}</p>}
                   {o.so && o.so.deliveryNotes.length > 0 && (
-                    <p className="text-ink/50">SO notes: {o.so.deliveryNotes.join(' / ')}</p>
+                    <p className="text-ink/50">SO delivery lines: {o.so.deliveryNotes.join(', ')}</p>
                   )}
-                  {o.poDeliveryNotes.length > 0 && <p className="text-ink/50">PO notes: {o.poDeliveryNotes.join(' / ')}</p>}
+                  {o.poDeliveryAddress.length > 0 && <p className="text-ink/50">PO delivery address: {o.poDeliveryAddress.join(', ')}</p>}
                   {o.customerPoRef && <p className="text-ink/50">PO ref field: <span className="font-mono">{o.customerPoRef}</span></p>}
                   <div className="pt-1 border-t border-ink/5">
                     <p className="text-[10px] uppercase tracking-wide text-ink/40 font-semibold mb-1">{o.so ? 'Re-link to a different SO' : 'Link to SO'}</p>
@@ -491,7 +491,7 @@ export default function ContainerOrdersPage() {
         'Days past original': o.daysLate ?? '',
         'Status': STATUS[o.status].label,
         'SO value': o.so?.netValue ?? '',
-        'Notes': [o.so?.description, ...(o.poDeliveryNotes ?? [])].filter(Boolean).join(' / '),
+        'Notes': [o.so?.description, ...(o.poDeliveryAddress ?? [])].filter(Boolean).join(' / '),
       }));
       const lines = visible.flatMap((o) => o.lines.map((l) => ({
         'Arrow PO': o.po, 'SO': o.so?.orderNo ?? '', 'Customer': o.so?.customerName ?? '',
@@ -621,7 +621,7 @@ export default function ContainerOrdersPage() {
         <div className="rounded-2xl bg-white border border-ink/10 shadow-soft overflow-hidden">
           <div className="px-4 py-3 border-b border-ink/5">
             <h2 className="font-display font-semibold text-deep">Container sales orders without a purchase order</h2>
-            <p className="text-xs text-ink/40">Open SOs marked CONTAINER / FCL in Arrow that no Wuxi / US PO is linked to yet — pin them from the table above once the PO is raised.</p>
+            <p className="text-xs text-ink/40">Open SOs marked CONTAINER in Arrow (or on a container account) that no Wuxi / US PO is linked to yet. Ex-Melbourne orders stay here by design; anything else older than two working days needs chasing with Purchasing.</p>
           </div>
           <table className="w-full text-sm">
             <thead className="bg-ink/[0.03] text-[10px] uppercase tracking-wide text-ink/50">
@@ -640,7 +640,14 @@ export default function ContainerOrdersPage() {
               {data.unmatchedSos.map((s) => (
                 <tr key={s.orderNo} className="border-t border-ink/5 align-top">
                   <td className="px-4 py-2"><div className="font-semibold text-ink">{s.customerName}</div><div className="text-xs text-ink/40 font-mono">{s.customerCode}</div></td>
-                  <td className="px-2 py-2 font-mono">{s.orderNo}</td>
+                  <td className="px-2 py-2">
+                    <div className="font-mono">{s.orderNo}</div>
+                    {s.containerSource === 'MEL' ? (
+                      <span className="inline-block rounded-full bg-splash/10 px-2 py-0.5 text-[10px] font-semibold text-splash">Ex-Melbourne — no PO expected</span>
+                    ) : (
+                      <span className="inline-block rounded-full bg-amber/10 px-2 py-0.5 text-[10px] font-semibold text-amber">Needs PO</span>
+                    )}
+                  </td>
                   <td className="px-2 py-2 font-mono text-ink/70">{s.customerOrderNo ?? '—'}</td>
                   <td className="px-2 py-2 whitespace-nowrap">{shortDate(s.orderDate)}</td>
                   <td className="px-2 py-2 whitespace-nowrap">{shortDate(s.deliveryDate)}</td>
