@@ -38,6 +38,8 @@ export interface ContainerSo {
   statusFlag: string;
   description: string | null;
   isContainerFlag: boolean;
+  /** From ORDER_DESCN1 per the procedure: CONTAINER WUXI / US / MEL. */
+  containerSource?: 'WUXI' | 'US' | 'MEL' | null;
   contactName: string | null;
   phone: string | null;
   address: ContainerAddress;
@@ -66,7 +68,8 @@ export interface ContainerOrderRaw {
   poDate: string | null;
   poRequestedDate: string | null;
   poStatusFlag: string;
-  poDeliveryNotes: string[];
+  /** DELIVERY_NOTE_1-3 on the PO = the delivery-address lines printed on it. */
+  poDeliveryAddress: string[];
   customerPoRef: string | null;
   poNetValue: number | null;
   poQty: number;
