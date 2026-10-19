@@ -463,6 +463,15 @@ export function isUsablePriceType(t: string | null | undefined): t is string {
   return !!t && !t.startsWith('Z');
 }
 
+// Upstash auto-parses JSON on read, so a numeric price type stored as "11"
+// comes back as the number 11 and `.startsWith` throws (500 -> "Could not
+// reach pricing"). Always coerce to a trimmed string first.
+function priceTypeStr(v: unknown): string | null {
+  if (v == null) return null;
+  const s = String(v).trim();
+  return s ? s : null;
+}
+
 /**
  * Resolves which price type a pricing request should use:
  *   1. an explicit per-group override (for groups with known-bad master data),
@@ -497,7 +506,7 @@ export async function resolvePriceType(
   if (override) return { representativeCode, priceType: override };
 
   // 2. The customer's own price type, if usable.
-  const own = await redis.get<string>(`customerPriceType:${representativeCode}`);
+  const own = priceTypeStr(await redis.get(`customerPriceType:${representativeCode}`));
   if (isUsablePriceType(own)) return { representativeCode, priceType: own };
 
   // 3. Fall back to a group sibling with a usable price type
@@ -507,7 +516,7 @@ export async function resolvePriceType(
       .filter((c) => codeToGroup[c] === groupKey && c !== representativeCode)
       .slice(0, 50);
     const types = await Promise.all(
-      sibs.map((c) => redis.get<string>(`customerPriceType:${c}`))
+      sibs.map(async (c) => priceTypeStr(await redis.get(`customerPriceType:${c}`)))
     );
     for (const t of types) {
       if (isUsablePriceType(t)) return { representativeCode, priceType: t };
