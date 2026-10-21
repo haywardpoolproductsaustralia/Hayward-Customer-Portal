@@ -12,6 +12,7 @@ export type CtMovement = { event: string; status: 'ACT' | 'EST'; location?: stri
 export type CtLive = {
   shipmentId: number; reference?: string; shipmentStatus?: string; containerStatus?: string;
   carrier?: string; carrierScac?: string; pol?: string; pod?: string; etd?: string; eta?: string; etaInitial?: string;
+  etaPredicted?: string; mapUrl?: string;
   previousEta?: string; etaChangedAt?: string; vessel?: string; voyage?: string; transitPercentage?: number;
   movements: CtMovement[]; checkedAt?: string; updatedAt: string;
 };
@@ -113,6 +114,7 @@ function EtaCell({ c }: { c: CtContainer }) {
       {slipped && <span className="ml-1 text-rose-600" title={`ETA moved later (was ${fmtD(prev)})`}>▲ was {fmtD(prev)}</span>}
       {early && <span className="ml-1 text-emerald-600" title={`ETA moved earlier (was ${fmtD(prev)})`}>▼ was {fmtD(prev)}</span>}
       {!c.live?.eta && c.eta && <span className="ml-1 text-slate-400">(CDS)</span>}
+      {c.live?.etaPredicted && c.live.etaPredicted !== eta && <span className="ml-1 text-slate-500" title="ShipsGo's ETA-prediction model (carrier ETAs often lag reality)">· predicted {fmtD(c.live.etaPredicted)}</span>}
     </span>
   );
 }
@@ -169,7 +171,7 @@ function ContainerCard({ c, po, item, poOnly }: { c: CtContainer; po: string; it
         {c.packingSlipNos?.length ? <span>Slip {c.packingSlipNos.join(', ')}</span> : null}
         {otherPos.length > 0 && <span>Also POs {otherPos.join(', ')}</span>}
         {c.shipKey && <a className="text-sky-700 underline" href={`https://centuryvms.com/ui/container/view/${c.shipKey}/${c.containerNo}`} target="_blank" rel="noreferrer">Century ↗</a>}
-        {c.live && <a className="text-sky-700 underline" href="https://shipsgo.com/dashboard/track-and-trace/my-shipments" target="_blank" rel="noreferrer">ShipsGo ↗</a>}
+        {c.live && <a className="text-sky-700 underline" href={c.live.mapUrl ?? 'https://shipsgo.com/dashboard/track-and-trace/my-shipments'} target="_blank" rel="noreferrer">{c.live.mapUrl ? 'Live map ↗' : 'ShipsGo ↗'}</a>}
         <span className="ml-auto">{c.live ? `ShipsGo checked ${ago(c.live.checkedAt ?? c.live.updatedAt)}` : `last document ${ago(c.lastSeen)}`}</span>
       </div>
     </div>

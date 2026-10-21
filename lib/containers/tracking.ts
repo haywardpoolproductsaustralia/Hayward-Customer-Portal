@@ -88,9 +88,10 @@ export async function executeRegistrations(plan: RegisterItem[], dryRun = false)
       await linkShipment(s, item.containers, item.by, item.number);
       out.push({ item, ok: true, shipmentId: s.id, note: `registered (credits left: ${sg.lastCredits.remaining ?? "?"})` });
     } catch (e: any) {
-      if (sg.isDuplicate(e)) {
-        const dup = item.by === "container_number" ? await sg.findByContainerNumber(item.number).catch(() => null) : null;
-        if (dup) { await linkShipment(dup, item.containers, item.by, item.number); out.push({ item, ok: true, shipmentId: dup.id, note: "duplicate — linked" }); continue; }
+      const dup = sg.duplicateShipment(e);
+      if (dup) {
+        try { await linkShipment(dup, item.containers, item.by, item.number); out.push({ item, ok: true, shipmentId: dup.id, note: "already tracked (409) — linked, no credit" }); continue; }
+        catch (e2: any) { out.push({ item, ok: false, error: `409 link failed: ${e2?.message}` }); continue; }
       }
       out.push({ item, ok: false, error: sg.isOutOfCredits(e) ? `out of ShipsGo credits: ${e.message}` : e?.message ?? String(e) });
     }

@@ -8,7 +8,9 @@
 //   Response headers X-Shipsgo-Credits-Cost / X-Shipsgo-Credits-Remaining. 100 req/min per account.
 //   One credit per shipment created; every container under one booking/MBL shares it.
 //   Timestamps are local port time "YYYY-MM-DD HH:MM:SS".
-// Field names confirmed against the maintained Soer-BV/ShipsGo v2 SDK (Oct 2026).
+// Field names confirmed against the official OpenAPI 3.1 spec "ShipsGo API 2.0" (api.shipsgo.com/v2, 21 Oct 2026):
+//   POST → 200 { message, shipment }, 402 { message: "NOT_ENOUGH_CREDITS" }, 409 { message, shipment } (already tracked — no credit)
+//   tokens.map → https://map.shipsgo.com/ocean/shipments/{id}?token={map}   route.port_of_discharge.date_of_discharge_predicted
 
 import type { LiveStatus, Movement } from "./types";
 
@@ -50,10 +52,11 @@ export interface SgShipment {
   carrier?: { scac?: string; name?: string } | null; status?: string;
   route?: {
     port_of_loading?: { location?: SgLocation; date_of_loading?: string | null; date_of_loading_initial?: string | null } | null;
-    port_of_discharge?: { location?: SgLocation; date_of_discharge?: string | null; date_of_discharge_initial?: string | null } | null;
+    port_of_discharge?: { location?: SgLocation; date_of_discharge?: string | null; date_of_discharge_initial?: string | null; date_of_discharge_predicted?: string | null } | null;
     ts_count?: number | null; transit_time?: number | null; transit_percentage?: number | null; co2_emission?: number | null;
   } | null;
   containers?: SgContainer[];
+  tokens?: { map?: string };
   tags?: Array<{ id?: number; name?: string }>;
   created_at?: string; updated_at?: string; checked_at?: string | null; discarded_at?: string | null;
 }
@@ -78,6 +81,8 @@ export function toLiveStatus(s: SgShipment, containerNo: string, previous?: Live
     pol: s.route?.port_of_loading?.location?.name ?? undefined, pod: s.route?.port_of_discharge?.location?.name ?? undefined,
     etd: d(s.route?.port_of_loading?.date_of_loading), eta,
     etaInitial: d(s.route?.port_of_discharge?.date_of_discharge_initial),
+    etaPredicted: d(s.route?.port_of_discharge?.date_of_discharge_predicted),
+    mapUrl: s.tokens?.map ? `https://map.shipsgo.com/ocean/shipments/${s.id}?token=${encodeURIComponent(s.tokens.map)}` : undefined,
     previousEta: etaChanged ? previous!.eta : previous?.previousEta,
     etaChangedAt: etaChanged ? new Date().toISOString() : previous?.etaChangedAt,
     vessel: leg?.vessel, voyage: leg?.voyage,
@@ -135,8 +140,10 @@ export async function findByBookingNumber(booking: string): Promise<SgShipment |
   return shipments[0] ?? null;
 }
 
-export const isDuplicate = (e: unknown) => e instanceof ShipsgoError && (e.status === 409 || /already|duplicate|exist/i.test(JSON.stringify(e.body ?? "")));
-export const isOutOfCredits = (e: unknown) => e instanceof ShipsgoError && (e.status === 402 || /credit/i.test(JSON.stringify(e.body ?? "")));
+export const isDuplicate = (e: unknown) => e instanceof ShipsgoError && e.status === 409;
+/** The 409 body carries the shipment that already tracks this number — link to it instead of looking it up. */
+export const duplicateShipment = (e: unknown): SgShipment | null => (isDuplicate(e) && (e as ShipsgoError).body?.shipment) || null;
+export const isOutOfCredits = (e: unknown) => e instanceof ShipsgoError && (e.status === 402 || /NOT_ENOUGH_CREDITS/i.test(JSON.stringify(e.body ?? "")));
 
 /** Statuses after which nothing more will change — don't poll, don't register. */
 export const TERMINAL_CONTAINER = new Set(["GATE_OUT", "EMPTY_RETURN"]);

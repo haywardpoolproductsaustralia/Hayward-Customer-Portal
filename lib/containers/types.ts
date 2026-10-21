@@ -45,7 +45,9 @@ export interface LiveStatus {
   pod?: string;
   etd?: string;               // ISO date
   eta?: string;               // current ETA at POD (ISO date)
-  etaInitial?: string;        // first ETA ShipsGo saw — difference = slip
+  etaInitial?: string;        // first ETA the carrier declared — difference = slip
+  etaPredicted?: string;      // ShipsGo's own ETA-prediction model (null once the voyage is done)
+  mapUrl?: string;            // public live-map link: https://map.shipsgo.com/ocean/shipments/{id}?token=…
   previousEta?: string;       // last different ETA WE saw (drives the "was dd/mm" marker)
   etaChangedAt?: string;
   vessel?: string;
