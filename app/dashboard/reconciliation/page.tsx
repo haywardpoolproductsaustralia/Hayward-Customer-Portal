@@ -23,9 +23,15 @@ const TABLE_W = COL_W.reduce((a, b) => a + b, 0);
 const MIN_ZOOM = 0.55;
 // Full-width PO reconciliation: Arrow AU vs AS400 (Snowflake upload) vs CDS-Net shipments.
 // Both AS400 data and CDS-Net shipment file can be uploaded directly in the browser.
+// Container tracking (ShipsGo live status + US invoices + Wuxi packing slips, from /api/containers/view)
+// folds into the "Shipment On Water" columns and opens as a panel under the row — see components/ContainerTracking.tsx.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
+import {
+  TrackingPanel, StatusChip, indexContainers, lineKey as ctLineKey, bestEta, bestVessel, bestCarrier, deliveredOf, ctStatus,
+  type CtContainer,
+} from '@/components/ContainerTracking';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -74,6 +80,7 @@ type ShipLine = {
   carrier: string | null;
   origin: string | null;
   destPort: string | null;
+  live?: boolean;            // came from the container store (ShipsGo/PDF), not the CDS line index
 };
 
 type ReconRow = ArrowLine & {
@@ -502,7 +509,7 @@ function reconcile(arrow: ArrowLine[], as400: As400Line[], ship: ShipLine[]): Re
 // ---------------------------------------------------------------------------
 
 function UploadBanner({
-  label, sublabel, hint, meta, uploading, accept, onFile,
+  label, sublabel, hint, meta, uploading, accept, onFile, multiple, onFiles, note,
 }: {
   label: string;
   sublabel: string;
@@ -510,7 +517,10 @@ function UploadBanner({
   meta: string;
   uploading: boolean;
   accept: string;
-  onFile: (f: File) => void;
+  onFile?: (f: File) => void;
+  multiple?: boolean;
+  onFiles?: (f: File[]) => void;
+  note?: string | null;
 }) {
   const ref = useRef<HTMLInputElement>(null);
   return (
@@ -521,16 +531,22 @@ function UploadBanner({
       </div>
       <p className="mb-3 text-xs text-slate-500">{hint}</p>
       <input
-        ref={ref} type="file" accept={accept} className="hidden"
-        onChange={(e) => { const f = e.target.files?.[0]; if (f) onFile(f); e.target.value = ''; }}
+        ref={ref} type="file" accept={accept} className="hidden" multiple={!!multiple}
+        onChange={(e) => {
+          const list = Array.from(e.target.files ?? []);
+          if (multiple && onFiles) { if (list.length) onFiles(list); }
+          else if (list[0] && onFile) onFile(list[0]);
+          e.target.value = '';
+        }}
       />
       <button
         onClick={() => ref.current?.click()}
         disabled={uploading}
         className="inline-flex items-center gap-2 rounded-lg bg-wave px-4 py-2 text-sm font-medium text-white hover:bg-deep disabled:opacity-60"
       >
-        {uploading ? 'Processing…' : '↑ Choose file'}
+        {uploading ? 'Processing…' : multiple ? '↑ Choose files' : '↑ Choose file'}
       </button>
+      {note && <p className="mt-2 whitespace-pre-wrap text-xs text-slate-600">{note}</p>}
     </div>
   );
 }
@@ -553,6 +569,13 @@ export default function ReconciliationPage() {
   const [search,     setSearch]     = useState('');
   const [uploadingA4, setUploadingA4] = useState(false);
   const [uploadingShip, setUploadingShip] = useState(false);
+  // Container tracking store (ShipsGo live + supplier PDFs + CDS container facts)
+  const [ctContainers, setCtContainers] = useState<CtContainer[]>([]);
+  const [ctInfo, setCtInfo] = useState<{ meta: any; refresh: any; shipsgoConfigured: boolean; total: number }>({ meta: null, refresh: null, shipsgoConfigured: false, total: 0 });
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [refreshingCt, setRefreshingCt] = useState(false);
+  const [uploadingDocs, setUploadingDocs] = useState(false);
+  const [docsNote, setDocsNote] = useState<string | null>(null);
   // Stock scope: 'all' (default) shows every Arrow line; the other two narrow it.
   const [scope,            setScope]            = useState<'all' | 'hayward' | 'paramount'>('all');
   const showParamount = scope === 'paramount';
@@ -578,15 +601,70 @@ export default function ReconciliationPage() {
       fetch('/api/recon/arrow').then((r) => r.json()).catch(() => ({})),
       fetch('/api/recon/shipment').then((r) => r.json()).catch(() => ({})),
       fetch('/api/recon/as400').then((r) => r.json()).catch(() => ({})),
-    ]).then(([arrow, ship, a400]) => {
+      fetch('/api/containers/view').then((r) => r.json()).catch(() => ({})),
+    ]).then(([arrow, ship, a400, ct]) => {
       setArrowLines(arrow.lines ?? []);
       setArrowMeta({ generatedAt: arrow.generatedAt ?? null, rows: arrow.lines?.length ?? 0 });
       setShipLines(ship.lines ?? []);
       setShipMeta({ receivedAt: ship.receivedAt ?? null, rows: ship.lines?.length ?? 0, filename: ship.filename ?? ship.subject ?? null });
       setAs400Lines(a400.lines ?? []);
       setAs400Meta({ uploadedAt: a400.uploadedAt ?? null, rows: a400.lines?.length ?? 0, filename: a400.filename ?? null });
+      setCtContainers(Array.isArray(ct?.containers) ? ct.containers : []);
+      setCtInfo({ meta: ct?.meta ?? null, refresh: ct?.refresh ?? null, shipsgoConfigured: !!ct?.shipsgoConfigured, total: ct?.total ?? 0 });
     }).finally(() => setLoading(false));
   }, []);
+
+  const reloadContainers = useCallback(async () => {
+    const ct = await fetch('/api/containers/view').then((r) => r.json()).catch(() => ({}));
+    setCtContainers(Array.isArray(ct?.containers) ? ct.containers : []);
+    setCtInfo({ meta: ct?.meta ?? null, refresh: ct?.refresh ?? null, shipsgoConfigured: !!ct?.shipsgoConfigured, total: ct?.total ?? 0 });
+    const ship = await fetch('/api/recon/shipment').then((r) => r.json()).catch(() => ({}));
+    if (Array.isArray(ship?.lines)) {
+      setShipLines(ship.lines);
+      setShipMeta({ receivedAt: ship.receivedAt ?? null, rows: ship.lines.length, filename: ship.filename ?? ship.subject ?? null });
+    }
+  }, []);
+
+  // "Refresh tracking" — pull the ShipsGo account now (the cron does this 2-hourly)
+  const handleRefreshTracking = useCallback(async () => {
+    setRefreshingCt(true);
+    try {
+      const res = await fetch('/api/containers/refresh', { method: 'POST' });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error ?? res.statusText);
+      await reloadContainers();
+      setDocsNote(`ShipsGo: ${j.shipments} shipments on the account · ${j.containersTouched} containers updated · ${j.changed?.length ?? 0} ETA/status changes${j.credits?.remaining != null ? ` · ${j.credits.remaining} credits left` : ''}${j.errors?.length ? ` · ${j.errors.length} errors` : ''}`);
+    } catch (e: any) {
+      alert('Refresh failed: ' + e.message);
+    } finally {
+      setRefreshingCt(false);
+    }
+  }, [reloadContainers]);
+
+  // Container documents (US invoice PDF, Wuxi packing slip PDF, CDS xlsx, or whole .msg emails)
+  const handleDocFiles = useCallback(async (files: File[]) => {
+    setUploadingDocs(true);
+    try {
+      const fd = new FormData();
+      for (const f of files) fd.append('files', f);
+      const res = await fetch('/api/containers/upload', { method: 'POST', body: fd });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error ?? res.statusText);
+      const lines = (j.results as any[]).map((r) => {
+        if (r.error) return `✗ ${r.file}: ${r.error}`;
+        if (r.skipped) return `– ${r.file}: ${r.skipped}`;
+        const reg = r.registration?.results?.length ? ` · ShipsGo: ${r.registration.results.filter((x: any) => x.ok).length}/${r.registration.results.length} registered` : '';
+        const w = r.warnings?.length ? ` · ⚠ ${r.warnings.join('; ')}` : '';
+        return `✓ ${r.file}: ${r.parsed.lines} lines, ${r.parsed.containers} container(s)${r.newContainers?.length ? ` (new: ${r.newContainers.join(', ')})` : ''}${r.parsed.cdsLines != null ? ` · CDS index ${r.parsed.cdsLines} AU/NZ lines` : ''}${reg}${w}`;
+      });
+      setDocsNote(lines.join('\n'));
+      await reloadContainers();
+    } catch (e: any) {
+      alert('Upload failed: ' + e.message);
+    } finally {
+      setUploadingDocs(false);
+    }
+  }, [reloadContainers]);
 
   // Auto-enable Paramount button if user only has access to Paramount POs
   // (i.e., they receive only PR stock category from API - like Poolwater Products)
@@ -649,7 +727,32 @@ export default function ReconciliationPage() {
     }
   }, []);
 
-  const rows = useMemo(() => reconcile(arrowLines, as400Lines, shipLines), [arrowLines, as400Lines, shipLines]);
+  // Container store → ShipLine[] so the existing reconcile() picks up live ETA/vessel/status.
+  // A CDS line for the same PO + item + container is superseded by the store version (which carries ShipsGo data).
+  const ctIdx = useMemo(() => indexContainers(ctContainers), [ctContainers]);
+  const shipAll = useMemo<ShipLine[]>(() => {
+    const fromCt: ShipLine[] = [];
+    const covered = new Set<string>();
+    for (const c of ctContainers) {
+      const seen = new Set<string>();
+      for (const l of c.lines) {
+        const k = `${ctLineKey(l.po, l.item)}|${c.containerNo}`;
+        if (seen.has(k)) continue;
+        seen.add(k); covered.add(k);
+        fromCt.push({
+          po: l.po, item: l.item, container: c.containerNo, vessel: bestVessel(c), etd: c.live?.etd ?? c.etd ?? null, eta: bestEta(c),
+          delivered: deliveredOf(c), units: l.qty, carrier: bestCarrier(c), origin: c.live?.pol ?? c.originPort ?? null, destPort: c.live?.pod ?? c.destPort ?? null,
+          live: true,
+        });
+      }
+    }
+    const cds = shipLines.filter((sl) => !sl.container || !covered.has(`${ctLineKey(sl.po, sl.item)}|${sl.container}`));
+    return [...cds, ...fromCt];
+  }, [shipLines, ctContainers]);
+
+  const rows = useMemo(() => reconcile(arrowLines, as400Lines, shipAll), [arrowLines, as400Lines, shipAll]);
+
+  const toggleRow = useCallback((k: string) => setExpanded((prev) => { const n = new Set(prev); if (n.has(k)) n.delete(k); else n.add(k); return n; }), []);
 
   const filtered = useMemo(() => {
     let r = rows;
@@ -708,8 +811,9 @@ export default function ReconciliationPage() {
     if (ageH(arrowMeta.generatedAt) > 24) w.push(`Arrow POs last synced ${arrowMeta.generatedAt ? new Date(arrowMeta.generatedAt).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' }) : 'never'} — check arrow-recon.js is scheduled on AZ-Grey`);
     if (ageH(as400Meta.uploadedAt) > 72) w.push(`AS400 data uploaded ${as400Meta.uploadedAt ? new Date(as400Meta.uploadedAt).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' }) : 'never'} — upload a fresh export below`);
     if (ageH(shipMeta.receivedAt) > 72) w.push(`CDS-Net shipment file uploaded ${shipMeta.receivedAt ? new Date(shipMeta.receivedAt).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' }) : 'never'} — upload today's file below`);
+    if (ctInfo.shipsgoConfigured && ageH(ctInfo.refresh?.at ?? null) > 8) w.push(`ShipsGo tracking last refreshed ${ctInfo.refresh?.at ? new Date(ctInfo.refresh.at).toLocaleString('en-AU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'never'} — check the /api/containers/refresh cron, or press Refresh tracking`);
     return w;
-  }, [arrowMeta, as400Meta, shipMeta]);
+  }, [arrowMeta, as400Meta, shipMeta, ctInfo]);
 
   // Get unique customer POs when Paramount is enabled
   const paramountCustomerPOs = useMemo(() => {
@@ -749,6 +853,7 @@ export default function ReconciliationPage() {
             {arrowMeta.generatedAt && <span>{arrowMeta.rows} Arrow · {fmtMeta(arrowMeta.generatedAt)}</span>}
             {as400Meta.rows > 0    && <span>· {as400Meta.rows} AS400</span>}
             {shipMeta.rows > 0     && <span>· {shipMeta.rows} shipment lines</span>}
+            {ctContainers.length > 0 && <span>· {ctContainers.length} containers tracked{ctInfo.refresh?.at ? ` · ShipsGo ${fmtMeta(ctInfo.refresh.at)}` : ''}</span>}
           </div>
         </div>
       </div>
@@ -863,6 +968,14 @@ export default function ReconciliationPage() {
           {/* Export button — right-aligned above table */}
           <div className="flex justify-end items-center gap-2 mb-2">
             <button
+              onClick={handleRefreshTracking}
+              disabled={refreshingCt}
+              title="Pull the latest status, ETA and milestones for every shipment on the ShipsGo account (the cron does this every 2 hours)"
+              className="flex items-center gap-2 rounded-xl border border-ink/10 bg-white px-4 py-2 text-sm font-medium shadow-soft hover:border-wave/30 transition-colors disabled:opacity-60"
+            >
+              <span className={refreshingCt ? 'animate-spin' : ''}>⟳</span> {refreshingCt ? 'Refreshing…' : 'Refresh tracking'}
+            </button>
+            <button
               onClick={() => setFitToScreen((v) => !v)}
               title={fitToScreen ? 'Show the table at full size (scroll sideways)' : 'Shrink the table so every column fits'}
               className="flex items-center gap-2 rounded-xl border border-ink/10 bg-white px-4 py-2 text-sm font-medium shadow-soft hover:border-wave/30 transition-colors"
@@ -875,7 +988,7 @@ export default function ReconciliationPage() {
                 const headers = [
                   'PO','Customer PO','Status','Type','Stock Code','Supplier SKU','Order Date','ETA Arrow',
                   'Ordered','Received','Arrow PO Ref','AS400 Item','Match','AS400 ENT','AS400 SHPD','Qty Mismatch','Ship Date','AS400 ETA','US SO#',
-                  'On Water','Container','Vessel','Container ETA','Supplier'
+                  'On Water','Container','Vessel','Container ETA','Supplier','Tracking status','MBL','Invoice / Slip'
                 ];
                 const escape = (v: any) => `"${String(v ?? '').replace(/"/g, '""')}"`;
                 const csvRows = filtered.map(r => [
@@ -886,7 +999,15 @@ export default function ReconciliationPage() {
                   r.matchType ? r.as400Ord : 'missing', r.as400Shpd, r.qtyMismatch ? 'YES' : '',
                   r.shipDate ?? '', r.as400Eta ?? '', r.usSoNumber ?? '',
                   r.onWater, r.container ?? '', r.vessel ?? '', r.containerEta ?? '',
-                  creditorName[r.creditor ?? ''] ?? r.creditor ?? ''
+                  creditorName[r.creditor ?? ''] ?? r.creditor ?? '',
+                  ...(() => {
+                    const cs = ctIdx.byLine.get(ctLineKey(r.po, r.supplierSku)) ?? (r.as400Item ? ctIdx.byLine.get(ctLineKey(r.po, r.as400Item)) ?? [] : []);
+                    return [
+                      cs.map((c) => ctStatus(c).label).join(' / '),
+                      Array.from(new Set(cs.map((c) => c.mbl).filter(Boolean))).join(' / '),
+                      Array.from(new Set(cs.flatMap((c) => [...(c.invoiceNos ?? []).map((n) => `Inv ${n}`), ...(c.packingSlipNos ?? []).map((n) => `Slip ${n}`)]))).join(' / '),
+                    ];
+                  })(),
                 ].map(escape).join(','));
                 const csv = [headers.map(escape).join(','), ...csvRows].join('\n');
                 const blob = new Blob([csv], { type: 'text/csv' });
@@ -994,9 +1115,16 @@ export default function ReconciliationPage() {
                 filtered.map((r, i) => {
                   const addr = addrMatch(r);
                   const rowBase = r.lateVsRequest ? 'bg-red-50/30' : '';
+                  // container tracking for this line: by supplier SKU, else by the AS400 item code, else PO-level
+                  const lineCts = ctIdx.byLine.get(ctLineKey(r.po, r.supplierSku))
+                    ?? (r.as400Item ? ctIdx.byLine.get(ctLineKey(r.po, r.as400Item)) : undefined) ?? [];
+                  const poCts = ctIdx.byPo.get(r.po) ?? [];
+                  const hasTracking = lineCts.length > 0 || poCts.length > 0;
+                  const rowKey = `${r.po}|${r.arrowStock}|${i}`;
+                  const isOpen = expanded.has(rowKey);
                   return (
+                    <Fragment key={rowKey}>
                     <tr
-                      key={`${r.po}-${r.arrowStock}-${i}`}
                       className={`${rowBase} hover:brightness-[0.97] transition-colors`}
                     >
                       <td className="sticky left-0 z-10 bg-slate-900 px-2 py-1.5 whitespace-nowrap">
@@ -1042,13 +1170,40 @@ export default function ReconciliationPage() {
                           ? <span className="font-bold text-violet-700">{r.onWater}</span>
                           : <span className="text-slate-300">—</span>}
                       </td>
-                      <td className="bg-violet-50 px-2 py-2 whitespace-nowrap text-violet-800"><span title={r.container ?? ''}>{r.container ?? '—'}</span></td>
+                      <td className="bg-violet-50 px-2 py-1.5 whitespace-nowrap text-violet-800">
+                        {hasTracking ? (
+                          <button
+                            onClick={() => toggleRow(rowKey)}
+                            title={isOpen ? 'Hide tracking' : `Show tracking (${lineCts.length || poCts.length} container${(lineCts.length || poCts.length) === 1 ? '' : 's'})`}
+                            className="flex w-full items-center gap-1 text-left hover:text-violet-950"
+                          >
+                            <span className="text-[10px] text-violet-400">{isOpen ? '▾' : '▸'}</span>
+                            <span className="truncate font-mono text-[11px]">{r.container ?? (poCts.length ? `${poCts.length} on PO` : '—')}</span>
+                            {lineCts[0] && <span className="ml-auto shrink-0"><StatusChip c={lineCts[0]} /></span>}
+                          </button>
+                        ) : (
+                          <span title={r.container ?? ''}>{r.container ?? '—'}</span>
+                        )}
+                      </td>
                       <td className="bg-violet-50 px-2 py-1.5 whitespace-nowrap text-slate-700"><span title={r.vessel ?? ''}>{r.vessel ?? '—'}</span></td>
-                      <td className="bg-violet-50 px-2 py-1.5 whitespace-nowrap text-slate-600">{fmt(r.containerEta)}</td>
+                      <td className="bg-violet-50 px-2 py-1.5 whitespace-nowrap text-slate-600">
+                        {fmt(r.containerEta)}
+                        {lineCts[0]?.live?.previousEta && lineCts[0].live.eta && lineCts[0].live.previousEta < lineCts[0].live.eta && (
+                          <span className="ml-1 text-rose-600" title={`ETA slipped — was ${fmt(lineCts[0].live.previousEta)}`}>▲</span>
+                        )}
+                      </td>
                       <td className="bg-violet-50 px-2 py-1.5 whitespace-nowrap text-slate-500">
                         {creditorName[r.creditor ?? ''] ?? r.creditor ?? '—'}
                       </td>
                     </tr>
+                    {isOpen && (
+                      <tr className="bg-violet-50/40">
+                        <td colSpan={21} className="p-0" style={{ whiteSpace: 'normal' }}>
+                          <TrackingPanel po={r.po} item={r.as400Item ?? r.supplierSku} lineContainers={lineCts} poContainers={poCts} />
+                        </td>
+                      </tr>
+                    )}
+                    </Fragment>
                   );
                 })
               )}
@@ -1064,7 +1219,18 @@ export default function ReconciliationPage() {
       </p>
 
       {/* ── Upload banners — bottom of page ── */}
-      <div className="grid gap-3 lg:grid-cols-2 pt-4 border-t border-slate-100">
+      <div className="grid gap-3 lg:grid-cols-3 pt-4 border-t border-slate-100">
+        <UploadBanner
+          label="Container documents"
+          sublabel="US invoice · Wuxi packing slip · CDS xlsx · .msg"
+          hint="Drop the PDFs from sbateman@hayward.com (Inv#: … PO: …) and robot@hayward.com (Hayward Shipment for PO: …), the CDS-Net xlsx, or whole emails saved as .msg from Dimi's mailbox. Container numbers are read from the documents, matched to the PO lines, and tracked on ShipsGo. The AU Containers mailbox flow does this automatically once it's live."
+          meta={ctInfo.meta?.lastIngestAt ? `last: ${fmtMeta(ctInfo.meta.lastIngestAt)} · ${ctInfo.meta.lastSubject ?? ''}`.slice(0, 90) : (ctContainers.length ? `${ctContainers.length} open containers` : 'nothing ingested yet')}
+          uploading={uploadingDocs}
+          accept=".pdf,.msg,.xlsx,.xls"
+          multiple
+          onFiles={handleDocFiles}
+          note={docsNote}
+        />
         <UploadBanner
           label="AS400 data"
           sublabel="manual until Snowflake service account is live"
