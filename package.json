@@ -11,9 +11,11 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.105.0",
     "@clerk/nextjs": "^6.5.0",
+    "@kenjiuno/msgreader": "^1.22.0",
     "@upstash/redis": "^1.31.0",
     "lucide-react": "^0.468.0",
     "next": "^14.2.25",
+    "pdfjs-dist": "^4.10.38",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "xlsx": "^0.18.5"
