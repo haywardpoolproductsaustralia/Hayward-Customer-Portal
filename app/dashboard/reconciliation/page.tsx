@@ -167,7 +167,7 @@ function statusBadge(s: ReconRow['status']) {
 }
 
 function isException(x: ReconRow) {
-  return x.status === 'missing' || x.qtyMismatch || x.matchType === 'alias' || x.lateVsRequest;
+  return x.status === 'missing' || x.qtyMismatch || x.matchType === 'alias';
 }
 
 function addrMatch(row: ReconRow): 'ok' | 'warn' | 'unknown' {
@@ -390,7 +390,9 @@ function reconcile(arrow: ArrowLine[], as400: As400Line[], ship: ShipLine[]): Re
 
     const qtyMismatch = !!a4 && Math.round(as400Ord) !== Math.round(a.qtyOrdered);
     const bestEta = latest?.eta ?? a4?.eta ?? null;
-    const lateVsRequest = !!(a.requestedDate && bestEta && bestEta > a.requestedDate && a.qtyOutstanding > 0);
+    // Arrow's requested date is keyed by purchasing when the PO is raised and is not a forecast —
+    // it is shown for reference only and never drives status, exceptions or highlighting.
+    const lateVsRequest = false;
 
     return {
       ...a,
@@ -1018,7 +1020,7 @@ export default function ReconciliationPage() {
                 <th className="sticky bg-emerald-200 px-2 py-2 whitespace-nowrap text-emerald-900 opacity-100" style={{ left: '308px' }}>Stock code</th>
                 <th className="sticky bg-emerald-200 px-2 py-2 whitespace-nowrap text-emerald-900 opacity-100" style={{ left: '428px' }}>Supplier SKU</th>
                 <th title="PO order date" className="sticky bg-emerald-200 px-2 py-2 whitespace-nowrap text-emerald-900 opacity-100" style={{ left: '540px' }}>Order dt</th>
-                <th title="Requested date in Arrow" className="sticky bg-emerald-200 px-2 py-2 whitespace-nowrap text-emerald-900 opacity-100" style={{ left: '616px' }}>ETA</th>
+                <th title="Date keyed on the Arrow PO — reference only, not a forecast" className="sticky bg-emerald-200 px-2 py-2 whitespace-nowrap text-emerald-900 opacity-100" style={{ left: '616px' }}>ETA</th>
                 <th title="Qty ordered in Arrow" className="sticky bg-emerald-200 px-2 py-2 text-right whitespace-nowrap text-emerald-900 opacity-100" style={{ left: '692px' }}>Qty</th>
                 <th title="Qty received in Arrow" className="sticky bg-emerald-200 px-2 py-2 text-right whitespace-nowrap text-emerald-900 border-r-2 border-emerald-400 opacity-100" style={{ left: '752px' }}>Rcvd</th>
                 <th title="Matched AS400 PO / item" className="bg-[#fef3c7] px-2 py-2 whitespace-nowrap text-[#78350f] opacity-100">Arrow PO</th>
@@ -1044,7 +1046,7 @@ export default function ReconciliationPage() {
               ) : (
                 filtered.map((r, i) => {
                   const addr = addrMatch(r);
-                  const rowBase = r.lateVsRequest ? 'bg-red-50/30' : '';
+                  const rowBase = '';
                   // container tracking for this line: by supplier SKU, else by the AS400 item code, else PO-level
                   const lineCts = ctIdx.byLine.get(ctLineKey(r.po, r.supplierSku))
                     ?? (r.as400Item ? ctIdx.byLine.get(ctLineKey(r.po, r.as400Item)) : undefined) ?? [];
@@ -1083,7 +1085,6 @@ export default function ReconciliationPage() {
                       <td className="sticky bg-emerald-50 px-2 py-1.5 whitespace-nowrap text-slate-500" style={{ left: '540px' }}>{fmt(r.orderDate)}</td>
                       <td className="sticky bg-emerald-50 px-2 py-1.5 whitespace-nowrap text-slate-700" style={{ left: '616px' }}>
                         {fmt(r.requestedDate)}
-                        {r.lateVsRequest && <span className="ml-1 text-red-500" title="Late vs requested date">&#x26A0;</span>}
                       </td>
                       <td className="sticky bg-emerald-50 px-2 py-1.5 text-right font-bold text-emerald-900" style={{ left: '692px' }}>{r.qtyOrdered}</td>
                       <td className="sticky bg-emerald-50 px-2 py-1.5 text-right text-slate-600 border-r-2 border-emerald-300" style={{ left: '752px' }}>{r.qtyReceived}</td>
