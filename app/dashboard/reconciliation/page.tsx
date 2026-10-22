@@ -372,8 +372,12 @@ function reconcile(arrow: ArrowLine[], as400: As400Line[], ship: ShipLine[]): Re
 
     const as400Ord  = a4?.ord  ?? 0;
     const as400Shpd = a4?.shpd ?? 0;
-    const shipped = !!a4 && (as400Shpd > 0 || (!!a4.shipDate && a4.shipDate <= today));
+    // Units confirmed in containers for this line (invoice / packing slip / Century / CDS), across all its boxes.
+    // When we have that, it beats AS400's SHPD — the invoice lands days before AS400 flips the line to shipped.
+    const ctUnits = ships.reduce((sum, x) => sum + (x.units ?? 0), 0);
+    const shipped = ctUnits > 0 || (!!a4 && (as400Shpd > 0 || (!!a4.shipDate && a4.shipDate <= today)));
     const onWater = !shipped ? 0
+      : ctUnits > 0 ? Math.max(0, Math.max(ctUnits, as400Shpd) - a.qtyReceived)
       : as400Shpd > 0 ? Math.max(0, as400Shpd - a.qtyReceived)
       : a.qtyOutstanding;
 
@@ -1031,6 +1035,11 @@ export default function ReconciliationPage() {
                     ?? (r.as400Item ? ctIdx.byLine.get(ctLineKey(r.po, r.as400Item)) : undefined) ?? [];
                   const poCts = ctIdx.byPo.get(r.po) ?? [];
                   const hasTracking = lineCts.length > 0 || poCts.length > 0;
+                  // Chip follows the same container the Vessel / Cont ETA columns show: the latest-ETA box
+                  // (reconcile() picks that one), so a split shipment reads "Empty to shipper · EVER SMART · 21 Nov", not a mix.
+                  const chipCt = lineCts.length
+                    ? [...lineCts].sort((a, b) => (bestEta(b) ?? '').localeCompare(bestEta(a) ?? ''))[0]
+                    : undefined;
                   const rowKey = `${r.po}|${r.arrowStock}|${i}`;
                   const isOpen = expanded.has(rowKey);
                   return (
@@ -1091,8 +1100,10 @@ export default function ReconciliationPage() {
                             className="flex w-full items-center gap-1 text-left hover:text-violet-950"
                           >
                             <span className="text-[10px] text-violet-400">{isOpen ? '▾' : '▸'}</span>
-                            <span className="truncate font-mono text-[11px]">{r.container ?? (poCts.length ? `${poCts.length} box${poCts.length === 1 ? '' : 'es'} · other lines` : '—')}</span>
-                            {lineCts[0] && <span className="ml-auto shrink-0"><StatusChip c={lineCts[0]} /></span>}
+                            <span className="truncate font-mono text-[11px]" title={r.container ?? ''}>
+                              {lineCts.length > 1 && chipCt ? `${chipCt.containerNo} +${lineCts.length - 1}` : r.container ?? (poCts.length ? `${poCts.length} box${poCts.length === 1 ? '' : 'es'} · other lines` : '—')}
+                            </span>
+                            {chipCt && <span className="ml-auto shrink-0"><StatusChip c={chipCt} /></span>}
                           </button>
                         ) : (
                           <span title={r.container ?? ''}>{r.container ?? '—'}</span>
@@ -1101,8 +1112,8 @@ export default function ReconciliationPage() {
                       <td className="bg-violet-50 px-2 py-1.5 whitespace-nowrap text-slate-700"><span title={r.vessel ?? ''}>{r.vessel ?? '—'}</span></td>
                       <td className="bg-violet-50 px-2 py-1.5 whitespace-nowrap text-slate-600">
                         {fmt(r.containerEta)}
-                        {lineCts[0]?.live?.previousEta && lineCts[0].live.eta && lineCts[0].live.previousEta < lineCts[0].live.eta && (
-                          <span className="ml-1 text-rose-600" title={`ETA slipped — was ${fmt(lineCts[0].live.previousEta)}`}>▲</span>
+                        {chipCt?.live?.previousEta && chipCt.live.eta && chipCt.live.previousEta < chipCt.live.eta && (
+                          <span className="ml-1 text-rose-600" title={`ETA slipped — was ${fmt(chipCt.live.previousEta)}`}>▲</span>
                         )}
                       </td>
                       <td className="bg-violet-50 px-2 py-1.5 whitespace-nowrap text-slate-500">
