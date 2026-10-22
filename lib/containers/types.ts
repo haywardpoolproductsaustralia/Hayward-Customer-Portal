@@ -8,7 +8,21 @@
 //   us-invoice        sbateman@hayward.com "Inv#: 00134xxxxx  PO: 9xxxxx" → MFX-000x_INVOICE_FT.PDF
 // The two PDFs are the ONLY early signal for US-origin containers, which CDS stopped carrying in Feb 2026.
 
-export type ContainerSource = "shipsgo" | "century" | "cds" | "wuxi-packing-slip" | "us-invoice";
+export type ContainerSource = "shipsgo" | "century" | "chr" | "cds" | "wuxi-packing-slip" | "us-invoice";
+
+/** Latest state from the C.H. Robinson Navisphere shipment report (shipment-level; the only feed for the US lane). */
+export interface ChrStatus {
+  shipmentNo: string;
+  reference?: string;         // CHR "Customer Reference Number" — POs for Wuxi, a date/week for US bookings
+  statusRaw: string;          // "Depart Port", "Port Cmplt", "Unloading", "Booked Complete"…
+  status?: string;            // mapped to the ShipsGo container-status vocabulary
+  etd?: string; atd?: string; eta?: string; ata?: string;
+  pickedUpAt?: string;        // "Pickup From Departed" — close to the US invoice ship date
+  deliverEta?: string; deliveredAt?: string;
+  carrier?: string; hbl?: string;
+  usOrigin: boolean;
+  updatedAt: string;
+}
 
 /** Latest tracking state from the Century/VIZIV per-line CSV (forwarder events, current ETA). */
 export interface CenturyStatus {
@@ -96,6 +110,7 @@ export interface ContainerRecord {
   shipKey?: string;           // CDS / Century ship key → centuryvms deep link
   destCountry?: string;
   century?: CenturyStatus;    // latest Century event — status when ShipsGo doesn't track the box
+  chr?: ChrStatus;            // C.H. Robinson shipment state (US lane)
   invoiceNos?: string[];
   packingSlipNos?: string[];
   live?: LiveStatus;

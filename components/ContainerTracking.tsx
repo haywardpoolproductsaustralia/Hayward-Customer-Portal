@@ -16,12 +16,13 @@ export type CtLive = {
   previousEta?: string; etaChangedAt?: string; vessel?: string; voyage?: string; transitPercentage?: number;
   movements: CtMovement[]; checkedAt?: string; updatedAt: string;
 };
+export type CtChr = { shipmentNo: string; reference?: string; statusRaw: string; status?: string; etd?: string; atd?: string; eta?: string; ata?: string; pickedUpAt?: string; deliverEta?: string; deliveredAt?: string; carrier?: string; usOrigin: boolean; updatedAt: string };
 export type CtCentury = { event?: string; status?: string; eventAt?: string; vesselArrivedAt?: string; currentEta?: string; forwarder?: string; updatedAt: string };
 export type CtContainer = {
   containerNo: string; pos: string[]; lines: CtLine[]; sources: string[]; firstSeen: string; lastSeen: string;
   mbl?: string; hbl?: string; forwarder?: string; vendor?: string; originPort?: string; destPort?: string; shipMode?: 'O' | 'A';
   vessel?: string; voyage?: string; etd?: string; eta?: string; deliveredDate?: string; size?: string; shipKey?: string;
-  invoiceNos?: string[]; packingSlipNos?: string[]; live?: CtLive; century?: CtCentury;
+  invoiceNos?: string[]; packingSlipNos?: string[]; live?: CtLive; century?: CtCentury; chr?: CtChr;
   registration?: { shipmentId: number; by: string; number: string; at: string };
 };
 
@@ -36,7 +37,7 @@ const STATUS_LABEL: Record<string, string> = {
   GATE_OUT: 'Collected', EMPTY_RETURN: 'Empty returned', UNKNOWN: 'Unknown',
   NEW: 'Registered', INPROGRESS: 'Looking up', BOOKED: 'Booked', UNTRACKED: 'Untracked',
 };
-const SOURCE_LABEL: Record<string, string> = { shipsgo: 'ShipsGo', century: 'Century', cds: 'CDS-Net', 'wuxi-packing-slip': 'Wuxi packing slip', 'us-invoice': 'US invoice' };
+const SOURCE_LABEL: Record<string, string> = { shipsgo: 'ShipsGo', century: 'Century', chr: 'C.H. Robinson', cds: 'CDS-Net', 'wuxi-packing-slip': 'Wuxi packing slip', 'us-invoice': 'US invoice' };
 
 export const fmtD = (d?: string | null) => {
   if (!d) return '—';
@@ -58,10 +59,13 @@ export function ctStatus(c: CtContainer): { label: string; tone: 'done' | 'live'
   const cs = c.century?.status;
   if (cs === 'GATE_OUT' || cs === 'EMPTY_RETURN') return { label: `${STATUS_LABEL[cs]} ${fmtD(c.century?.eventAt)}`, tone: 'done', closed: true };
   if (cs) return { label: `${STATUS_LABEL[cs] ?? c.century?.event} (Century)`, tone: 'live', closed: false };
+  const hs = c.chr?.status;
+  if (hs === 'GATE_OUT' || hs === 'EMPTY_RETURN') return { label: `${STATUS_LABEL[hs]} ${fmtD(c.chr?.deliveredAt ?? c.chr?.ata)}`, tone: 'done', closed: true };
+  if (hs) return { label: `${STATUS_LABEL[hs] ?? c.chr?.statusRaw} (CHR)`, tone: 'live', closed: false };
   if (c.eta || c.vessel) return { label: 'On water (CDS)', tone: 'doc', closed: false };
   return { label: 'Shipped — awaiting vessel', tone: 'wait', closed: false };
 }
-export const bestEta = (c: CtContainer) => c.live?.eta ?? c.century?.currentEta ?? c.eta ?? null;
+export const bestEta = (c: CtContainer) => c.live?.eta ?? c.century?.currentEta ?? c.chr?.eta ?? c.eta ?? null;
 export const bestVessel = (c: CtContainer) => c.live?.vessel ?? c.vessel ?? null;
 export const bestCarrier = (c: CtContainer) => c.live?.carrier ?? c.live?.carrierScac ?? c.forwarder ?? null;
 
@@ -70,6 +74,8 @@ export function deliveredOf(c: CtContainer): string | null {
   const m = [...(c.live?.movements ?? [])].reverse().find((x) => x.status === 'ACT' && (x.event === 'GTOT' || x.event === 'EMRT'));
   if (m) return m.timestamp.slice(0, 10);
   if (c.century?.status && (c.century.status === 'GATE_OUT' || c.century.status === 'EMPTY_RETURN')) return c.century.eventAt ?? c.deliveredDate ?? null;
+  if (c.chr?.deliveredAt) return c.chr.deliveredAt;
+  if (c.chr?.status && (c.chr.status === 'GATE_OUT' || c.chr.status === 'EMPTY_RETURN')) return c.chr.ata ?? c.deliveredDate ?? null;
   return c.deliveredDate ?? null;
 }
 
@@ -120,13 +126,14 @@ function EtaCell({ c }: { c: CtContainer }) {
       {slipped && <span className="ml-1 text-rose-600" title={`ETA moved later (was ${fmtD(prev)})`}>▲ was {fmtD(prev)}</span>}
       {early && <span className="ml-1 text-emerald-600" title={`ETA moved earlier (was ${fmtD(prev)})`}>▼ was {fmtD(prev)}</span>}
       {!c.live?.eta && c.century?.currentEta && <span className="ml-1 text-slate-400">(Century)</span>}
+      {!c.live?.eta && !c.century?.currentEta && c.chr?.eta && <span className="ml-1 text-slate-400">(CHR)</span>}
       {!c.live?.eta && !c.century?.currentEta && c.eta && <span className="ml-1 text-slate-400">(CDS)</span>}
       {c.live?.etaPredicted && c.live.etaPredicted !== eta && <span className="ml-1 text-slate-500" title="ShipsGo's ETA-prediction model (carrier ETAs often lag reality)">· predicted {fmtD(c.live.etaPredicted)}</span>}
     </span>
   );
 }
 
-function ContainerCard({ c, po, item, poOnly }: { c: CtContainer; po: string; item: string; poOnly?: boolean }) {
+function ContainerCard({ c, po, item, poOnly, probable }: { c: CtContainer; po: string; item: string; poOnly?: boolean; probable?: string }) {
   const [showAll, setShowAll] = useState(false);
   const qty = qtyInContainer(c, po, item);
   const movements = c.live?.movements ?? [];
@@ -142,7 +149,8 @@ function ContainerCard({ c, po, item, poOnly }: { c: CtContainer; po: string; it
         <StatusChip c={c} />
         {qty != null
           ? <span className="rounded bg-slate-100 px-1.5 py-0.5 font-semibold text-slate-700">× {qty} of this line</span>
-          : poOnly && <span className="rounded bg-amber-50 px-1.5 py-0.5 text-amber-800" title="ShipsGo reference names this PO but no document has confirmed which items are inside">PO-level — items not confirmed</span>}
+          : probable ? <span className="rounded bg-amber-50 px-1.5 py-0.5 text-amber-800" title={probable}>Probable match — {probable}</span>
+          : poOnly && <span className="rounded bg-amber-50 px-1.5 py-0.5 text-amber-800" title="The booking names this PO but no document has confirmed which items are inside">PO-level — items not confirmed</span>}
         {c.live?.transitPercentage != null && !ctStatus(c).closed && (
           <span className="ml-auto flex items-center gap-1 text-slate-500" title="Transit progress (ShipsGo)">
             <span className="inline-block h-1.5 w-20 overflow-hidden rounded bg-slate-200"><span className="block h-full bg-sky-500" style={{ width: `${Math.min(100, c.live.transitPercentage)}%` }} /></span>
@@ -158,6 +166,16 @@ function ContainerCard({ c, po, item, poOnly }: { c: CtContainer; po: string; it
         <div><span className="text-slate-400">Carrier</span><br />{bestCarrier(c) ?? '—'}{c.forwarder && c.live?.carrier && <span className="text-slate-500"> · via {c.forwarder}</span>}</div>
       </div>
 
+      {!shown.length && !c.century?.event && c.chr && (
+        <div className="mt-2 border-t border-slate-100 pt-2 text-slate-700">
+          <span className="text-emerald-600">●</span> <b>{c.chr.statusRaw}</b>
+          {c.chr.pickedUpAt && <span className="text-slate-500"> · picked up {fmtD(c.chr.pickedUpAt)}</span>}
+          {c.chr.atd && <span className="text-slate-500"> · departed {fmtD(c.chr.atd)}</span>}
+          {c.chr.ata && <span className="text-slate-500"> · arrived {fmtD(c.chr.ata)}</span>}
+          {c.chr.deliverEta && !c.chr.deliveredAt && <span className="text-slate-500"> · delivery ETA {fmtD(c.chr.deliverEta)}</span>}
+          <span className="text-slate-400"> (C.H. Robinson {c.chr.shipmentNo}{c.chr.reference ? ` · ref "${c.chr.reference}"` : ''})</span>
+        </div>
+      )}
       {!shown.length && c.century?.event && (
         <div className="mt-2 border-t border-slate-100 pt-2 text-slate-700">
           <span className="text-emerald-600">●</span> <b>{c.century.event}</b> <span className="text-slate-400">{fmtD(c.century.eventAt)}</span>
@@ -193,15 +211,19 @@ function ContainerCard({ c, po, item, poOnly }: { c: CtContainer; po: string; it
 }
 
 /** The expandable panel rendered under a Purchasing row. */
-export function TrackingPanel({ po, item, lineContainers, poContainers }: { po: string; item: string; lineContainers: CtContainer[]; poContainers: CtContainer[] }) {
+export function TrackingPanel({ po, item, lineContainers, poContainers, probable = [] }: {
+  po: string; item: string; lineContainers: CtContainer[]; poContainers: CtContainer[];
+  probable?: Array<{ c: CtContainer; why: string }>;
+}) {
   const lineNos = new Set(lineContainers.map((c) => c.containerNo));
   const extra = poContainers.filter((c) => !lineNos.has(c.containerNo));
-  if (!lineContainers.length && !extra.length) {
+  if (!lineContainers.length && !extra.length && !probable.length) {
     return <div className="px-3 py-2 text-xs text-slate-500">No container document or ShipsGo shipment mentions PO {po} yet.</div>;
   }
   return (
     <div className="space-y-2 px-3 py-2">
       {lineContainers.map((c) => <ContainerCard key={c.containerNo} c={c} po={po} item={item} />)}
+      {probable.map(({ c, why }) => <ContainerCard key={`p-${c.containerNo}`} c={c} po={po} item={item} probable={why} />)}
       {extra.length > 0 && (
         <details className="text-xs" open={!lineContainers.length}>
           <summary className="cursor-pointer text-slate-500">{extra.length} more container{extra.length > 1 ? 's' : ''} on PO {po} (other items, or item not confirmed)</summary>

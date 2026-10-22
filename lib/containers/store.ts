@@ -18,7 +18,7 @@ export const K = {
 };
 
 // When two documents disagree on a fact, the higher source wins; lower ones only fill gaps.
-const PRIORITY: Record<ContainerSource, number> = { shipsgo: 5, century: 4, cds: 3, "wuxi-packing-slip": 2, "us-invoice": 1 };
+const PRIORITY: Record<ContainerSource, number> = { shipsgo: 6, century: 5, chr: 4, cds: 3, "wuxi-packing-slip": 2, "us-invoice": 1 };
 const FACT_KEYS: (keyof ContainerRecord)[] = [
   "mbl", "hbl", "forwarder", "vendor", "originPort", "destPort", "shipMode", "vessel", "voyage", "etd", "eta", "deliveredDate", "size", "shipKey", "destCountry",
 ];
@@ -65,6 +65,7 @@ function mergeFacts(existing: ContainerRecord, incoming: Partial<ContainerRecord
     if (out[k] == null || out[k] === "" || incPri >= exDocPri) (out as any)[k] = v;
   }
   if (incoming.century && (!out.century || incoming.century.updatedAt >= out.century.updatedAt)) out.century = incoming.century;
+  if (incoming.chr && (!out.chr || incoming.chr.updatedAt >= out.chr.updatedAt)) out.chr = incoming.chr;
   out.sources = [...new Set([...existing.sources, ...(incoming.sources ?? [])])];
   out.pos = [...new Set([...existing.pos, ...(incoming.pos ?? [])])];
   out.invoiceNos = [...new Set([...(existing.invoiceNos ?? []), ...(incoming.invoiceNos ?? [])])];
@@ -136,6 +137,7 @@ export async function applyLive(no: string, live: LiveStatus, posFromReference: 
 export function isClosed(rec: ContainerRecord, staleDays = 45): boolean {
   if (rec.live?.containerStatus && ["GATE_OUT", "EMPTY_RETURN"].includes(rec.live.containerStatus)) return true;
   if (rec.century?.status && ["GATE_OUT", "EMPTY_RETURN"].includes(rec.century.status)) return true;
+  if (rec.chr?.status && ["GATE_OUT", "EMPTY_RETURN"].includes(rec.chr.status)) return true;
   if (rec.deliveredDate) return true;
   const cutoff = new Date(Date.now() - staleDays * 86400e3).toISOString().slice(0, 10);
   const eta = rec.live?.eta ?? rec.eta;

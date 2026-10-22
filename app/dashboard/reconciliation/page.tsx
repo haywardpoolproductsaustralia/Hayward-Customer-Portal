@@ -668,6 +668,21 @@ export default function ReconciliationPage() {
 
   const rows = useMemo(() => reconcile(arrowLines, as400Lines, shipAll), [arrowLines, as400Lines, shipAll]);
 
+  // CHR bookings from the US reference a date, not a PO ("9/25", "week 34"). For US-supplier lines with no
+  // confirmed box, suggest CHR containers whose pickup/departure is within a week of the AS400 ship date.
+  const usUnassigned = useMemo(() => ctContainers.filter((c) => !c.pos.length && c.chr?.usOrigin), [ctContainers]);
+  const probableFor = useCallback((r: ReconRow): Array<{ c: CtContainer; why: string }> => {
+    if (!r.shipDate || !usUnassigned.length || !/^171(00|15|25)$/.test(r.creditor ?? '')) return [];
+    const ship = new Date(r.shipDate).getTime();
+    return usUnassigned.flatMap((c) => {
+      const d = c.chr?.pickedUpAt ?? c.chr?.atd ?? c.chr?.etd;
+      if (!d) return [];
+      const days = Math.round((new Date(d).getTime() - ship) / 86400000);
+      if (Math.abs(days) > 7) return [];
+      return [{ c, why: `CHR ref "${c.chr?.reference ?? '—'}" ${c.chr?.pickedUpAt ? 'picked up' : 'departed'} ${fmt(d)}, AS400 ship date ${fmt(r.shipDate)} — booking carries no PO` }];
+    });
+  }, [usUnassigned]);
+
   const toggleRow = useCallback((k: string) => setExpanded((prev) => { const n = new Set(prev); if (n.has(k)) n.delete(k); else n.add(k); return n; }), []);
 
   const filtered = useMemo(() => {
@@ -1034,7 +1049,8 @@ export default function ReconciliationPage() {
                   const lineCts = ctIdx.byLine.get(ctLineKey(r.po, r.supplierSku))
                     ?? (r.as400Item ? ctIdx.byLine.get(ctLineKey(r.po, r.as400Item)) : undefined) ?? [];
                   const poCts = ctIdx.byPo.get(r.po) ?? [];
-                  const hasTracking = lineCts.length > 0 || poCts.length > 0;
+                  const probable = !lineCts.length && !poCts.length ? probableFor(r) : [];
+                  const hasTracking = lineCts.length > 0 || poCts.length > 0 || probable.length > 0;
                   // Chip follows the same container the Vessel / Cont ETA columns show: the latest-ETA box
                   // (reconcile() picks that one), so a split shipment reads "Empty to shipper · EVER SMART · 21 Nov", not a mix.
                   const chipCt = lineCts.length
@@ -1101,9 +1117,11 @@ export default function ReconciliationPage() {
                           >
                             <span className="text-[10px] text-violet-400">{isOpen ? '▾' : '▸'}</span>
                             <span className="truncate font-mono text-[11px]" title={r.container ?? ''}>
-                              {lineCts.length > 1 && chipCt ? `${chipCt.containerNo} +${lineCts.length - 1}` : r.container ?? (poCts.length ? `${poCts.length} box${poCts.length === 1 ? '' : 'es'} · other lines` : '—')}
+                              {lineCts.length > 1 && chipCt ? `${chipCt.containerNo} +${lineCts.length - 1}`
+                                : r.container ?? (poCts.length ? `${poCts.length} box${poCts.length === 1 ? '' : 'es'} · other lines`
+                                : probable.length ? `≈ ${probable[0].c.containerNo}` : '—')}
                             </span>
-                            {chipCt && <span className="ml-auto shrink-0"><StatusChip c={chipCt} /></span>}
+                            {(chipCt ?? probable[0]?.c) && <span className="ml-auto shrink-0"><StatusChip c={chipCt ?? probable[0].c} /></span>}
                           </button>
                         ) : (
                           <span title={r.container ?? ''}>{r.container ?? '—'}</span>
@@ -1123,7 +1141,7 @@ export default function ReconciliationPage() {
                     {isOpen && (
                       <tr className="bg-violet-50/40">
                         <td colSpan={21} className="p-0" style={{ whiteSpace: 'normal' }}>
-                          <TrackingPanel po={r.po} item={r.as400Item ?? r.supplierSku} lineContainers={lineCts} poContainers={poCts} />
+                          <TrackingPanel po={r.po} item={r.as400Item ?? r.supplierSku} lineContainers={lineCts} poContainers={poCts} probable={probable} />
                         </td>
                       </tr>
                     )}
@@ -1146,8 +1164,8 @@ export default function ReconciliationPage() {
       <div className="grid gap-3 lg:grid-cols-2 pt-4 border-t border-slate-100">
         <UploadBanner
           label="Container documents"
-          sublabel="Century CSV · US invoice · Wuxi packing slip · CDS xlsx · .msg"
-          hint="Drop the Century/VIZIV dashboard CSV (all containers shipped to AU/NZ), the PDFs from sbateman@hayward.com (Inv#: … PO: …) and robot@hayward.com (Hayward Shipment for PO: …), the CDS-Net xlsx, or whole emails saved as .msg from Dimi's mailbox. Container numbers are read from the documents, matched to the PO lines, and tracked on ShipsGo. The AU Containers mailbox flow does this automatically once it's live."
+          sublabel="Century CSV · CHR report · US invoice · Wuxi packing slip · .msg"
+          hint="Drop the Century/VIZIV dashboard CSV (all containers shipped to AU/NZ), the C.H. Robinson 'Hayward Pool Shipment Activity Report' xlsx from Navisphere (US lane), the PDFs from sbateman@hayward.com (Inv#: … PO: …) and robot@hayward.com (Hayward Shipment for PO: …), the CDS-Net xlsx, or whole emails saved as .msg from Dimi's mailbox. Container numbers are read from the documents, matched to the PO lines, and tracked on ShipsGo. The AU Containers mailbox flow does this automatically once it's live."
           meta={ctInfo.meta?.lastCenturyAt ? `Century ${fmtMeta(ctInfo.meta.lastCenturyAt)} · ${ctContainers.length} open containers` : ctInfo.meta?.lastIngestAt ? `last: ${fmtMeta(ctInfo.meta.lastIngestAt)} · ${ctInfo.meta.lastSubject ?? ''}`.slice(0, 90) : 'nothing ingested yet'}
           uploading={uploadingDocs}
           accept=".pdf,.msg,.xlsx,.xls,.csv"
