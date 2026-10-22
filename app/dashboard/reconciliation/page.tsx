@@ -1222,11 +1222,11 @@ export default function ReconciliationPage() {
       <div className="grid gap-3 lg:grid-cols-3 pt-4 border-t border-slate-100">
         <UploadBanner
           label="Container documents"
-          sublabel="US invoice · Wuxi packing slip · CDS xlsx · .msg"
-          hint="Drop the PDFs from sbateman@hayward.com (Inv#: … PO: …) and robot@hayward.com (Hayward Shipment for PO: …), the CDS-Net xlsx, or whole emails saved as .msg from Dimi's mailbox. Container numbers are read from the documents, matched to the PO lines, and tracked on ShipsGo. The AU Containers mailbox flow does this automatically once it's live."
+          sublabel="Century CSV · US invoice · Wuxi packing slip · CDS xlsx · .msg"
+          hint="Drop the Century/VIZIV dashboard CSV (all containers shipped to AU/NZ), the PDFs from sbateman@hayward.com (Inv#: … PO: …) and robot@hayward.com (Hayward Shipment for PO: …), the CDS-Net xlsx, or whole emails saved as .msg from Dimi's mailbox. Container numbers are read from the documents, matched to the PO lines, and tracked on ShipsGo. The AU Containers mailbox flow does this automatically once it's live."
           meta={ctInfo.meta?.lastIngestAt ? `last: ${fmtMeta(ctInfo.meta.lastIngestAt)} · ${ctInfo.meta.lastSubject ?? ''}`.slice(0, 90) : (ctContainers.length ? `${ctContainers.length} open containers` : 'nothing ingested yet')}
           uploading={uploadingDocs}
-          accept=".pdf,.msg,.xlsx,.xls"
+          accept=".pdf,.msg,.xlsx,.xls,.csv"
           multiple
           onFiles={handleDocFiles}
           note={docsNote}

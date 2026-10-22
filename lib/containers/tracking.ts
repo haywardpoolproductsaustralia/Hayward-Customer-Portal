@@ -45,7 +45,7 @@ export async function planRegistrations(nos: string[]): Promise<{ plan: Register
     if (isClosed(rec, STALE_DAYS)) { skipped.push({ containerNo: no, why: rec.deliveredDate ? `delivered ${rec.deliveredDate}` : `closed/stale (ETA ${rec.live?.eta ?? rec.eta})` }); continue; }
     if (rec.shipMode === "A") { skipped.push({ containerNo: no, why: "air" }); continue; }
     if (SCOPE === "gap") {
-      if (rec.sources.includes("cds")) { skipped.push({ containerNo: no, why: "CDS already tracks it (CT_REGISTER_SCOPE=gap)" }); continue; }
+      if (rec.sources.includes("cds") || rec.sources.includes("century")) { skipped.push({ containerNo: no, why: "CDS/Century already tracks it (CT_REGISTER_SCOPE=gap)" }); continue; }
       if (isChinaOrigin(rec)) { skipped.push({ containerNo: no, why: `China origin (${rec.originPort ?? rec.vendor}) — CDS will carry it (CT_REGISTER_SCOPE=gap)` }); continue; }
     }
     if (rec.mbl) (byBl.get(rec.mbl) ?? byBl.set(rec.mbl, []).get(rec.mbl)!).push(no);

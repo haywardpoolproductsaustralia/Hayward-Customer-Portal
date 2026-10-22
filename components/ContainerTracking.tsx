@@ -16,11 +16,12 @@ export type CtLive = {
   previousEta?: string; etaChangedAt?: string; vessel?: string; voyage?: string; transitPercentage?: number;
   movements: CtMovement[]; checkedAt?: string; updatedAt: string;
 };
+export type CtCentury = { event?: string; status?: string; eventAt?: string; vesselArrivedAt?: string; currentEta?: string; forwarder?: string; updatedAt: string };
 export type CtContainer = {
   containerNo: string; pos: string[]; lines: CtLine[]; sources: string[]; firstSeen: string; lastSeen: string;
   mbl?: string; hbl?: string; forwarder?: string; vendor?: string; originPort?: string; destPort?: string; shipMode?: 'O' | 'A';
   vessel?: string; voyage?: string; etd?: string; eta?: string; deliveredDate?: string; size?: string; shipKey?: string;
-  invoiceNos?: string[]; packingSlipNos?: string[]; live?: CtLive;
+  invoiceNos?: string[]; packingSlipNos?: string[]; live?: CtLive; century?: CtCentury;
   registration?: { shipmentId: number; by: string; number: string; at: string };
 };
 
@@ -35,7 +36,7 @@ const STATUS_LABEL: Record<string, string> = {
   GATE_OUT: 'Collected', EMPTY_RETURN: 'Empty returned', UNKNOWN: 'Unknown',
   NEW: 'Registered', INPROGRESS: 'Looking up', BOOKED: 'Booked', UNTRACKED: 'Untracked',
 };
-const SOURCE_LABEL: Record<string, string> = { shipsgo: 'ShipsGo', cds: 'CDS-Net', 'wuxi-packing-slip': 'Wuxi packing slip', 'us-invoice': 'US invoice' };
+const SOURCE_LABEL: Record<string, string> = { shipsgo: 'ShipsGo', century: 'Century', cds: 'CDS-Net', 'wuxi-packing-slip': 'Wuxi packing slip', 'us-invoice': 'US invoice' };
 
 export const fmtD = (d?: string | null) => {
   if (!d) return '—';
@@ -54,17 +55,22 @@ export function ctStatus(c: CtContainer): { label: string; tone: 'done' | 'live'
   if (s === 'GATE_OUT' || s === 'EMPTY_RETURN' || c.deliveredDate) return { label: s ? STATUS_LABEL[s] : `Delivered ${fmtD(c.deliveredDate)}`, tone: 'done', closed: true };
   if (s && s !== 'UNKNOWN') return { label: STATUS_LABEL[s] ?? s, tone: 'live', closed: false };
   if (c.live?.shipmentStatus) return { label: STATUS_LABEL[c.live.shipmentStatus] ?? c.live.shipmentStatus, tone: 'live', closed: false };
+  const cs = c.century?.status;
+  if (cs === 'GATE_OUT' || cs === 'EMPTY_RETURN') return { label: `${STATUS_LABEL[cs]} ${fmtD(c.century?.eventAt)}`, tone: 'done', closed: true };
+  if (cs) return { label: `${STATUS_LABEL[cs] ?? c.century?.event} (Century)`, tone: 'live', closed: false };
   if (c.eta || c.vessel) return { label: 'On water (CDS)', tone: 'doc', closed: false };
   return { label: 'Shipped — awaiting vessel', tone: 'wait', closed: false };
 }
-export const bestEta = (c: CtContainer) => c.live?.eta ?? c.eta ?? null;
+export const bestEta = (c: CtContainer) => c.live?.eta ?? c.century?.currentEta ?? c.eta ?? null;
 export const bestVessel = (c: CtContainer) => c.live?.vessel ?? c.vessel ?? null;
 export const bestCarrier = (c: CtContainer) => c.live?.carrier ?? c.live?.carrierScac ?? c.forwarder ?? null;
 
 /** Delivered date for the page's status logic: the ACT gate-out movement, else CDS. */
 export function deliveredOf(c: CtContainer): string | null {
   const m = [...(c.live?.movements ?? [])].reverse().find((x) => x.status === 'ACT' && (x.event === 'GTOT' || x.event === 'EMRT'));
-  return m ? m.timestamp.slice(0, 10) : c.deliveredDate ?? null;
+  if (m) return m.timestamp.slice(0, 10);
+  if (c.century?.status && (c.century.status === 'GATE_OUT' || c.century.status === 'EMPTY_RETURN')) return c.century.eventAt ?? c.deliveredDate ?? null;
+  return c.deliveredDate ?? null;
 }
 
 /** Index containers by PO line and by PO (for ShipsGo-only boxes whose items we don't know). */
@@ -88,7 +94,7 @@ export function indexContainers(cs: CtContainer[]) {
 export function qtyInContainer(c: CtContainer, po: string, item: string): number | null {
   const ls = c.lines.filter((l) => l.po === po && normKey(l.item ?? (l as any).supplierItem) === normKey(item));
   if (!ls.length) return null;
-  const pri: Record<string, number> = { cds: 3, 'wuxi-packing-slip': 2, 'us-invoice': 1 };
+  const pri: Record<string, number> = { century: 4, cds: 3, 'wuxi-packing-slip': 2, 'us-invoice': 1 };
   return [...ls].sort((a, b) => (pri[b.source] ?? 0) - (pri[a.source] ?? 0))[0].qty;
 }
 
@@ -113,7 +119,8 @@ function EtaCell({ c }: { c: CtContainer }) {
       <b>{fmtD(eta)}</b>
       {slipped && <span className="ml-1 text-rose-600" title={`ETA moved later (was ${fmtD(prev)})`}>▲ was {fmtD(prev)}</span>}
       {early && <span className="ml-1 text-emerald-600" title={`ETA moved earlier (was ${fmtD(prev)})`}>▼ was {fmtD(prev)}</span>}
-      {!c.live?.eta && c.eta && <span className="ml-1 text-slate-400">(CDS)</span>}
+      {!c.live?.eta && c.century?.currentEta && <span className="ml-1 text-slate-400">(Century)</span>}
+      {!c.live?.eta && !c.century?.currentEta && c.eta && <span className="ml-1 text-slate-400">(CDS)</span>}
       {c.live?.etaPredicted && c.live.etaPredicted !== eta && <span className="ml-1 text-slate-500" title="ShipsGo's ETA-prediction model (carrier ETAs often lag reality)">· predicted {fmtD(c.live.etaPredicted)}</span>}
     </span>
   );
@@ -151,6 +158,13 @@ function ContainerCard({ c, po, item, poOnly }: { c: CtContainer; po: string; it
         <div><span className="text-slate-400">Carrier</span><br />{bestCarrier(c) ?? '—'}{c.forwarder && c.live?.carrier && <span className="text-slate-500"> · via {c.forwarder}</span>}</div>
       </div>
 
+      {!shown.length && c.century?.event && (
+        <div className="mt-2 border-t border-slate-100 pt-2 text-slate-700">
+          <span className="text-emerald-600">●</span> <b>{c.century.event}</b> <span className="text-slate-400">{fmtD(c.century.eventAt)}</span>
+          {c.century.vesselArrivedAt && <span className="text-slate-500"> · vessel arrived {fmtD(c.century.vesselArrivedAt)}</span>}
+          <span className="text-slate-400"> (Century)</span>
+        </div>
+      )}
       {shown.length > 0 && (
         <ol className="mt-2 flex flex-wrap gap-x-4 gap-y-1 border-t border-slate-100 pt-2">
           {shown.map((m, i) => (
