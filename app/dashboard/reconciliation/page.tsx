@@ -420,7 +420,7 @@ function reconcile(arrow: ArrowLine[], as400: As400Line[], ship: ShipLine[]): Re
 // ---------------------------------------------------------------------------
 
 function UploadBanner({
-  label, sublabel, hint, meta, uploading, accept, onFile, multiple, onFiles, note,
+  label, sublabel, hint, meta, uploading, accept, onFile, multiple, onFiles, note, collapseHint,
 }: {
   label: string;
   sublabel: string;
@@ -432,6 +432,7 @@ function UploadBanner({
   multiple?: boolean;
   onFiles?: (f: File[]) => void;
   note?: string | null;
+  collapseHint?: boolean;   // tuck the long instructions behind a ▸ toggle
 }) {
   const ref = useRef<HTMLInputElement>(null);
   return (
@@ -440,7 +441,14 @@ function UploadBanner({
         <span className="text-sm font-medium text-slate-700">{label} {meta && <span className="font-normal text-slate-400">· {meta}</span>}</span>
         <span className="shrink-0 text-xs text-slate-400">{sublabel}</span>
       </div>
-      <p className="mb-3 text-xs text-slate-500">{hint}</p>
+      {collapseHint ? (
+        <details className="mb-3 text-xs text-slate-500">
+          <summary className="cursor-pointer select-none text-slate-400 hover:text-slate-600">What can I drop here?</summary>
+          <p className="mt-1">{hint}</p>
+        </details>
+      ) : (
+        <p className="mb-3 text-xs text-slate-500">{hint}</p>
+      )}
       <input
         ref={ref} type="file" accept={accept} className="hidden" multiple={!!multiple}
         onChange={(e) => {
@@ -1077,11 +1085,13 @@ export default function ReconciliationPage() {
                         {hasTracking ? (
                           <button
                             onClick={() => toggleRow(rowKey)}
-                            title={isOpen ? 'Hide tracking' : `Show tracking (${lineCts.length || poCts.length} container${(lineCts.length || poCts.length) === 1 ? '' : 's'})`}
+                            title={isOpen ? 'Hide tracking' : lineCts.length
+                              ? `Show tracking (${lineCts.length} container${lineCts.length === 1 ? '' : 's'} carrying this line)`
+                              : `${poCts.length} container${poCts.length === 1 ? '' : 's'} on PO ${r.po} carry other lines — this line isn't confirmed in any yet`}
                             className="flex w-full items-center gap-1 text-left hover:text-violet-950"
                           >
                             <span className="text-[10px] text-violet-400">{isOpen ? '▾' : '▸'}</span>
-                            <span className="truncate font-mono text-[11px]">{r.container ?? (poCts.length ? `${poCts.length} on PO` : '—')}</span>
+                            <span className="truncate font-mono text-[11px]">{r.container ?? (poCts.length ? `${poCts.length} box${poCts.length === 1 ? '' : 'es'} · other lines` : '—')}</span>
                             {lineCts[0] && <span className="ml-auto shrink-0"><StatusChip c={lineCts[0]} /></span>}
                           </button>
                         ) : (
@@ -1130,6 +1140,7 @@ export default function ReconciliationPage() {
           meta={ctInfo.meta?.lastCenturyAt ? `Century ${fmtMeta(ctInfo.meta.lastCenturyAt)} · ${ctContainers.length} open containers` : ctInfo.meta?.lastIngestAt ? `last: ${fmtMeta(ctInfo.meta.lastIngestAt)} · ${ctInfo.meta.lastSubject ?? ''}`.slice(0, 90) : 'nothing ingested yet'}
           uploading={uploadingDocs}
           accept=".pdf,.msg,.xlsx,.xls,.csv"
+          collapseHint
           multiple
           onFiles={handleDocFiles}
           note={docsNote}
