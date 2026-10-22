@@ -16,12 +16,13 @@ export type CtLive = {
   movements: CtMovement[]; checkedAt?: string; updatedAt: string;
 };
 export type CtChr = { shipmentNo: string; reference?: string; statusRaw: string; status?: string; etd?: string; atd?: string; eta?: string; ata?: string; pickedUpAt?: string; deliverEta?: string; deliveredAt?: string; carrier?: string; usOrigin: boolean; updatedAt: string };
+export type CtSchedule = { supplier?: string; forwarder?: string; dispatched?: string; eta?: string; revisedDelivery?: string; note?: string; location?: string; items?: string; invoiceNos: string[]; sheet: string; updatedAt: string };
 export type CtCentury = { event?: string; status?: string; eventAt?: string; vesselArrivedAt?: string; currentEta?: string; forwarder?: string; updatedAt: string };
 export type CtContainer = {
   containerNo: string; pos: string[]; lines: CtLine[]; sources: string[]; firstSeen: string; lastSeen: string;
   mbl?: string; hbl?: string; forwarder?: string; vendor?: string; originPort?: string; destPort?: string; shipMode?: 'O' | 'A';
   vessel?: string; voyage?: string; etd?: string; eta?: string; deliveredDate?: string; size?: string; shipKey?: string;
-  invoiceNos?: string[]; packingSlipNos?: string[]; live?: CtLive; century?: CtCentury; chr?: CtChr;
+  invoiceNos?: string[]; packingSlipNos?: string[]; live?: CtLive; century?: CtCentury; chr?: CtChr; schedule?: CtSchedule;
   registration?: { shipmentId: number; by: string; number: string; at: string };
 };
 
@@ -36,7 +37,7 @@ const STATUS_LABEL: Record<string, string> = {
   GATE_OUT: 'Collected', EMPTY_RETURN: 'Empty returned', UNKNOWN: 'Unknown',
   NEW: 'Registered', INPROGRESS: 'Looking up', BOOKED: 'Booked', UNTRACKED: 'Untracked',
 };
-const SOURCE_LABEL: Record<string, string> = { shipsgo: 'ShipsGo', century: 'Century', chr: 'C.H. Robinson', cds: 'CDS-Net', 'wuxi-packing-slip': 'Wuxi packing slip', 'us-invoice': 'US invoice' };
+const SOURCE_LABEL: Record<string, string> = { shipsgo: 'ShipsGo', century: 'Century', chr: 'C.H. Robinson', cds: 'CDS-Net', schedule: "Dimi's schedule", 'wuxi-packing-slip': 'Wuxi packing slip', 'us-invoice': 'US invoice' };
 
 export const fmtD = (d?: string | null) => {
   if (!d) return '—';
@@ -64,10 +65,11 @@ export function ctStatus(c: CtContainer): { label: string; tone: 'done' | 'live'
   if (hs === 'GATE_OUT' || hs === 'EMPTY_RETURN') return { label: `${STATUS_LABEL[hs]} ${fmtD(c.chr?.deliveredAt ?? c.chr?.ata)}`, tone: 'done', closed: true };
   if (hs) return { label: `${STATUS_LABEL[hs] ?? c.chr?.statusRaw} (CHR)`, tone: 'live', closed: false };
   if (c.live?.shipmentStatus) return { label: STATUS_LABEL[c.live.shipmentStatus] ?? c.live.shipmentStatus, tone: 'wait', closed: false };
-  if (c.eta || c.vessel) return { label: 'On water (CDS)', tone: 'doc', closed: false };
+  if ((c.eta || c.vessel) && c.sources.includes('cds')) return { label: 'On water (CDS)', tone: 'doc', closed: false };
+  if (c.eta || c.schedule?.eta) return { label: "On water (Dimi's schedule)", tone: 'doc', closed: false };
   return { label: 'Shipped — awaiting vessel', tone: 'wait', closed: false };
 }
-export const bestEta = (c: CtContainer) => c.live?.eta ?? c.century?.currentEta ?? c.chr?.eta ?? c.eta ?? null;
+export const bestEta = (c: CtContainer) => c.live?.eta ?? c.century?.currentEta ?? c.chr?.eta ?? c.eta ?? c.schedule?.eta ?? null;
 export const bestVessel = (c: CtContainer) => c.live?.vessel ?? c.vessel ?? null;
 export const bestCarrier = (c: CtContainer) => c.live?.carrier ?? c.live?.carrierScac ?? c.forwarder ?? null;
 
@@ -193,6 +195,17 @@ function ContainerCard({ c, po, item, poOnly, probable }: { c: CtContainer; po: 
         </ol>
       )}
 
+      {c.schedule && (
+        <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-slate-100 pt-2 text-xs">
+          <span className="text-slate-400">Dimi's schedule</span>
+          {c.schedule.revisedDelivery
+            ? <span>Warehouse delivery <b className="text-slate-900">{fmtD(c.schedule.revisedDelivery)}</b></span>
+            : c.schedule.eta && <span>ETA as keyed {fmtD(c.schedule.eta)}</span>}
+          {c.schedule.location && <span>{c.schedule.location}</span>}
+          {c.schedule.note && <span className="rounded bg-amber-50 px-1.5 py-0.5 text-amber-800">{c.schedule.note}</span>}
+          {c.schedule.items && <span className="text-slate-500" title={c.schedule.items}>{c.schedule.items.length > 90 ? c.schedule.items.slice(0, 90) + '…' : c.schedule.items}</span>}
+        </div>
+      )}
       <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-slate-100 pt-2 text-[11px] text-slate-500">
         <span>Sources: {c.sources.map((s) => SOURCE_LABEL[s] ?? s).join(' · ')}</span>
         {c.mbl && <span>MBL <span className="font-mono">{c.mbl}</span></span>}
