@@ -11,13 +11,13 @@ const SCROLLBAR_STYLE = `
   #recon-table th, #recon-table td { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 `;
 
-// Fixed column widths (px) — 21 columns. Sticky left offsets are derived from these,
+// Fixed column widths (px) — 22 columns. Sticky left offsets are derived from these,
 // so change a width here and the frozen columns stay aligned.
 const COL_W = [
   66, 84, 80, 78,                 // Order: PO, Customer PO, Status, Type
-  120, 112, 76, 76, 60, 64,       // Arrow AU: Stock, Supplier SKU, Order date, ETA, Ordered, Received
+  120, 112, 76, 76, 60, 64, 56,   // Arrow AU: Stock, Supplier SKU, Order date, ETA, Ordered, Received, SOH
   100, 56, 56, 76, 76, 104,       // Supplier: PO ref, ENT, SHPD, Ship date, ETA, US SO#
-  64, 110, 130, 76, 100,          // Shipment: On water, Container, Vessel, Cont. ETA, Supplier
+  56, 168, 112, 76, 92,           // Shipment: On water, Container, Vessel, Cont. ETA, Supplier
 ];
 const TABLE_W = COL_W.reduce((a, b) => a + b, 0);
 const MIN_ZOOM = 0.55;
@@ -51,6 +51,9 @@ type ArrowLine = {
   qtyOutstanding: number;
   orderDate: string | null;
   requestedDate: string | null;
+  onHand?: number;          // Arrow stock on hand, all locations (from stock:all via /api/recon/arrow)
+  allocated?: number;
+  backordered?: number;
 };
 
 type As400Line = {
@@ -505,7 +508,7 @@ export default function ReconciliationPage() {
   const showParamount = scope === 'paramount';
   const [selectedCustomerPO, setSelectedCustomerPO] = useState<string | null>(null);
 
-  // Fit-to-screen: scale the table so all 21 columns are visible at 100% browser zoom.
+  // Fit-to-screen: scale the table so all 22 columns are visible at 100% browser zoom.
   const [fitToScreen, setFitToScreen] = useState(true);
   const [availWidth,  setAvailWidth]  = useState<number>(TABLE_W);
   const tableWrapRef = useRef<HTMLDivElement>(null);
@@ -879,14 +882,14 @@ export default function ReconciliationPage() {
               onClick={() => {
                 const headers = [
                   'PO','Customer PO','Status','Type','Stock Code','Supplier SKU','Order Date','ETA Arrow',
-                  'Ordered','Received','Arrow PO Ref','AS400 Item','Match','AS400 ENT','AS400 SHPD','Qty Mismatch','Ship Date','AS400 ETA','US SO#',
+                  'Ordered','Received','SOH','Allocated','Backordered','Arrow PO Ref','AS400 Item','Match','AS400 ENT','AS400 SHPD','Qty Mismatch','Ship Date','AS400 ETA','US SO#',
                   'On Water','Container','Vessel','Container ETA','Supplier','Tracking status','MBL','Invoice / Slip'
                 ];
                 const escape = (v: any) => `"${String(v ?? '').replace(/"/g, '""')}"`;
                 const csvRows = filtered.map(r => [
                   r.po, r.deliveryNote4 ?? '', r.status, HAYWARD_CREDITORS.has(r.creditor ?? '') ? 'Hayward' : '3rd Party',
                   r.arrowStock, r.supplierSku, r.orderDate ?? '', r.requestedDate ?? '',
-                  r.qtyOrdered, r.qtyReceived,
+                  r.qtyOrdered, r.qtyReceived, r.onHand ?? '', r.allocated ?? '', r.backordered ?? '',
                   r.matchType ? r.po : '', r.as400Item ?? '', r.matchType ?? 'missing',
                   r.matchType ? r.as400Ord : 'missing', r.as400Shpd, r.qtyMismatch ? 'YES' : '',
                   r.shipDate ?? '', r.as400Eta ?? '', r.usSoNumber ?? '',
@@ -962,7 +965,7 @@ export default function ReconciliationPage() {
                 <th colSpan={4} style={{ background: '#334155', color: 'white', padding: '6px 8px', borderRight: '2px solid white', position: 'sticky', left: 0, zIndex: 11, opacity: 1 }}>
                   Order
                 </th>
-                <th colSpan={6} style={{ background: '#059669', color: 'white', padding: '6px 8px', borderRight: '2px solid white', opacity: 1 }}>
+                <th colSpan={7} style={{ background: '#059669', color: 'white', padding: '6px 8px', borderRight: '2px solid white', opacity: 1 }}>
                   Arrow AU
                 </th>
                 <th colSpan={6} style={{ background: '#f59e0b', color: 'white', padding: '6px 8px', borderRight: '2px solid white', opacity: 1 }}>
@@ -982,7 +985,8 @@ export default function ReconciliationPage() {
                 <th title="PO order date" className="sticky bg-emerald-200 px-2 py-2 whitespace-nowrap text-emerald-900 opacity-100" style={{ left: '540px' }}>Order dt</th>
                 <th title="Date keyed on the Arrow PO — reference only, not a forecast" className="sticky bg-emerald-200 px-2 py-2 whitespace-nowrap text-emerald-900 opacity-100" style={{ left: '616px' }}>ETA</th>
                 <th title="Qty ordered in Arrow" className="sticky bg-emerald-200 px-2 py-2 text-right whitespace-nowrap text-emerald-900 opacity-100" style={{ left: '692px' }}>Qty</th>
-                <th title="Qty received in Arrow" className="sticky bg-emerald-200 px-2 py-2 text-right whitespace-nowrap text-emerald-900 border-r-2 border-emerald-400 opacity-100" style={{ left: '752px' }}>Rcvd</th>
+                <th title="Qty received in Arrow" className="sticky bg-emerald-200 px-2 py-2 text-right whitespace-nowrap text-emerald-900 opacity-100" style={{ left: '752px' }}>Rcvd</th>
+                <th title="Stock on hand in Arrow, all locations (hover for allocated / backordered)" className="sticky bg-emerald-200 px-2 py-2 text-right whitespace-nowrap text-emerald-900 border-r-2 border-emerald-400 opacity-100" style={{ left: '816px' }}>SOH</th>
                 <th title="Matched AS400 PO / item" className="bg-[#fef3c7] px-2 py-2 whitespace-nowrap text-[#78350f] opacity-100">Arrow PO</th>
                 <th className="bg-[#fef3c7] px-2 py-2 text-right whitespace-nowrap text-[#78350f] opacity-100">ENT</th>
                 <th className="bg-[#fef3c7] px-2 py-2 text-right whitespace-nowrap text-[#78350f] opacity-100">SHPD</th>
@@ -999,7 +1003,7 @@ export default function ReconciliationPage() {
             <tbody className="divide-y divide-slate-100">
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={21} className="py-12 text-center text-slate-400">
+                  <td colSpan={22} className="py-12 text-center text-slate-400">
                     No rows match the current filter.
                   </td>
                 </tr>
@@ -1047,7 +1051,14 @@ export default function ReconciliationPage() {
                         {fmt(r.requestedDate)}
                       </td>
                       <td className="sticky bg-emerald-50 px-2 py-1.5 text-right font-bold text-emerald-900" style={{ left: '692px' }}>{r.qtyOrdered}</td>
-                      <td className="sticky bg-emerald-50 px-2 py-1.5 text-right text-slate-600 border-r-2 border-emerald-300" style={{ left: '752px' }}>{r.qtyReceived}</td>
+                      <td className="sticky bg-emerald-50 px-2 py-1.5 text-right text-slate-600" style={{ left: '752px' }}>{r.qtyReceived}</td>
+                      <td className="sticky bg-emerald-50 px-2 py-1.5 text-right border-r-2 border-emerald-300" style={{ left: '816px' }}
+                          title={r.onHand != null ? `On hand ${r.onHand} · allocated ${r.allocated ?? 0} · backordered ${r.backordered ?? 0}` : 'No stock record'}>
+                        {r.onHand == null ? <span className="text-slate-300">—</span>
+                          : r.onHand <= 0 ? <span className="font-semibold text-rose-600">{r.onHand}</span>
+                          : (r.backordered ?? 0) > 0 ? <span className="font-semibold text-amber-700">{r.onHand}</span>
+                          : <span className="text-slate-700">{r.onHand}</span>}
+                      </td>
                       <td className="bg-[#fffbeb] px-2 py-1.5 whitespace-nowrap font-mono text-[11px]">
                         {!r.matchType
                           ? <span className="text-red-400">—</span>
@@ -1093,9 +1104,11 @@ export default function ReconciliationPage() {
                           <span title={r.container ?? ''}>{r.container ?? '—'}</span>
                         )}
                       </td>
-                      <td className="bg-violet-50 px-2 py-1.5 whitespace-nowrap text-slate-700"><span title={r.vessel ?? ''}>{r.vessel ?? '—'}</span></td>
+                      <td className="bg-violet-50 px-2 py-1.5 whitespace-nowrap text-slate-700">
+                        <span title={r.vessel ?? bestVessel(probable[0]?.c ?? ({} as CtContainer)) ?? ''}>{r.vessel ?? (probable[0] ? bestVessel(probable[0].c) : null) ?? '—'}</span>
+                      </td>
                       <td className="bg-violet-50 px-2 py-1.5 whitespace-nowrap text-slate-600">
-                        {fmt(r.containerEta)}
+                        {fmt(r.containerEta ?? (probable[0] ? bestEta(probable[0].c) : null))}
                         {chipCt?.live?.previousEta && chipCt.live.eta && chipCt.live.previousEta < chipCt.live.eta && (
                           <span className="ml-1 text-rose-600" title={`ETA slipped — was ${fmt(chipCt.live.previousEta)}`}>▲</span>
                         )}
@@ -1106,7 +1119,7 @@ export default function ReconciliationPage() {
                     </tr>
                     {isOpen && (
                       <tr className="bg-violet-50/40">
-                        <td colSpan={21} className="p-0" style={{ whiteSpace: 'normal' }}>
+                        <td colSpan={22} className="p-0" style={{ whiteSpace: 'normal' }}>
                           <TrackingPanel po={r.po} item={r.as400Item ?? r.supplierSku} lineContainers={lineCts} poContainers={poCts} probable={probable} />
                         </td>
                       </tr>
