@@ -48,6 +48,34 @@ export async function GET() {
       );
     }
 
+    // Stock on hand from the 15-minute stock sync (stock:all / pr:stock:all / fc:stock:all),
+    // summed across locations, keyed by Arrow stock code. Attached per line as onHand / allocated / backordered.
+    try {
+      const lists = await Promise.all(['stock:all', 'pr:stock:all', 'fc:stock:all'].map((k) => redis.get(k)));
+      const soh = new Map<string, { onHand: number; allocated: number; backordered: number }>();
+      for (const raw of lists) {
+        const list = raw ? (typeof raw === 'string' ? JSON.parse(raw) : raw) : [];
+        if (!Array.isArray(list)) continue;
+        for (const e of list as any[]) {
+          const sku = String(e?.sku ?? '').trim().toUpperCase();
+          if (!sku) continue;
+          const t = { onHand: 0, allocated: 0, backordered: 0 };
+          for (const loc of Object.values((e?.byLocation ?? {}) as Record<string, any>)) {
+            t.onHand += Number(loc?.onHand ?? 0) || 0;
+            t.allocated += Number(loc?.allocated ?? 0) || 0;
+            t.backordered += Number(loc?.backordered ?? 0) || 0;
+          }
+          soh.set(sku, t);
+        }
+      }
+      if (Array.isArray(lines)) {
+        lines = (lines as any[]).map((l) => {
+          const t = soh.get(String(l.arrowStock ?? '').trim().toUpperCase());
+          return t ? { ...l, onHand: t.onHand, allocated: t.allocated, backordered: t.backordered } : l;
+        });
+      }
+    } catch { /* stock keys unavailable — lines go out without SOH */ }
+
     const meta = rawMeta
       ? (typeof rawMeta === 'string' ? JSON.parse(rawMeta) : rawMeta)
       : { generatedAt: null, rows: 0 };
