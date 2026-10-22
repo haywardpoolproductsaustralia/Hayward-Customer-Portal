@@ -167,7 +167,7 @@ function statusBadge(s: ReconRow['status']) {
 }
 
 function isException(x: ReconRow) {
-  return x.status === 'missing' || x.qtyMismatch || x.matchType === 'alias' || x.lateVsRequest;
+  return x.status === 'missing' || x.qtyMismatch || x.matchType === 'alias';
 }
 
 function addrMatch(row: ReconRow): 'ok' | 'warn' | 'unknown' {
@@ -390,7 +390,9 @@ function reconcile(arrow: ArrowLine[], as400: As400Line[], ship: ShipLine[]): Re
 
     const qtyMismatch = !!a4 && Math.round(as400Ord) !== Math.round(a.qtyOrdered);
     const bestEta = latest?.eta ?? a4?.eta ?? null;
-    const lateVsRequest = !!(a.requestedDate && bestEta && bestEta > a.requestedDate && a.qtyOutstanding > 0);
+    // Arrow's requested date is keyed by purchasing when the PO is raised and is not a forecast —
+    // it is shown for reference only and never drives status, exceptions or highlighting.
+    const lateVsRequest = false;
 
     return {
       ...a,
@@ -815,7 +817,7 @@ export default function ReconciliationPage() {
           { label: 'Exceptions',      value: stats.exceptions,  color: 'text-[#d97706]' },
           { label: 'In Transit',      value: stats.inTransit + stats.shipped, color: 'text-blue-600' },
           { label: 'Delivered',       value: stats.delivered,   color: 'text-green-700' },
-          { label: 'Late vs request', value: stats.late,        color: 'text-red-600' },
+          { label: 'Awaiting ship',   value: stats.awaiting,    color: 'text-amber-600' },
         ].map((k) => (
           <div key={k.label} className="rounded-xl border border-slate-100 bg-white p-4">
             <p className={`text-2xl font-bold ${k.color}`}>{k.value}</p>
@@ -933,7 +935,7 @@ export default function ReconciliationPage() {
                   ...(() => {
                     const cs = ctIdx.byLine.get(ctLineKey(r.po, r.supplierSku)) ?? (r.as400Item ? ctIdx.byLine.get(ctLineKey(r.po, r.as400Item)) ?? [] : []);
                     return [
-                      cs.map((c) => ctStatus(c).label).join(' / '),
+                      Array.from(new Set(cs.map((c) => ctStatus(c).label))).join(' / '),
                       Array.from(new Set(cs.map((c) => c.mbl).filter(Boolean))).join(' / '),
                       Array.from(new Set(cs.flatMap((c) => [...(c.invoiceNos ?? []).map((n) => `Inv ${n}`), ...(c.packingSlipNos ?? []).map((n) => `Slip ${n}`)]))).join(' / '),
                     ];
@@ -1018,7 +1020,7 @@ export default function ReconciliationPage() {
                 <th className="sticky bg-emerald-200 px-2 py-2 whitespace-nowrap text-emerald-900 opacity-100" style={{ left: '308px' }}>Stock code</th>
                 <th className="sticky bg-emerald-200 px-2 py-2 whitespace-nowrap text-emerald-900 opacity-100" style={{ left: '428px' }}>Supplier SKU</th>
                 <th title="PO order date" className="sticky bg-emerald-200 px-2 py-2 whitespace-nowrap text-emerald-900 opacity-100" style={{ left: '540px' }}>Order dt</th>
-                <th title="Requested date in Arrow" className="sticky bg-emerald-200 px-2 py-2 whitespace-nowrap text-emerald-900 opacity-100" style={{ left: '616px' }}>ETA</th>
+                <th title="Date keyed on the Arrow PO — reference only, not a forecast" className="sticky bg-emerald-200 px-2 py-2 whitespace-nowrap text-emerald-900 opacity-100" style={{ left: '616px' }}>ETA</th>
                 <th title="Qty ordered in Arrow" className="sticky bg-emerald-200 px-2 py-2 text-right whitespace-nowrap text-emerald-900 opacity-100" style={{ left: '692px' }}>Qty</th>
                 <th title="Qty received in Arrow" className="sticky bg-emerald-200 px-2 py-2 text-right whitespace-nowrap text-emerald-900 border-r-2 border-emerald-400 opacity-100" style={{ left: '752px' }}>Rcvd</th>
                 <th title="Matched AS400 PO / item" className="bg-[#fef3c7] px-2 py-2 whitespace-nowrap text-[#78350f] opacity-100">Arrow PO</th>
@@ -1044,12 +1046,17 @@ export default function ReconciliationPage() {
               ) : (
                 filtered.map((r, i) => {
                   const addr = addrMatch(r);
-                  const rowBase = r.lateVsRequest ? 'bg-red-50/30' : '';
+                  const rowBase = '';
                   // container tracking for this line: by supplier SKU, else by the AS400 item code, else PO-level
                   const lineCts = ctIdx.byLine.get(ctLineKey(r.po, r.supplierSku))
                     ?? (r.as400Item ? ctIdx.byLine.get(ctLineKey(r.po, r.as400Item)) : undefined) ?? [];
                   const poCts = ctIdx.byPo.get(r.po) ?? [];
-                  const probable = !lineCts.length && !poCts.length ? probableFor(r) : [];
+                  // A box whose only knowledge is "this PO" (CHR/ShipsGo booking ref, no item detail from any
+                  // document) is offered to every shipped line of the PO as a probable match.
+                  const poLevelOnly = !lineCts.length && r.onWater > 0
+                    ? poCts.filter((c) => !c.lines.length).map((c) => ({ c, why: `${c.sources.includes('chr') ? 'CHR' : 'ShipsGo'} booking names PO ${r.po} but carries no item detail` }))
+                    : [];
+                  const probable = !lineCts.length ? [...poLevelOnly, ...(!poCts.length ? probableFor(r) : [])] : [];
                   const hasTracking = lineCts.length > 0 || poCts.length > 0 || probable.length > 0;
                   // Chip follows the same container the Vessel / Cont ETA columns show: the latest-ETA box
                   // (reconcile() picks that one), so a split shipment reads "Empty to shipper · EVER SMART · 21 Nov", not a mix.
@@ -1078,7 +1085,6 @@ export default function ReconciliationPage() {
                       <td className="sticky bg-emerald-50 px-2 py-1.5 whitespace-nowrap text-slate-500" style={{ left: '540px' }}>{fmt(r.orderDate)}</td>
                       <td className="sticky bg-emerald-50 px-2 py-1.5 whitespace-nowrap text-slate-700" style={{ left: '616px' }}>
                         {fmt(r.requestedDate)}
-                        {r.lateVsRequest && <span className="ml-1 text-red-500" title="Late vs requested date">&#x26A0;</span>}
                       </td>
                       <td className="sticky bg-emerald-50 px-2 py-1.5 text-right font-bold text-emerald-900" style={{ left: '692px' }}>{r.qtyOrdered}</td>
                       <td className="sticky bg-emerald-50 px-2 py-1.5 text-right text-slate-600 border-r-2 border-emerald-300" style={{ left: '752px' }}>{r.qtyReceived}</td>
@@ -1118,8 +1124,8 @@ export default function ReconciliationPage() {
                             <span className="text-[10px] text-violet-400">{isOpen ? '▾' : '▸'}</span>
                             <span className="truncate font-mono text-[11px]" title={r.container ?? ''}>
                               {lineCts.length > 1 && chipCt ? `${chipCt.containerNo} +${lineCts.length - 1}`
-                                : r.container ?? (poCts.length ? `${poCts.length} box${poCts.length === 1 ? '' : 'es'} · other lines`
-                                : probable.length ? `≈ ${probable[0].c.containerNo}` : '—')}
+                                : r.container ?? (probable.length ? `≈ ${probable[0].c.containerNo}${probable.length > 1 ? ` +${probable.length - 1}` : ''}`
+                                : poCts.length ? `${poCts.length} box${poCts.length === 1 ? '' : 'es'} · other lines` : '—')}
                             </span>
                             {(chipCt ?? probable[0]?.c) && <span className="ml-auto shrink-0"><StatusChip c={chipCt ?? probable[0].c} /></span>}
                           </button>
