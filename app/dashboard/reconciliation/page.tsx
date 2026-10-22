@@ -817,7 +817,7 @@ export default function ReconciliationPage() {
           { label: 'Exceptions',      value: stats.exceptions,  color: 'text-[#d97706]' },
           { label: 'In Transit',      value: stats.inTransit + stats.shipped, color: 'text-blue-600' },
           { label: 'Delivered',       value: stats.delivered,   color: 'text-green-700' },
-          { label: 'Late vs request', value: stats.late,        color: 'text-red-600' },
+          { label: 'Awaiting ship',   value: stats.awaiting,    color: 'text-amber-600' },
         ].map((k) => (
           <div key={k.label} className="rounded-xl border border-slate-100 bg-white p-4">
             <p className={`text-2xl font-bold ${k.color}`}>{k.value}</p>
