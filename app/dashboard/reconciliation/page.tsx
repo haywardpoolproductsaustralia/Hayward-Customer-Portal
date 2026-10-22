@@ -372,8 +372,12 @@ function reconcile(arrow: ArrowLine[], as400: As400Line[], ship: ShipLine[]): Re
 
     const as400Ord  = a4?.ord  ?? 0;
     const as400Shpd = a4?.shpd ?? 0;
-    const shipped = !!a4 && (as400Shpd > 0 || (!!a4.shipDate && a4.shipDate <= today));
+    // Units confirmed in containers for this line (invoice / packing slip / Century / CDS), across all its boxes.
+    // When we have that, it beats AS400's SHPD — the invoice lands days before AS400 flips the line to shipped.
+    const ctUnits = ships.reduce((sum, x) => sum + (x.units ?? 0), 0);
+    const shipped = ctUnits > 0 || (!!a4 && (as400Shpd > 0 || (!!a4.shipDate && a4.shipDate <= today)));
     const onWater = !shipped ? 0
+      : ctUnits > 0 ? Math.max(0, Math.max(ctUnits, as400Shpd) - a.qtyReceived)
       : as400Shpd > 0 ? Math.max(0, as400Shpd - a.qtyReceived)
       : a.qtyOutstanding;
 
