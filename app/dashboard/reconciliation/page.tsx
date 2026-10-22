@@ -933,7 +933,7 @@ export default function ReconciliationPage() {
                   ...(() => {
                     const cs = ctIdx.byLine.get(ctLineKey(r.po, r.supplierSku)) ?? (r.as400Item ? ctIdx.byLine.get(ctLineKey(r.po, r.as400Item)) ?? [] : []);
                     return [
-                      cs.map((c) => ctStatus(c).label).join(' / '),
+                      Array.from(new Set(cs.map((c) => ctStatus(c).label))).join(' / '),
                       Array.from(new Set(cs.map((c) => c.mbl).filter(Boolean))).join(' / '),
                       Array.from(new Set(cs.flatMap((c) => [...(c.invoiceNos ?? []).map((n) => `Inv ${n}`), ...(c.packingSlipNos ?? []).map((n) => `Slip ${n}`)]))).join(' / '),
                     ];
@@ -1049,7 +1049,12 @@ export default function ReconciliationPage() {
                   const lineCts = ctIdx.byLine.get(ctLineKey(r.po, r.supplierSku))
                     ?? (r.as400Item ? ctIdx.byLine.get(ctLineKey(r.po, r.as400Item)) : undefined) ?? [];
                   const poCts = ctIdx.byPo.get(r.po) ?? [];
-                  const probable = !lineCts.length && !poCts.length ? probableFor(r) : [];
+                  // A box whose only knowledge is "this PO" (CHR/ShipsGo booking ref, no item detail from any
+                  // document) is offered to every shipped line of the PO as a probable match.
+                  const poLevelOnly = !lineCts.length && r.onWater > 0
+                    ? poCts.filter((c) => !c.lines.length).map((c) => ({ c, why: `${c.sources.includes('chr') ? 'CHR' : 'ShipsGo'} booking names PO ${r.po} but carries no item detail` }))
+                    : [];
+                  const probable = !lineCts.length ? [...poLevelOnly, ...(!poCts.length ? probableFor(r) : [])] : [];
                   const hasTracking = lineCts.length > 0 || poCts.length > 0 || probable.length > 0;
                   // Chip follows the same container the Vessel / Cont ETA columns show: the latest-ETA box
                   // (reconcile() picks that one), so a split shipment reads "Empty to shipper · EVER SMART · 21 Nov", not a mix.
@@ -1118,8 +1123,8 @@ export default function ReconciliationPage() {
                             <span className="text-[10px] text-violet-400">{isOpen ? '▾' : '▸'}</span>
                             <span className="truncate font-mono text-[11px]" title={r.container ?? ''}>
                               {lineCts.length > 1 && chipCt ? `${chipCt.containerNo} +${lineCts.length - 1}`
-                                : r.container ?? (poCts.length ? `${poCts.length} box${poCts.length === 1 ? '' : 'es'} · other lines`
-                                : probable.length ? `≈ ${probable[0].c.containerNo}` : '—')}
+                                : r.container ?? (probable.length ? `≈ ${probable[0].c.containerNo}${probable.length > 1 ? ` +${probable.length - 1}` : ''}`
+                                : poCts.length ? `${poCts.length} box${poCts.length === 1 ? '' : 'es'} · other lines` : '—')}
                             </span>
                             {(chipCt ?? probable[0]?.c) && <span className="ml-auto shrink-0"><StatusChip c={chipCt ?? probable[0].c} /></span>}
                           </button>

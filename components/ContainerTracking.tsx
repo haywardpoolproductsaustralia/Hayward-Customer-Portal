@@ -5,7 +5,6 @@
 // container-store data (ShipsGo live + CDS + supplier PDFs) into its existing reconcile().
 // Data: GET /api/containers/view → { containers: CtContainer[] }.
 
-import { useState } from 'react';
 
 export type CtLine = { po: string; item: string; qty: number; source: string; ref: string };
 export type CtMovement = { event: string; status: 'ACT' | 'EST'; location?: string; vessel?: string; voyage?: string; timestamp: string };
@@ -55,13 +54,16 @@ export function ctStatus(c: CtContainer): { label: string; tone: 'done' | 'live'
   const s = c.live?.containerStatus;
   if (s === 'GATE_OUT' || s === 'EMPTY_RETURN' || c.deliveredDate) return { label: s ? STATUS_LABEL[s] : `Delivered ${fmtD(c.deliveredDate)}`, tone: 'done', closed: true };
   if (s && s !== 'UNKNOWN') return { label: STATUS_LABEL[s] ?? s, tone: 'live', closed: false };
-  if (c.live?.shipmentStatus) return { label: STATUS_LABEL[c.live.shipmentStatus] ?? c.live.shipmentStatus, tone: 'live', closed: false };
+  const pending = !c.live?.shipmentStatus || ['NEW', 'INPROGRESS', 'UNTRACKED'].includes(c.live.shipmentStatus);
+  if (c.live?.shipmentStatus && !pending) return { label: STATUS_LABEL[c.live.shipmentStatus] ?? c.live.shipmentStatus, tone: 'live', closed: false };
+  // ShipsGo hasn't got data yet — fall through to the forwarder feeds, and only then show "Looking up"
   const cs = c.century?.status;
   if (cs === 'GATE_OUT' || cs === 'EMPTY_RETURN') return { label: `${STATUS_LABEL[cs]} ${fmtD(c.century?.eventAt)}`, tone: 'done', closed: true };
   if (cs) return { label: `${STATUS_LABEL[cs] ?? c.century?.event} (Century)`, tone: 'live', closed: false };
   const hs = c.chr?.status;
   if (hs === 'GATE_OUT' || hs === 'EMPTY_RETURN') return { label: `${STATUS_LABEL[hs]} ${fmtD(c.chr?.deliveredAt ?? c.chr?.ata)}`, tone: 'done', closed: true };
   if (hs) return { label: `${STATUS_LABEL[hs] ?? c.chr?.statusRaw} (CHR)`, tone: 'live', closed: false };
+  if (c.live?.shipmentStatus) return { label: STATUS_LABEL[c.live.shipmentStatus] ?? c.live.shipmentStatus, tone: 'wait', closed: false };
   if (c.eta || c.vessel) return { label: 'On water (CDS)', tone: 'doc', closed: false };
   return { label: 'Shipped — awaiting vessel', tone: 'wait', closed: false };
 }
@@ -134,12 +136,8 @@ function EtaCell({ c }: { c: CtContainer }) {
 }
 
 function ContainerCard({ c, po, item, poOnly, probable }: { c: CtContainer; po: string; item: string; poOnly?: boolean; probable?: string }) {
-  const [showAll, setShowAll] = useState(false);
   const qty = qtyInContainer(c, po, item);
-  const movements = c.live?.movements ?? [];
-  const acts = movements.filter((m) => m.status === 'ACT');
-  const ests = movements.filter((m) => m.status === 'EST');
-  const shown = showAll ? movements : [...acts.slice(-3), ...ests.slice(0, 2)];
+  const shown = c.live?.movements ?? []; // every milestone, always — no manual expand
   const otherPos = c.pos.filter((p) => p !== po);
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-3 text-xs shadow-sm">
@@ -192,7 +190,6 @@ function ContainerCard({ c, po, item, poOnly, probable }: { c: CtContainer; po: 
               {m.vessel && <span className="text-slate-400"> · {m.vessel}</span>}
             </li>
           ))}
-          {movements.length > shown.length && <li><button className="text-sky-700 underline" onClick={() => setShowAll(true)}>all {movements.length} events</button></li>}
         </ol>
       )}
 
