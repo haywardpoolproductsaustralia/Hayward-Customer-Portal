@@ -10,6 +10,7 @@ import type { ContainerLine, ContainerRecord, ContainerSource, LiveStatus, Parse
 
 export const K = {
   container: (n: string) => `ct:container:${n}`,
+  invoice: (n: string) => `ct:inv:${n}`,     // invoice no → { po, lines } so the schedule can resolve its invoice lists
   index: "ct:index",
   meta: "ct:meta",
   failed: "ct:failed",
@@ -18,7 +19,7 @@ export const K = {
 };
 
 // When two documents disagree on a fact, the higher source wins; lower ones only fill gaps.
-const PRIORITY: Record<ContainerSource, number> = { shipsgo: 6, century: 5, chr: 4, cds: 3, "wuxi-packing-slip": 2, "us-invoice": 1 };
+const PRIORITY: Record<ContainerSource, number> = { shipsgo: 7, century: 6, chr: 5, cds: 4, "wuxi-packing-slip": 3, "us-invoice": 2, schedule: 1 };
 const FACT_KEYS: (keyof ContainerRecord)[] = [
   "mbl", "hbl", "forwarder", "vendor", "originPort", "destPort", "shipMode", "vessel", "voyage", "etd", "eta", "deliveredDate", "size", "shipKey", "destCountry",
 ];
@@ -66,6 +67,7 @@ function mergeFacts(existing: ContainerRecord, incoming: Partial<ContainerRecord
   }
   if (incoming.century && (!out.century || incoming.century.updatedAt >= out.century.updatedAt)) out.century = incoming.century;
   if (incoming.chr && (!out.chr || incoming.chr.updatedAt >= out.chr.updatedAt)) out.chr = incoming.chr;
+  if (incoming.schedule && (!out.schedule || incoming.schedule.updatedAt >= out.schedule.updatedAt)) out.schedule = incoming.schedule;
   out.sources = [...new Set([...existing.sources, ...(incoming.sources ?? [])])];
   out.pos = [...new Set([...existing.pos, ...(incoming.pos ?? [])])];
   out.invoiceNos = [...new Set([...(existing.invoiceNos ?? []), ...(incoming.invoiceNos ?? [])])];
@@ -114,6 +116,18 @@ export async function applyParseResult(r: ParseResult): Promise<{ newContainers:
   }
   await addToIndex([...touched]);
   return { newContainers, touched: [...touched] };
+}
+
+/** Index the lines of a supplier invoice / packing slip by its number (with or without a container), so a later
+ *  document that only names the invoice (Dimi's schedule) can place those lines in a box. */
+export async function indexInvoiceLines(r: ParseResult): Promise<number> {
+  const byRef = new Map<string, ContainerLine[]>();
+  for (const l of r.lines) if (l.sourceRef && (l.source === "us-invoice" || l.source === "wuxi-packing-slip")) (byRef.get(l.sourceRef) ?? byRef.set(l.sourceRef, []).get(l.sourceRef)!).push(l);
+  for (const [ref, lines] of byRef) await redis.set(K.invoice(ref.replace(/^0+/, "")), JSON.stringify({ po: lines[0].po, lines }), { ex: 60 * 60 * 24 * 400 });
+  return byRef.size;
+}
+export async function getInvoiceLines(no: string): Promise<{ po: string; lines: ContainerLine[] } | null> {
+  return getJSON<{ po: string; lines: ContainerLine[] }>(K.invoice(no.replace(/^0+/, "")));
 }
 
 /** Attach / refresh ShipsGo live status on a record (creating a ShipsGo-only record when we've never seen the box in a document). */

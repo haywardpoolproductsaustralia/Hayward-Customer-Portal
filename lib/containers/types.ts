@@ -8,7 +8,20 @@
 //   us-invoice        sbateman@hayward.com "Inv#: 00134xxxxx  PO: 9xxxxx" → MFX-000x_INVOICE_FT.PDF
 // The two PDFs are the ONLY early signal for US-origin containers, which CDS stopped carrying in Feb 2026.
 
-export type ContainerSource = "shipsgo" | "century" | "chr" | "cds" | "wuxi-packing-slip" | "us-invoice";
+export type ContainerSource = "shipsgo" | "century" | "chr" | "cds" | "wuxi-packing-slip" | "us-invoice" | "schedule";
+
+/** A row of Dimi's hand-kept Shipment Schedule workbook. */
+export interface ScheduleStatus {
+  supplier?: string; forwarder?: string;
+  dispatched?: string; eta?: string;        // "Date dispatch" / "Date delivery" (port ETA as Dimi keyed it)
+  revisedDelivery?: string;                 // "Revised Delivery Date" — warehouse-door date, the thing no feed has
+  note?: string;                            // customer-direct marker (POOLPRO, SALTMATE), "delivered", etc
+  location?: string;                        // Melbourne / QLD / NSW
+  items?: string;                           // free-text item list as keyed
+  invoiceNos: string[];
+  sheet: string;
+  updatedAt: string;
+}
 
 /** Latest state from the C.H. Robinson Navisphere shipment report (shipment-level; the only feed for the US lane). */
 export interface ChrStatus {
@@ -111,6 +124,7 @@ export interface ContainerRecord {
   destCountry?: string;
   century?: CenturyStatus;    // latest Century event — status when ShipsGo doesn't track the box
   chr?: ChrStatus;            // C.H. Robinson shipment state (US lane)
+  schedule?: ScheduleStatus;  // Dimi's Shipment Schedule row
   invoiceNos?: string[];
   packingSlipNos?: string[];
   live?: LiveStatus;

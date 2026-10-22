@@ -1143,8 +1143,8 @@ export default function ReconciliationPage() {
       <div className="grid gap-3 lg:grid-cols-2 pt-4 border-t border-slate-100">
         <UploadBanner
           label="Container documents"
-          sublabel="Century CSV · CHR report · US invoice · Wuxi packing slip · .msg"
-          hint="Drop the Century/VIZIV dashboard CSV (all containers shipped to AU/NZ), the C.H. Robinson 'Hayward Pool Shipment Activity Report' xlsx from Navisphere (US lane), the PDFs from sbateman@hayward.com (Inv#: … PO: …) and robot@hayward.com (Hayward Shipment for PO: …), the CDS-Net xlsx, or whole emails saved as .msg from Dimi's mailbox. Container numbers are read from the documents, matched to the PO lines, and tracked on ShipsGo. The AU Containers mailbox flow does this automatically once it's live."
+          sublabel="Century CSV · CHR report · Shipment Schedule · invoices · packing slips · .msg"
+          hint="Drop the Century/VIZIV dashboard CSV (all containers shipped to AU/NZ), the C.H. Robinson 'Hayward Pool Shipment Activity Report' xlsx from Navisphere (US lane), Dimi's Shipment Schedule.xlsx (revised delivery dates, customer notes, invoice→PO links), the PDFs from sbateman@hayward.com (Inv#: … PO: …) and robot@hayward.com (Hayward Shipment for PO: …), the CDS-Net xlsx, or whole emails saved as .msg from Dimi's mailbox. Container numbers are read from the documents, matched to the PO lines, and tracked on ShipsGo. The AU Containers mailbox flow does this automatically once it's live."
           meta={ctInfo.meta?.lastCenturyAt ? `Century ${fmtMeta(ctInfo.meta.lastCenturyAt)} · ${ctContainers.length} open containers` : ctInfo.meta?.lastIngestAt ? `last: ${fmtMeta(ctInfo.meta.lastIngestAt)} · ${ctInfo.meta.lastSubject ?? ''}`.slice(0, 90) : 'nothing ingested yet'}
           uploading={uploadingDocs}
           accept=".pdf,.msg,.xlsx,.xls,.csv"

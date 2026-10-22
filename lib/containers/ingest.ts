@@ -10,8 +10,9 @@ import { getJSON, redis } from "@/lib/redis";
 import { parseCdsContainers } from "./parse-cds";
 import { isCenturyCsv, parseCenturyCsv } from "./parse-century";
 import { isChrReport, parseChrReport } from "./parse-chr";
+import { isScheduleWorkbook, parseScheduleWorkbook } from "./parse-schedule";
 import { looksLikePackingSlip, looksLikeUsInvoice, parseSupplierPdf } from "./parse-supplier-docs";
-import { applyParseResult, K } from "./store";
+import { applyParseResult, getInvoiceLines, indexInvoiceLines, K } from "./store";
 import { registerNew } from "./tracking";
 import type { ParseResult } from "./types";
 
@@ -37,7 +38,7 @@ export function isContainerEmail(m: { from: string; subject: string; attachments
   const names = m.attachments.map((a) => a.name);
   return f.includes(CDS_SENDER) || SUPPLIER_SENDERS.some((s) => f.includes(s)) ||
     /^Inv#?:?\s*\d+\s+PO:?\s*\d{6}/i.test(subj) || /^Hayward Shipment for PO/i.test(subj) || /^Shipment Activity by Container/i.test(subj) ||
-    names.some((n) => isCdsFile(n) || looksLikeUsInvoice(n) || looksLikePackingSlip(n) || (/\.csv$/i.test(n) && isCenturyCsv(n)) || (/\.xlsx?$/i.test(n) && isChrReport(n))) ||
+    names.some((n) => isCdsFile(n) || looksLikeUsInvoice(n) || looksLikePackingSlip(n) || (/\.csv$/i.test(n) && isCenturyCsv(n)) || (/\.xlsx?$/i.test(n) && (isChrReport(n) || isScheduleWorkbook(n)))) ||
     f.includes("chrobinsonreports@chrobinson.com");
 }
 
@@ -58,7 +59,23 @@ export async function ingestEmail(m: InboundEmail, opts: { register?: boolean; d
 
   for (const att of m.attachments) {
     const name = att.name ?? "";
-    if (/\.xlsx?$/i.test(name) && (isChrReport(name) || m.from.toLowerCase().includes("chrobinson.com"))) {
+    if (/\.xlsx?$/i.test(name) && isScheduleWorkbook(name)) {
+      const r = parseScheduleWorkbook(att.content, observedAt);
+      // Resolve the invoice numbers Dimi keyed against the invoice index → PO lines go into the box.
+      let resolved = 0;
+      for (const c of r.containers) {
+        for (const inv of c.invoiceNos ?? []) {
+          const hit = await getInvoiceLines(inv);
+          if (!hit) continue;
+          resolved++;
+          c.pos = [...new Set([...(c.pos ?? []), hit.po])];
+          c.lines = [...(c.lines ?? []), ...hit.lines.map((l) => ({ ...l, observedAt }))];
+          if (!c.sources!.includes(hit.lines[0]?.source ?? "us-invoice")) c.sources!.push(hit.lines[0]?.source ?? "us-invoice");
+        }
+      }
+      r.warnings.push(`Schedule: ${resolved} invoice number(s) resolved to PO lines via the invoice index`);
+      results.push(r);
+    } else if (/\.xlsx?$/i.test(name) && (isChrReport(name) || m.from.toLowerCase().includes("chrobinson.com"))) {
       results.push(parseChrReport(att.content, observedAt));
     } else if (/\.xlsx?$/i.test(name) && (isCdsFile(name) || m.from.toLowerCase().includes(CDS_SENDER))) {
       // 1) the per-line index the page has always used (replaces the manual upload)
@@ -88,6 +105,8 @@ export async function ingestEmail(m: InboundEmail, opts: { register?: boolean; d
   const parsedPos = new Set(merged.lines.map((l) => l.po));
   if (subjPo && parsedPos.size && !parsedPos.has(subjPo)) merged.warnings.push(`subject says PO ${subjPo} but the document is for ${[...parsedPos].join(",")}`);
 
+  const indexed = await indexInvoiceLines(merged);
+  if (indexed) merged.warnings.push(`${indexed} invoice/slip number(s) indexed for schedule matching`);
   const { newContainers, touched } = await applyParseResult(merged);
   const registration = opts.register && touched.length ? await registerNew(touched, opts.dryRun) : null;
 
@@ -132,7 +151,7 @@ export async function emailFromMsg(buf: Buffer, fallbackName = "message.msg"): P
 
 /** A bare file dropped on the page — wrap it as a one-attachment email so the same routing applies. */
 export function emailFromFile(name: string, content: Buffer, receivedDateTime = new Date().toISOString()): InboundEmail {
-  const from = looksLikeUsInvoice(name) ? "sbateman@hayward.com" : looksLikePackingSlip(name) ? "robot@hayward.com" : isCdsFile(name) ? CDS_SENDER : isChrReport(name) ? "chrobinsonreports@chrobinson.com" : "";
+  const from = looksLikeUsInvoice(name) ? "sbateman@hayward.com" : looksLikePackingSlip(name) ? "robot@hayward.com" : isCdsFile(name) ? CDS_SENDER : isChrReport(name) ? "chrobinsonreports@chrobinson.com" : isScheduleWorkbook(name) ? "dsampanis@hayward.com" : "";
   // A Century CSV with an unhelpful filename is recognised by its header
   const csvName = /\.csv$/i.test(name) && !isCenturyCsv(name) && isCenturyCsv(content.subarray(0, 600).toString("utf8")) ? `century-${name}` : name;
   return { from, subject: `upload: ${name}`, receivedDateTime, attachments: [{ name: csvName, content }] };
