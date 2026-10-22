@@ -781,49 +781,7 @@ export default function ReconciliationPage() {
           <h1 className="flex items-center gap-2 text-2xl font-bold text-ink">
             <span className="text-wave">⚓</span> Purchasing
           </h1>
-          <p className="text-sm text-slate-500">Arrow POs vs AS400 supplier entry vs CDS-Net shipment portal · Australia &amp; New Zealand</p>
-          <div className="mt-1 flex gap-3 text-xs text-slate-400">
-            {arrowMeta.generatedAt && <span>{arrowMeta.rows} Arrow · {fmtMeta(arrowMeta.generatedAt)}</span>}
-            {as400Meta.rows > 0    && <span>· {as400Meta.rows} AS400</span>}
-            {ctContainers.length > 0 && <span>· {ctContainers.length} containers tracked{ctInfo.refresh?.at ? ` · ShipsGo ${fmtMeta(ctInfo.refresh.at)}` : ''}</span>}
-          </div>
         </div>
-      </div>
-
-      {staleWarnings.length > 0 && (
-        <div className="rounded-xl border border-[#fcd34d] bg-[#fffbeb] px-4 py-3 text-xs text-[#78350f]">
-          <p className="mb-1 font-semibold">Some data is out of date — figures below may be wrong</p>
-          <ul className="list-disc pl-5 space-y-0.5">
-            {staleWarnings.map((w) => <li key={w}>{w}</li>)}
-          </ul>
-        </div>
-      )}
-
-      {/* ── KPI cards — hidden when scrolled (sticky bar takes over) ── */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-5 transition-all duration-200 overflow-hidden"
-           style={{ maxHeight: '120px' }}
-           ref={(el) => {
-             if (!el) return;
-             const onScroll = () => {
-               el.style.maxHeight = window.scrollY > 80 ? '0px' : '120px';
-               el.style.opacity = window.scrollY > 80 ? '0' : '1';
-               el.style.marginBottom = window.scrollY > 80 ? '-1.5rem' : '';
-             };
-             window.addEventListener('scroll', onScroll, { passive: true });
-           }}
-      >
-        {[
-          { label: 'PO Lines',        value: stats.total,      color: 'text-ink' },
-          { label: 'Exceptions',      value: stats.exceptions,  color: 'text-[#d97706]' },
-          { label: 'In Transit',      value: stats.inTransit + stats.shipped, color: 'text-blue-600' },
-          { label: 'Delivered',       value: stats.delivered,   color: 'text-green-700' },
-          { label: 'Awaiting ship',   value: stats.awaiting,    color: 'text-amber-600' },
-        ].map((k) => (
-          <div key={k.label} className="rounded-xl border border-slate-100 bg-white p-4">
-            <p className={`text-2xl font-bold ${k.color}`}>{k.value}</p>
-            <p className="text-xs text-slate-500">{k.label}</p>
-          </div>
-        ))}
       </div>
 
       {/* ── Filter row — sticky below dashboard header ── */}
