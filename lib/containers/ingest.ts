@@ -8,6 +8,7 @@
 import { parseShipmentWorkbook } from "@/lib/recon/shipmentIngest";
 import { redis } from "@/lib/redis";
 import { parseCdsContainers } from "./parse-cds";
+import { isCenturyCsv, parseCenturyCsv } from "./parse-century";
 import { looksLikePackingSlip, looksLikeUsInvoice, parseSupplierPdf } from "./parse-supplier-docs";
 import { applyParseResult, K } from "./store";
 import { registerNew } from "./tracking";
@@ -35,7 +36,7 @@ export function isContainerEmail(m: { from: string; subject: string; attachments
   const names = m.attachments.map((a) => a.name);
   return f.includes(CDS_SENDER) || SUPPLIER_SENDERS.some((s) => f.includes(s)) ||
     /^Inv#?:?\s*\d+\s+PO:?\s*\d{6}/i.test(subj) || /^Hayward Shipment for PO/i.test(subj) || /^Shipment Activity by Container/i.test(subj) ||
-    names.some((n) => isCdsFile(n) || looksLikeUsInvoice(n) || looksLikePackingSlip(n));
+    names.some((n) => isCdsFile(n) || looksLikeUsInvoice(n) || looksLikePackingSlip(n) || (/\.csv$/i.test(n) && isCenturyCsv(n)));
 }
 
 export interface IngestOutcome {
@@ -63,6 +64,9 @@ export async function ingestEmail(m: InboundEmail, opts: { register?: boolean; d
       await redis.set("recon:shipment_meta", JSON.stringify({ receivedAt: observedAt, subject: m.subject, rows: lines.length, file: name, filename: name }));
       // 2) container-level facts (MBL, voyage, ship key) for the tracking store
       results.push(parseCdsContainers(att.content, observedAt));
+    } else if (/\.csv$/i.test(name)) {
+      const head = att.content.subarray(0, 600).toString("utf8");
+      if (isCenturyCsv(name) || isCenturyCsv(head)) results.push(parseCenturyCsv(att.content, observedAt)); else skipped.push(name);
     } else if (/\.pdf$/i.test(name)) {
       const r = await parseSupplierPdf(m.from, name, att.content, observedAt);
       if (r) results.push(r); else skipped.push(name);
@@ -119,5 +123,7 @@ export async function emailFromMsg(buf: Buffer, fallbackName = "message.msg"): P
 /** A bare file dropped on the page — wrap it as a one-attachment email so the same routing applies. */
 export function emailFromFile(name: string, content: Buffer, receivedDateTime = new Date().toISOString()): InboundEmail {
   const from = looksLikeUsInvoice(name) ? "sbateman@hayward.com" : looksLikePackingSlip(name) ? "robot@hayward.com" : isCdsFile(name) ? CDS_SENDER : "";
-  return { from, subject: `upload: ${name}`, receivedDateTime, attachments: [{ name, content }] };
+  // A Century CSV with an unhelpful filename is recognised by its header
+  const csvName = /\.csv$/i.test(name) && !isCenturyCsv(name) && isCenturyCsv(content.subarray(0, 600).toString("utf8")) ? `century-${name}` : name;
+  return { from, subject: `upload: ${name}`, receivedDateTime, attachments: [{ name: csvName, content }] };
 }

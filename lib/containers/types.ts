@@ -8,7 +8,19 @@
 //   us-invoice        sbateman@hayward.com "Inv#: 00134xxxxx  PO: 9xxxxx" → MFX-000x_INVOICE_FT.PDF
 // The two PDFs are the ONLY early signal for US-origin containers, which CDS stopped carrying in Feb 2026.
 
-export type ContainerSource = "shipsgo" | "cds" | "wuxi-packing-slip" | "us-invoice";
+export type ContainerSource = "shipsgo" | "century" | "cds" | "wuxi-packing-slip" | "us-invoice";
+
+/** Latest tracking state from the Century/VIZIV per-line CSV (forwarder events, current ETA). */
+export interface CenturyStatus {
+  event?: string;             // as printed: "Vessel Departed", "Outgate", "Unloaded from Vessel", "Empty Returned"…
+  status?: string;            // mapped to the ShipsGo container-status vocabulary (SAILING, GATE_OUT…)
+  eventAt?: string;
+  vesselArrivedAt?: string;
+  deliveredAt?: string;       // FINAL_DELIVERY_ACTUAL — unreliable, informational only
+  currentEta?: string;
+  forwarder?: string;         // CHSL / FLXT / EXDO
+  updatedAt: string;
+}
 
 /** One PO line (PO + supplier item) asserted to be inside a container by one source. */
 export interface ContainerLine {
@@ -81,7 +93,9 @@ export interface ContainerRecord {
   eta?: string;               // document ETA (CDS)
   deliveredDate?: string;     // CDS Delivered / Actual Delivered Date
   size?: string;
-  shipKey?: string;           // CDS ship key → centuryvms deep link
+  shipKey?: string;           // CDS / Century ship key → centuryvms deep link
+  destCountry?: string;
+  century?: CenturyStatus;    // latest Century event — status when ShipsGo doesn't track the box
   invoiceNos?: string[];
   packingSlipNos?: string[];
   live?: LiveStatus;
