@@ -22,7 +22,8 @@ const COL_W = [
 const TABLE_W = COL_W.reduce((a, b) => a + b, 0);
 const MIN_ZOOM = 0.55;
 // Full-width PO reconciliation: Arrow AU vs AS400 (Snowflake upload) vs CDS-Net shipments.
-// Both AS400 data and CDS-Net shipment file can be uploaded directly in the browser.
+// AS400 data is uploaded in the browser; shipment/container data comes from the container store
+// (Century CSV, ShipsGo, supplier PDFs — and the CDS xlsx if one ever arrives via the mailbox).
 // Container tracking (ShipsGo live status + US invoices + Wuxi packing slips, from /api/containers/view)
 // folds into the "Shipment On Water" columns and opens as a panel under the row — see components/ContainerTracking.tsx.
 
@@ -236,6 +237,18 @@ function parseAs400Csv(text: string): As400Line[] {
   });
 }
 
+// SheetJS loaded from CDN via a dynamic script tag (used by the AS400 .xlsx upload).
+function loadSheetJS(): Promise<any> {
+  return new Promise((resolve, reject) => {
+    if ((window as any).XLSX) { resolve((window as any).XLSX); return; }
+    const s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+    s.onload = () => resolve((window as any).XLSX);
+    s.onerror = reject;
+    document.head.appendChild(s);
+  });
+}
+
 // AS400 export may also arrive as .xlsx — convert the sheet holding the
 // AS400_ORD header to CSV text and reuse the CSV parser.
 async function readAs400File(file: File): Promise<As400Line[]> {
@@ -251,108 +264,6 @@ async function readAs400File(file: File): Promise<As400Line[]> {
 }
 
 // ---------------------------------------------------------------------------
-// Parse CDS-Net "Shipment Activity by Container" XLSX in the browser.
-// Mirrors the logic in shipment-load.js exactly.
-// Uses SheetJS loaded from CDN via a dynamic script tag.
-// ---------------------------------------------------------------------------
-
-function loadSheetJS(): Promise<any> {
-  return new Promise((resolve, reject) => {
-    if ((window as any).XLSX) { resolve((window as any).XLSX); return; }
-    const s = document.createElement('script');
-    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
-    s.onload = () => resolve((window as any).XLSX);
-    s.onerror = reject;
-    document.head.appendChild(s);
-  });
-}
-
-function isoDate(v: any): string | null {
-  if (v == null || v === '') return null;
-  if (v instanceof Date) return isNaN(v.getTime()) ? null : v.toISOString().slice(0, 10);
-  const s = String(v);
-  const m = s.match(/^(\d{4}-\d{2}-\d{2})/);
-  if (m) return m[1];
-  // Excel serial number
-  if (/^\d+(\.\d+)?$/.test(s)) {
-    const d = new Date(Math.round((Number(s) - 25569) * 86400 * 1000));
-    return isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
-  }
-  const d = new Date(s);
-  return isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
-}
-
-async function parseShipmentXlsx(file: File): Promise<ShipLine[]> {
-  const XLSX = await loadSheetJS();
-  const buf = await file.arrayBuffer();
-  const wb = XLSX.read(buf, { type: 'array', cellDates: true });
-  // The CDS-Net sheet may not be the first sheet — find whichever has a "PO #" header row.
-  let raw: any[][] = [];
-  let hi = -1;
-  for (const name of wb.SheetNames) {
-    const rowsOfSheet: any[][] = XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, raw: true });
-    const idx = rowsOfSheet.findIndex((r: any[]) => Array.isArray(r) && r.some((v: any) => String(v ?? '').trim() === 'PO #'));
-    if (idx >= 0) { raw = rowsOfSheet; hi = idx; break; }
-  }
-  if (hi < 0) throw new Error('Column "PO #" not found — is this a Shipment Activity by Container file?');
-
-  const H = raw[hi];
-  // Normalize headers: trim whitespace and match case-insensitively
-  const normalizeHeader = (h: any) => (h ? String(h).trim() : '');
-  const colIndex = (name: string) => {
-    const normalized = name.trim().toLowerCase();
-    return H.findIndex((h: any) => normalizeHeader(h).toLowerCase() === normalized);
-  };
-  
-  const c = {
-    po:            colIndex('PO #'),
-    item:          colIndex('Item #'),
-    container:     colIndex('Container #'),
-    vessel:        colIndex('Vessel'),
-    etd:           colIndex('ETD'),
-    eta:           colIndex('ETA'),
-    delivered:     colIndex('Delivered'),
-    actualDeliv:   colIndex('Actual Delivered Date'),
-    units:         colIndex('Units'),
-    carrier:       colIndex('Carrier Name'),
-    origin:        colIndex('Origin Port Name'),
-    destPort:      colIndex('Dest. Port Name'),
-    location:      colIndex('Location Name'),
-  };
-
-  // Verify required columns exist
-  const missing = Object.entries(c)
-    .filter(([k, idx]) => idx === -1 && ['po', 'item', 'destPort'].includes(k))
-    .map(([k]) => k);
-  if (missing.length > 0) {
-    throw new Error(`Required columns not found: ${missing.join(', ')}`);
-  }
-
-  const lines: ShipLine[] = [];
-  for (let i = hi + 1; i < raw.length; i++) {
-    const r = raw[i];
-    if (!Array.isArray(r) || !r[c.po]) continue;
-    const po = String(r[c.po]).trim();
-    if (!/^\d{6}$/.test(po)) continue;
-    const destPort = r[c.destPort] != null ? String(r[c.destPort]).trim() : '';
-    if (!destPort || !AUNZ_PORTS.has(destPort.toLowerCase())) continue;
-    const item = r[c.item] != null ? String(r[c.item]).trim() : '';
-    if (!item) continue;
-    lines.push({
-      po, item,
-      container: c.container !== -1 && r[c.container] != null ? String(r[c.container]).trim() || null : null,
-      vessel:    c.vessel !== -1 && r[c.vessel]    != null ? String(r[c.vessel]).trim()    || null : null,
-      etd:       c.etd !== -1 ? isoDate(r[c.etd]) : null,
-      eta:       c.eta !== -1 ? isoDate(r[c.eta]) : null,
-      delivered: (c.delivered !== -1 ? isoDate(r[c.delivered]) : null) ?? (c.actualDeliv !== -1 ? isoDate(r[c.actualDeliv]) : null),
-      units:     c.units !== -1 && r[c.units] != null && r[c.units] !== '' ? Number(r[c.units]) : null,
-      carrier:   c.carrier !== -1 && r[c.carrier] != null ? String(r[c.carrier]).trim() || null : null,
-      origin:    c.origin !== -1 && r[c.origin]  != null ? String(r[c.origin]).trim()  || null : null,
-      destPort,
-    });
-  }
-  return lines;
-}
 
 // ---------------------------------------------------------------------------
 // Reconcile Arrow + AS400 + Shipment
@@ -568,7 +479,6 @@ export default function ReconciliationPage() {
   const [tab,        setTab]        = useState<FilterTab>('all');
   const [search,     setSearch]     = useState('');
   const [uploadingA4, setUploadingA4] = useState(false);
-  const [uploadingShip, setUploadingShip] = useState(false);
   // Container tracking store (ShipsGo live + supplier PDFs + CDS container facts)
   const [ctContainers, setCtContainers] = useState<CtContainer[]>([]);
   const [ctInfo, setCtInfo] = useState<{ meta: any; refresh: any; shipsgoConfigured: boolean; total: number }>({ meta: null, refresh: null, shipsgoConfigured: false, total: 0 });
@@ -705,28 +615,6 @@ export default function ReconciliationPage() {
     }
   }, []);
 
-  // CDS-Net shipment XLSX upload — parsed entirely in the browser
-  const handleShipFile = useCallback(async (file: File) => {
-    setUploadingShip(true);
-    try {
-      const lines = await parseShipmentXlsx(file);
-      if (!lines.length) { alert('No AU/NZ lines found. Check the file is "Shipment Activity by Container" from CDS-Net and contains AU destination ports.'); return; }
-      const meta = { receivedAt: new Date().toISOString(), rows: lines.length, filename: file.name };
-      const res = await fetch('/api/recon/shipment-upload', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ lines, ...meta }),
-      });
-      if (!res.ok) throw new Error(await res.text());
-      setShipLines(lines);
-      setShipMeta(meta);
-    } catch (e: any) {
-      alert('Shipment upload failed: ' + e.message);
-    } finally {
-      setUploadingShip(false);
-    }
-  }, []);
-
   // Container store → ShipLine[] so the existing reconcile() picks up live ETA/vessel/status.
   // A CDS line for the same PO + item + container is superseded by the store version (which carries ShipsGo data).
   const ctIdx = useMemo(() => indexContainers(ctContainers), [ctContainers]);
@@ -810,7 +698,7 @@ export default function ReconciliationPage() {
     const w: string[] = [];
     if (ageH(arrowMeta.generatedAt) > 24) w.push(`Arrow POs last synced ${arrowMeta.generatedAt ? new Date(arrowMeta.generatedAt).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' }) : 'never'} — check arrow-recon.js is scheduled on AZ-Grey`);
     if (ageH(as400Meta.uploadedAt) > 72) w.push(`AS400 data uploaded ${as400Meta.uploadedAt ? new Date(as400Meta.uploadedAt).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' }) : 'never'} — upload a fresh export below`);
-    if (ageH(shipMeta.receivedAt) > 72) w.push(`CDS-Net shipment file uploaded ${shipMeta.receivedAt ? new Date(shipMeta.receivedAt).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' }) : 'never'} — upload today's file below`);
+    if (ageH(ctInfo.meta?.lastCenturyAt ?? null) > 30) w.push(`Century container CSV last loaded ${ctInfo.meta?.lastCenturyAt ? new Date(ctInfo.meta.lastCenturyAt).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' }) : 'never'} — export today's "all containers shipped to AU/NZ" CSV from the Century dashboard and drop it below`);
     if (ctInfo.shipsgoConfigured && ageH(ctInfo.refresh?.at ?? null) > 8) w.push(`ShipsGo tracking last refreshed ${ctInfo.refresh?.at ? new Date(ctInfo.refresh.at).toLocaleString('en-AU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'never'} — check the /api/containers/refresh cron, or press Refresh tracking`);
     return w;
   }, [arrowMeta, as400Meta, shipMeta, ctInfo]);
@@ -852,7 +740,6 @@ export default function ReconciliationPage() {
           <div className="mt-1 flex gap-3 text-xs text-slate-400">
             {arrowMeta.generatedAt && <span>{arrowMeta.rows} Arrow · {fmtMeta(arrowMeta.generatedAt)}</span>}
             {as400Meta.rows > 0    && <span>· {as400Meta.rows} AS400</span>}
-            {shipMeta.rows > 0     && <span>· {shipMeta.rows} shipment lines</span>}
             {ctContainers.length > 0 && <span>· {ctContainers.length} containers tracked{ctInfo.refresh?.at ? ` · ShipsGo ${fmtMeta(ctInfo.refresh.at)}` : ''}</span>}
           </div>
         </div>
@@ -1219,12 +1106,12 @@ export default function ReconciliationPage() {
       </p>
 
       {/* ── Upload banners — bottom of page ── */}
-      <div className="grid gap-3 lg:grid-cols-3 pt-4 border-t border-slate-100">
+      <div className="grid gap-3 lg:grid-cols-2 pt-4 border-t border-slate-100">
         <UploadBanner
           label="Container documents"
           sublabel="Century CSV · US invoice · Wuxi packing slip · CDS xlsx · .msg"
           hint="Drop the Century/VIZIV dashboard CSV (all containers shipped to AU/NZ), the PDFs from sbateman@hayward.com (Inv#: … PO: …) and robot@hayward.com (Hayward Shipment for PO: …), the CDS-Net xlsx, or whole emails saved as .msg from Dimi's mailbox. Container numbers are read from the documents, matched to the PO lines, and tracked on ShipsGo. The AU Containers mailbox flow does this automatically once it's live."
-          meta={ctInfo.meta?.lastIngestAt ? `last: ${fmtMeta(ctInfo.meta.lastIngestAt)} · ${ctInfo.meta.lastSubject ?? ''}`.slice(0, 90) : (ctContainers.length ? `${ctContainers.length} open containers` : 'nothing ingested yet')}
+          meta={ctInfo.meta?.lastCenturyAt ? `Century ${fmtMeta(ctInfo.meta.lastCenturyAt)} · ${ctContainers.length} open containers` : ctInfo.meta?.lastIngestAt ? `last: ${fmtMeta(ctInfo.meta.lastIngestAt)} · ${ctInfo.meta.lastSubject ?? ''}`.slice(0, 90) : 'nothing ingested yet'}
           uploading={uploadingDocs}
           accept=".pdf,.msg,.xlsx,.xls,.csv"
           multiple
@@ -1239,15 +1126,6 @@ export default function ReconciliationPage() {
           uploading={uploadingA4}
           accept=".csv,.xlsx,.xls"
           onFile={handleAs400File}
-        />
-        <UploadBanner
-          label="CDS-Net shipment file"
-          sublabel="Shipment Activity by Container · NoReply@cds-net.com"
-          hint='Save the "Shipment Activity by Container" Excel attachment from your daily CDS-Net email and drop it here. AU/NZ rows are filtered automatically by destination port.'
-          meta={shipMeta.rows > 0 ? `${shipMeta.rows.toLocaleString()} AU/NZ lines · ${fmtMeta(shipMeta.receivedAt) ?? ''} · ${shipMeta.filename ?? ''}` : 'not uploaded'}
-          uploading={uploadingShip}
-          accept=".xlsx,.xls"
-          onFile={handleShipFile}
         />
       </div>
     </div>
