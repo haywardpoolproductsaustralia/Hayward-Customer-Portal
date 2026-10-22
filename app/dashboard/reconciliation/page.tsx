@@ -108,7 +108,8 @@ type ReconRow = ArrowLine & {
   qtyMismatch: boolean;
   matchType: 'exact' | 'alias' | null;   // alias = matched on PO + qty because SKU codes differ
   as400Item: string | null;              // the supplier's own item code from AS400
-  shipped: boolean;                      // supplier has shipped (SHPD > 0 or ship date reached)
+  shipped: boolean;                      // supplier has shipped (SHPD > 0) or a container carries the line
+  shipDateOverdue: boolean;              // AS400 ship date has passed but nothing shipped yet
   bestEta: string | null;                // container ETA, else AS400 ETA
 };
 
@@ -378,7 +379,10 @@ function reconcile(arrow: ArrowLine[], as400: As400Line[], ship: ShipLine[]): Re
     // Units confirmed in containers for this line (invoice / packing slip / Century / CDS), across all its boxes.
     // When we have that, it beats AS400's SHPD — the invoice lands days before AS400 flips the line to shipped.
     const ctUnits = ships.reduce((sum, x) => sum + (x.units ?? 0), 0);
-    const shipped = ctUnits > 0 || (!!a4 && (as400Shpd > 0 || (!!a4.shipDate && a4.shipDate <= today)));
+    // Shipped = the supplier says units left (SHPD > 0) or a container document carries the line.
+    // AS400's SHIP_DATE is a schedule, not a fact — a passed date alone does NOT make a line shipped.
+    const shipped = ctUnits > 0 || (!!a4 && as400Shpd > 0);
+    const shipDateOverdue = !shipped && !!a4?.shipDate && a4.shipDate < today && a.qtyOutstanding > 0;
     const onWater = !shipped ? 0
       : ctUnits > 0 ? Math.max(0, Math.max(ctUnits, as400Shpd) - a.qtyReceived)
       : as400Shpd > 0 ? Math.max(0, as400Shpd - a.qtyReceived)
@@ -419,6 +423,7 @@ function reconcile(arrow: ArrowLine[], as400: As400Line[], ship: ShipLine[]): Re
       matchType: m?.type ?? null,
       as400Item: a4?.item ?? null,
       shipped,
+      shipDateOverdue,
       bestEta,
     };
   });
@@ -1075,7 +1080,10 @@ export default function ReconciliationPage() {
                             : <span className="font-semibold text-[#78350f]">{r.as400Ord}</span>}
                       </td>
                       <td className="bg-[#fffbeb] px-2 py-1.5 text-right text-[#92400e]">{r.as400Shpd || '—'}</td>
-                      <td className="bg-[#fffbeb] px-2 py-1.5 whitespace-nowrap text-slate-600">{fmt(r.shipDate)}</td>
+                      <td className="bg-[#fffbeb] px-2 py-1.5 whitespace-nowrap text-slate-600">
+                        {fmt(r.shipDate)}
+                        {r.shipDateOverdue && <span className="ml-1 text-amber-600" title="AS400 ship date has passed but nothing has shipped (SHPD 0, no container)">⏱</span>}
+                      </td>
                       <td className="bg-[#fffbeb] px-2 py-1.5 whitespace-nowrap text-slate-600">{fmt(r.as400Eta)}</td>
                       <td className="bg-[#fffbeb] px-2 py-1.5 font-mono text-[11px] text-slate-500 border-r-2 border-[#fde68a]"><span title={r.usSoNumber ?? ''}>{r.usSoNumber ?? '—'}</span></td>
                       <td className="bg-violet-50 px-2 py-2 text-center">
