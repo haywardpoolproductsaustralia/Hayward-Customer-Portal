@@ -674,7 +674,9 @@ export default function ReconciliationPage() {
   // confirmed box, suggest CHR containers whose pickup/departure is within a week of the AS400 ship date.
   const usUnassigned = useMemo(() => ctContainers.filter((c) => !c.pos.length && c.chr?.usOrigin), [ctContainers]);
   const probableFor = useCallback((r: ReconRow): Array<{ c: CtContainer; why: string }> => {
-    if (!r.shipDate || !usUnassigned.length || !/^171(00|15|25)$/.test(r.creditor ?? '')) return [];
+    // Only for lines with shipped-but-unreceived quantity: if everything shipped has already been received,
+    // no box can be carrying this line's balance.
+    if (!r.shipDate || r.onWater <= 0 || !usUnassigned.length || !/^171(00|15|25)$/.test(r.creditor ?? '')) return [];
     const ship = new Date(r.shipDate).getTime();
     return usUnassigned.flatMap((c) => {
       const d = c.chr?.pickedUpAt ?? c.chr?.atd ?? c.chr?.etd;
