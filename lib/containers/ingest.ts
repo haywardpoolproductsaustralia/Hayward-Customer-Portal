@@ -6,7 +6,7 @@
 // line index the page already reads, and (optionally) registers new boxes with ShipsGo.
 
 import { parseShipmentWorkbook } from "@/lib/recon/shipmentIngest";
-import { redis } from "@/lib/redis";
+import { getJSON, redis } from "@/lib/redis";
 import { parseCdsContainers } from "./parse-cds";
 import { isCenturyCsv, parseCenturyCsv } from "./parse-century";
 import { looksLikePackingSlip, looksLikeUsInvoice, parseSupplierPdf } from "./parse-supplier-docs";
@@ -87,8 +87,13 @@ export async function ingestEmail(m: InboundEmail, opts: { register?: boolean; d
   const { newContainers, touched } = await applyParseResult(merged);
   const registration = opts.register && touched.length ? await registerNew(touched, opts.dryRun) : null;
 
+  const prevMeta = (await getJSON<any>(K.meta)) ?? {};
+  const sourcesSeen = new Set(merged.lines.map((l) => l.source));
   await redis.set(K.meta, JSON.stringify({
+    ...prevMeta,
     lastIngestAt: new Date().toISOString(), lastSubject: m.subject, lastFrom: m.from,
+    ...(sourcesSeen.has("century") ? { lastCenturyAt: observedAt } : {}),
+    ...(cdsLines != null ? { lastCdsAt: observedAt } : {}),
     parsed: { lines: merged.lines.length, containers: merged.containers.length, cdsLines }, newContainers: newContainers.length, warnings: merged.warnings,
   }));
   return { parsed: { lines: merged.lines.length, containers: merged.containers.length, cdsLines }, newContainers, touched, warnings: merged.warnings, registration, skippedAttachments: skipped };
