@@ -420,7 +420,7 @@ function reconcile(arrow: ArrowLine[], as400: As400Line[], ship: ShipLine[]): Re
 // ---------------------------------------------------------------------------
 
 function UploadBanner({
-  label, sublabel, hint, meta, uploading, accept, onFile, multiple, onFiles, note,
+  label, sublabel, hint, meta, uploading, accept, onFile, multiple, onFiles, note, collapseHint,
 }: {
   label: string;
   sublabel: string;
