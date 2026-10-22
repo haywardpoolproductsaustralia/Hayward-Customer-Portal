@@ -555,12 +555,28 @@ export default function ReconciliationPage() {
   const handleDocFiles = useCallback(async (files: File[]) => {
     setUploadingDocs(true);
     try {
-      const fd = new FormData();
-      for (const f of files) fd.append('files', f);
-      const res = await fetch('/api/containers/upload', { method: 'POST', body: fd });
-      const j = await res.json();
-      if (!res.ok) throw new Error(j.error ?? res.statusText);
-      const lines = (j.results as any[]).map((r) => {
+      // Vercel caps a request body at 4.5 MB, so send the files in batches (invoice PDFs are ~320 KB each).
+      const MAX_BYTES = 3_500_000, MAX_FILES = 8;
+      const batches: File[][] = [];
+      let cur: File[] = [], size = 0;
+      for (const f of files) {
+        if (cur.length && (size + f.size > MAX_BYTES || cur.length >= MAX_FILES)) { batches.push(cur); cur = []; size = 0; }
+        cur.push(f); size += f.size;
+      }
+      if (cur.length) batches.push(cur);
+      const results: any[] = [];
+      for (let i = 0; i < batches.length; i++) {
+        setDocsNote(`Uploading batch ${i + 1} of ${batches.length} (${batches[i].length} file${batches[i].length === 1 ? '' : 's'})…`);
+        const fd = new FormData();
+        for (const f of batches[i]) fd.append('files', f);
+        const res = await fetch('/api/containers/upload', { method: 'POST', body: fd });
+        const text = await res.text();
+        let j: any;
+        try { j = JSON.parse(text); } catch { throw new Error(`${res.status} ${text.slice(0, 120)}`); }
+        if (!res.ok) throw new Error(j.error ?? res.statusText);
+        results.push(...(j.results as any[]));
+      }
+      const lines = results.map((r) => {
         if (r.error) return `✗ ${r.file}: ${r.error}`;
         if (r.skipped) return `– ${r.file}: ${r.skipped}`;
         const reg = r.registration?.results?.length ? ` · ShipsGo: ${r.registration.results.filter((x: any) => x.ok).length}/${r.registration.results.length} registered` : '';
