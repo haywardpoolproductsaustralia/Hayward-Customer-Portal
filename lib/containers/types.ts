@@ -94,6 +94,7 @@ export interface LiveStatus {
   transitPercentage?: number;
   movements: Movement[];
   checkedAt?: string;         // ShipsGo's own last-check time
+  discardedAt?: string;       // ShipsGo stops tracking (and sets this) once a box is discharged — final state, no more updates
   sourceUpdatedAt?: string;   // ShipsGo updated_at — unchanged means we can skip the detail call
   updatedAt: string;          // when we last pulled it
 }

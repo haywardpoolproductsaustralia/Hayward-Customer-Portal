@@ -9,7 +9,6 @@ import { getCustomerAccess } from "@/lib/access";
 import { redis } from "@/lib/redis";
 import { getIndex, K } from "@/lib/containers/store";
 import { registerNew, syncFromShipsgo } from "@/lib/containers/tracking";
-import { probeList } from "@/lib/containers/shipsgo";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -22,7 +21,6 @@ function cronAuthorized(req: NextRequest) {
 }
 
 async function run(req: NextRequest) {
-  if (req.nextUrl.searchParams.get("probe") === "1") return NextResponse.json(await probeList());
   const force = req.nextUrl.searchParams.get("force") === "1";
   const register = req.nextUrl.searchParams.get("register") === "1";
   const dry = req.nextUrl.searchParams.get("dry") === "1";
