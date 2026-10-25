@@ -166,7 +166,7 @@ function SortableHeader({
     <button
       onClick={(e) => onSort(column, e.shiftKey)}
       className={`flex items-center gap-1 transition-colors whitespace-nowrap ${
-        isActive ? 'text-ink font-semibold' : 'text-ink/45 hover:text-ink/60'
+        isActive ? 'text-white' : 'text-white/70 hover:text-white'
       }`}
       title={isActive ? `Sorting by this column (${direction === 'asc' ? 'ascending' : 'descending'}). Shift+click to add/remove secondary sorts.` : 'Click to sort. Shift+click to add secondary sorts.'}
     >
@@ -175,11 +175,11 @@ function SortableHeader({
         {isActive && (
           <>
             {direction === 'asc' 
-              ? <ChevronUp className="h-3.5 w-3.5 text-wave" />
-              : <ChevronDown className="h-3.5 w-3.5 text-wave" />
+              ? <ChevronUp className="h-3.5 w-3.5 text-sky-300" />
+              : <ChevronDown className="h-3.5 w-3.5 text-sky-300" />
             }
             {sortRules.length > 1 && (
-              <span className="text-[10px] font-bold text-wave bg-wave/10 rounded px-1">{priority}</span>
+              <span className="text-[10px] font-bold text-white bg-white/20 rounded px-1">{priority}</span>
             )}
           </>
         )}
@@ -202,8 +202,6 @@ export default function OrdersPage() {
   const [skuSearch, setSkuSearch] = useState('');
   const [branchFilter, setBranchFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
 
   const [sortRules, setSortRules] = useState<SortRule[]>([
     { column: 'orderDate', direction: 'desc' },
@@ -347,23 +345,13 @@ export default function OrdersPage() {
     const orderNoTrim = orderNoSearch.trim();
     const customerOrderNoTrim = customerOrderNoSearch.trim().toUpperCase();
     const skuTrim = skuSearch.trim().toUpperCase();
-    const fromTime = dateFrom ? new Date(dateFrom).getTime() : null;
-    const toTime = dateTo ? new Date(dateTo).getTime() : null;
 
     let result = orders
       .filter((o) => !orderNoTrim || o.orderNo.includes(orderNoTrim))
       .filter((o) => !customerOrderNoTrim || (o.customerOrderNo ?? '').toUpperCase().includes(customerOrderNoTrim))
       .filter((o) => !skuTrim || o.sku.toUpperCase().includes(skuTrim))
       .filter((o) => branchFilter === 'all' || o.customerCode === branchFilter)
-      .filter((o) => statusFilter === 'all' || o.statusFlag === statusFilter)
-      .filter((o) => {
-        if (!fromTime && !toTime) return true;
-        const t = new Date(o.orderDate).getTime();
-        if (Number.isNaN(t)) return false;
-        if (fromTime && t < fromTime) return false;
-        if (toTime && t > toTime) return false;
-        return true;
-      });
+      .filter((o) => statusFilter === 'all' || o.statusFlag === statusFilter);
 
     // Apply multi-column sorting
     if (sortRules.length > 0) {
@@ -400,7 +388,7 @@ export default function OrdersPage() {
     }
 
     return result;
-  }, [orders, orderNoSearch, customerOrderNoSearch, skuSearch, branchFilter, statusFilter, dateFrom, dateTo, sortRules, stockBySku]);
+  }, [orders, orderNoSearch, customerOrderNoSearch, skuSearch, branchFilter, statusFilter, sortRules, stockBySku]);
 
   function clearFilters() {
     setOrderNoSearch('');
@@ -408,8 +396,6 @@ export default function OrdersPage() {
     setSkuSearch('');
     setBranchFilter('all');
     setStatusFilter('all');
-    setDateFrom('');
-    setDateTo('');
   }
 
   function handleSort(col: SortColumn, shiftKey: boolean) {
@@ -543,32 +529,9 @@ export default function OrdersPage() {
           />
         )}
 
-        {/* Status + date range share one row; dates are kept narrow so Status fits inline. */}
-        <div className="sm:col-span-2 lg:col-span-2">
-          <div className="flex items-end gap-3 flex-wrap">
-            <div className="flex-1 min-w-[150px]">
-              <label className="block text-xs font-medium text-ink/40 mb-1">Status</label>
-              <StatusFilter value={statusFilter} onChange={setStatusFilter} options={statusOptions} />
-            </div>
-            <div className="w-36 shrink-0">
-              <label className="block text-xs font-medium text-ink/40 mb-1">Order date from</label>
-              <input
-                type="date"
-                value={dateFrom}
-                onChange={(e) => setDateFrom(e.target.value)}
-                className="w-full rounded-lg border border-ink/10 px-3 py-2 text-sm focus:border-wave outline-none"
-              />
-            </div>
-            <div className="w-36 shrink-0">
-              <label className="block text-xs font-medium text-ink/40 mb-1">Order date to</label>
-              <input
-                type="date"
-                value={dateTo}
-                onChange={(e) => setDateTo(e.target.value)}
-                className="w-full rounded-lg border border-ink/10 px-3 py-2 text-sm focus:border-wave outline-none"
-              />
-            </div>
-          </div>
+        <div className={isHeadOffice ? 'sm:col-span-2 lg:col-span-2' : ''}>
+          <label className="block text-xs font-medium text-ink/40 mb-1">Status</label>
+          <StatusFilter value={statusFilter} onChange={setStatusFilter} options={statusOptions} />
         </div>
 
         <div className="sm:col-span-2 lg:col-span-3 flex items-center justify-between pt-1">
@@ -596,7 +559,7 @@ export default function OrdersPage() {
           <div className="overflow-x-auto">
             <table className="w-full min-w-[1200px] table-fixed text-sm border-collapse">
               <thead>
-                <tr className="sticky top-0 z-10 bg-foam/90 backdrop-blur text-left text-[10px] uppercase tracking-tight text-ink/45 divide-x divide-ink/10 [&>th]:px-2 [&>th]:py-2.5 [&>th]:font-semibold [&>th]:break-words border-b border-ink/10">
+                <tr className="sticky top-0 z-10 bg-deep text-left text-[11px] uppercase tracking-[0.08em] text-white/70 divide-x divide-white/10 [&>th]:px-3 [&>th]:py-3 [&>th]:font-semibold [&>th]:break-words shadow-[0_1px_0_0_rgba(7,89,133,0.25)]">
                   <th className="w-[7%]">
                     <SortableHeader
                       label="Order #"
