@@ -743,8 +743,9 @@ export default function ReconciliationPage() {
   const containerText = useCallback((x: ReconRow): string => {
     const line = ctIdx.byLine.get(ctLineKey(x.po, x.supplierSku)) ?? (x.as400Item ? ctIdx.byLine.get(ctLineKey(x.po, x.as400Item)) : undefined) ?? [];
     const po = ctIdx.byPo.get(x.po) ?? [];
-    const prob = !line.length && !po.length ? probableFor(x).map((p) => p.c) : [];
-    return [...line, ...po, ...prob].map((c) => `${c.containerNo} ${c.mbl ?? ''} ${c.live?.reference ?? ''}`).join(' ').toLowerCase();
+    const so = !line.length && x.usSoNumber ? ctIdx.bySo.get(x.usSoNumber.replace(/^0+/, '')) ?? [] : [];
+    const prob = !line.length && !po.length && !so.length ? probableFor(x).map((p) => p.c) : [];
+    return [...line, ...so, ...po, ...prob].map((c) => `${c.containerNo} ${c.mbl ?? ''} ${c.live?.reference ?? ''}`).join(' ').toLowerCase();
   }, [ctIdx, probableFor]);
 
   const filtered = useMemo(() => {
@@ -1087,17 +1088,22 @@ export default function ReconciliationPage() {
                   const lineCts = ctIdx.byLine.get(ctLineKey(r.po, r.supplierSku))
                     ?? (r.as400Item ? ctIdx.byLine.get(ctLineKey(r.po, r.as400Item)) : undefined) ?? [];
                   const poCts = ctIdx.byPo.get(r.po) ?? [];
+                  // US lane: Dimi registers boxes on ShipsGo with the Hayward US sales-order numbers in the reference
+                  // ("Hayward PO: 600509068, 070, 071"). AS400 gives each line its US SO#, so that is an exact link.
+                  const soCts = !lineCts.length && r.usSoNumber ? ctIdx.bySo.get(r.usSoNumber.replace(/^0+/, '')) ?? [] : [];
+                  const matched = soCts.map((c) => ({ c, why: `US SO ${r.usSoNumber} named in the ShipsGo reference` }));
                   // A box whose only knowledge is "this PO" (CHR/ShipsGo booking ref, no item detail from any
                   // document) is offered to every shipped line of the PO as a probable match.
                   const poLevelOnly = !lineCts.length && r.onWater > 0
                     ? poCts.filter((c) => !c.lines.length).map((c) => ({ c, why: `${c.sources.includes('chr') ? 'CHR' : 'ShipsGo'} booking names PO ${r.po} but carries no item detail` }))
                     : [];
-                  const probable = !lineCts.length ? [...poLevelOnly, ...(!poCts.length ? probableFor(r) : [])] : [];
-                  const hasTracking = lineCts.length > 0 || poCts.length > 0 || probable.length > 0;
+                  const probable = !lineCts.length && !soCts.length ? [...poLevelOnly, ...(!poCts.length ? probableFor(r) : [])] : [];
+                  const hasTracking = lineCts.length > 0 || soCts.length > 0 || poCts.length > 0 || probable.length > 0;
                   // Chip follows the same container the Vessel / Cont ETA columns show: the latest-ETA box
                   // (reconcile() picks that one), so a split shipment reads "Empty to shipper · EVER SMART · 21 Nov", not a mix.
-                  const chipCt = lineCts.length
-                    ? [...lineCts].sort((a, b) => (bestEta(b) ?? '').localeCompare(bestEta(a) ?? ''))[0]
+                  const shownCts = lineCts.length ? lineCts : soCts;
+                  const chipCt = shownCts.length
+                    ? [...shownCts].sort((a, b) => (bestEta(b) ?? '').localeCompare(bestEta(a) ?? ''))[0]
                     : undefined;
                   const rowKey = `${r.po}|${r.arrowStock}|${i}`;
                   const isOpen = expanded.has(rowKey);
@@ -1174,14 +1180,15 @@ export default function ReconciliationPage() {
                         {hasTracking ? (
                           <button
                             onClick={(e) => { e.stopPropagation(); toggleRow(rowKey); }}
-                            title={isOpen ? 'Hide tracking' : lineCts.length
-                              ? `Show tracking (${lineCts.length} container${lineCts.length === 1 ? '' : 's'} carrying this line)`
+                            title={isOpen ? 'Hide tracking' : shownCts.length
+                              ? `Show tracking (${shownCts.length} container${shownCts.length === 1 ? '' : 's'} carrying this line${soCts.length ? ` — matched by US SO ${r.usSoNumber}` : ''})`
                               : `${poCts.length} container${poCts.length === 1 ? '' : 's'} on PO ${r.po} carry other lines — this line isn't confirmed in any yet`}
                             className="flex w-full items-center gap-1 text-left hover:text-violet-950"
                           >
                             <span className="text-[10px] text-violet-400">{isOpen ? '▾' : '▸'}</span>
                             <span className="truncate font-mono text-[11px]" title={r.container ?? ''}>
-                              {lineCts.length > 1 && chipCt ? `${chipCt.containerNo} +${lineCts.length - 1}`
+                              {shownCts.length > 1 && chipCt ? `${chipCt.containerNo} +${shownCts.length - 1}`
+                                : soCts.length ? soCts[0].containerNo
                                 : r.container ?? (probable.length ? `≈ ${probable[0].c.containerNo}${probable.length > 1 ? ` +${probable.length - 1}` : ''}`
                                 : poCts.length ? `${poCts.length} box${poCts.length === 1 ? '' : 'es'} · other lines` : '—')}
                             </span>
@@ -1192,10 +1199,10 @@ export default function ReconciliationPage() {
                         )}
                       </td>
                       <td className="bg-violet-50 px-2 py-1.5 whitespace-nowrap text-slate-700">
-                        <span title={r.vessel ?? bestVessel(probable[0]?.c ?? ({} as CtContainer)) ?? ''}>{r.vessel ?? (probable[0] ? bestVessel(probable[0].c) : null) ?? '—'}</span>
+                        <span title={r.vessel ?? bestVessel((chipCt ?? probable[0]?.c) ?? ({} as CtContainer)) ?? ''}>{r.vessel ?? ((chipCt ?? probable[0]?.c) ? bestVessel((chipCt ?? probable[0]?.c)!) : null) ?? '—'}</span>
                       </td>
                       <td className="bg-violet-50 px-2 py-1.5 whitespace-nowrap text-slate-600">
-                        {fmt(r.containerEta ?? (probable[0] ? bestEta(probable[0].c) : null))}
+                        {fmt(r.containerEta ?? ((chipCt ?? probable[0]?.c) ? bestEta((chipCt ?? probable[0]?.c)!) : null))}
                         {chipCt?.live?.previousEta && chipCt.live.eta && chipCt.live.previousEta < chipCt.live.eta && (
                           <span className="ml-1 text-rose-600" title={`ETA slipped — was ${fmt(chipCt.live.previousEta)}`}>▲</span>
                         )}
@@ -1207,7 +1214,7 @@ export default function ReconciliationPage() {
                     {isOpen && (
                       <tr className="bg-violet-50/40">
                         <td colSpan={colCount} className="p-0" style={{ whiteSpace: 'normal' }}>
-                          <TrackingPanel po={r.po} item={r.as400Item ?? r.supplierSku} lineContainers={lineCts} poContainers={poCts} probable={probable} />
+                          <TrackingPanel po={r.po} item={r.as400Item ?? r.supplierSku} lineContainers={lineCts} poContainers={poCts} probable={probable} matched={matched} />
                         </td>
                       </tr>
                     )}

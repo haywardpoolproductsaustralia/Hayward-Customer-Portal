@@ -85,10 +85,29 @@ export function deliveredOf(c: CtContainer): string | null {
 }
 
 /** Index containers by PO line and by PO (for ShipsGo-only boxes whose items we don't know). */
+/** "600509068, 070, 071, 072" → ["600509068","600509070","600509071","600509072"] — the shorthand Dimi uses in
+ *  ShipsGo references and the schedule; a short token replaces the tail of the last full number. */
+export function expandNumberList(text: string | null | undefined): string[] {
+  const out: string[] = [];
+  let base = '';
+  for (const tok of String(text ?? '').match(/\d+/g) ?? []) {
+    if (tok.length >= 7) { base = tok; out.push(tok); }
+    else if (base && tok.length < base.length) out.push(base.slice(0, base.length - tok.length) + tok);
+  }
+  return [...new Set(out)];
+}
+
+/** Hayward US sales-order numbers (6005xxxxx) named in a box's ShipsGo / CHR reference — the AS400 "US SO#" column. */
+export function usSoNumbersOf(c: CtContainer): string[] {
+  return expandNumberList(`${c.live?.reference ?? ''} ${c.chr?.reference ?? ''}`).filter((n) => /^6\d{8}$/.test(n));
+}
+
 export function indexContainers(cs: CtContainer[]) {
   const byLine = new Map<string, CtContainer[]>();
   const byPo = new Map<string, CtContainer[]>();
+  const bySo = new Map<string, CtContainer[]>();
   for (const c of cs) {
+    for (const so of usSoNumbersOf(c)) (bySo.get(so) ?? bySo.set(so, []).get(so)!).push(c);
     const seenLine = new Set<string>();
     for (const l of c.lines) {
       const k = lineKey(l.po, l.item ?? (l as any).supplierItem);
@@ -98,7 +117,7 @@ export function indexContainers(cs: CtContainer[]) {
     }
     for (const po of c.pos) (byPo.get(po) ?? byPo.set(po, []).get(po)!).push(c);
   }
-  return { byLine, byPo };
+  return { byLine, byPo, bySo };
 }
 
 /** Qty of this PO line inside the container — CDS count wins over the supplier PDF (CDS is the forwarder's load list). */
@@ -138,7 +157,7 @@ function EtaCell({ c }: { c: CtContainer }) {
   );
 }
 
-function ContainerCard({ c, po, item, poOnly, probable }: { c: CtContainer; po: string; item: string; poOnly?: boolean; probable?: string }) {
+function ContainerCard({ c, po, item, poOnly, probable, matched }: { c: CtContainer; po: string; item: string; poOnly?: boolean; probable?: string; matched?: string }) {
   const qty = qtyInContainer(c, po, item);
   const shown = c.live?.movements ?? []; // every milestone, always — no manual expand
   const otherPos = c.pos.filter((p) => p !== po);
@@ -150,6 +169,7 @@ function ContainerCard({ c, po, item, poOnly, probable }: { c: CtContainer; po: 
         <StatusChip c={c} />
         {qty != null
           ? <span className="rounded bg-slate-100 px-1.5 py-0.5 font-semibold text-slate-700">× {qty} of this line</span>
+          : matched ? <span className="rounded bg-sky-50 px-1.5 py-0.5 text-sky-800" title={matched}>{matched}</span>
           : probable ? <span className="rounded bg-amber-50 px-1.5 py-0.5 text-amber-800" title={probable}>Probable match — {probable}</span>
           : poOnly && <span className="rounded bg-amber-50 px-1.5 py-0.5 text-amber-800" title="The booking names this PO but no document has confirmed which items are inside">PO-level — items not confirmed</span>}
         {c.live?.transitPercentage != null && !ctStatus(c).closed && (
@@ -222,13 +242,15 @@ function ContainerCard({ c, po, item, poOnly, probable }: { c: CtContainer; po: 
 }
 
 /** The expandable panel rendered under a Purchasing row: PO · SKU → the container(s) it is in. */
-export function TrackingPanel({ po, item, lineContainers, poContainers, probable = [] }: {
+export function TrackingPanel({ po, item, lineContainers, poContainers, probable = [], matched = [] }: {
   po: string; item: string; lineContainers: CtContainer[]; poContainers: CtContainer[];
   probable?: Array<{ c: CtContainer; why: string }>;
+  /** boxes whose ShipsGo/CHR reference names this line's US sales order — confirmed by SO, item qty unknown */
+  matched?: Array<{ c: CtContainer; why: string }>;
 }) {
-  const lineNos = new Set(lineContainers.map((c) => c.containerNo));
+  const lineNos = new Set([...lineContainers, ...matched.map((m) => m.c)].map((c) => c.containerNo));
   const extra = poContainers.filter((c) => !lineNos.has(c.containerNo));
-  if (!lineContainers.length && !extra.length && !probable.length) {
+  if (!lineContainers.length && !extra.length && !probable.length && !matched.length) {
     return <div className="px-3 py-2 text-xs text-slate-500">PO {po} · <span className="font-mono">{item}</span> — no container document or ShipsGo shipment mentions this PO yet.</div>;
   }
   const inBoxes = lineContainers.reduce((n, c) => n + (qtyInContainer(c, po, item) ?? 0), 0);
@@ -239,11 +261,14 @@ export function TrackingPanel({ po, item, lineContainers, poContainers, probable
         {head}{' '}
         {lineContainers.length
           ? <>→ <b>{inBoxes}</b> in <span className="font-mono font-semibold">{lineContainers.map((c) => c.containerNo).join(', ')}</span></>
+          : matched.length
+            ? <>→ in <span className="font-mono font-semibold">{matched.map((m) => m.c.containerNo).join(', ')}</span> ({matched[0].why})</>
           : probable.length
             ? <>→ probably in <span className="font-mono font-semibold">{probable.map((p) => p.c.containerNo).join(', ')}</span> (matched by ship date — see note on the card)</>
             : <>→ <b>not in any container yet</b>. PO {po}'s {extra.length} box{extra.length === 1 ? '' : 'es'} ({extra.map((c) => c.containerNo).join(', ')}) carr{extra.length === 1 ? 'ies' : 'y'} other lines of the PO.</>}
       </div>
       {lineContainers.map((c) => <ContainerCard key={c.containerNo} c={c} po={po} item={item} />)}
+      {matched.map(({ c, why }) => <ContainerCard key={`m-${c.containerNo}`} c={c} po={po} item={item} matched={why} />)}
       {probable.map(({ c, why }) => <ContainerCard key={`p-${c.containerNo}`} c={c} po={po} item={item} probable={why} />)}
     </div>
   );
