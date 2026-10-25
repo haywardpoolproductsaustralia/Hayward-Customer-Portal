@@ -754,7 +754,8 @@ export default function ReconciliationPage() {
         (x.as400Item ?? '').toLowerCase().includes(q) ||
         (x.container ?? '').toLowerCase().includes(q) ||
         (x.vessel ?? '').toLowerCase().includes(q) ||
-        containerText(x).includes(q.replace(/\s/g, '')) ||
+        // A 6-digit PO search must not match other POs via a ShipsGo reference like "Hayward AU PO 918494, 918214"
+        (!/^\d{6}$/.test(q) && containerText(x).includes(q.replace(/\s/g, ''))) ||
         (x.shipToName ?? '').toLowerCase().includes(q) ||
         (x.shipToCity ?? '').toLowerCase().includes(q),
       );
