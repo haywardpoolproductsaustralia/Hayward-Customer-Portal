@@ -25,6 +25,7 @@ const colWidths = (supplierOpen: boolean) => [...COL_ORDER, ...COL_ARROW, ...(su
 const COL_W = colWidths(true);
 const TABLE_W = COL_W.reduce((a, b) => a + b, 0);
 const MIN_ZOOM = 0.55;
+const MAX_ZOOM = 1.6; // fit-to-screen scales UP too — hiding a column group makes the rest bigger, not narrower
 // Full-width PO reconciliation: Arrow AU vs AS400 (Snowflake upload) vs CDS-Net shipments.
 // AS400 data is uploaded in the browser; shipment/container data comes from the container store
 // (Century CSV, ShipsGo, supplier PDFs — and the CDS xlsx if one ever arrives via the mailbox).
@@ -537,7 +538,7 @@ export default function ReconciliationPage() {
     ro.observe(el);
     return () => ro.disconnect();
   }, [loading]); // wrapper only exists once data has loaded
-  const tableZoom = fitToScreen ? Math.max(MIN_ZOOM, Math.min(1, (availWidth - 2) / tableW)) : 1;
+  const tableZoom = fitToScreen ? Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, (availWidth - 2) / tableW)) : 1;
 
   useEffect(() => {
     Promise.all([
@@ -909,7 +910,7 @@ export default function ReconciliationPage() {
               className="flex items-center gap-2 rounded-xl border border-ink/10 bg-white px-4 py-2 text-sm font-medium shadow-soft hover:border-wave/30 transition-colors"
             >
               {fitToScreen ? '⤢ Actual size' : '⤡ Fit to screen'}
-              {fitToScreen && tableZoom < 1 && <span className="text-xs text-slate-400">{Math.round(tableZoom * 100)}%</span>}
+              {fitToScreen && Math.round(tableZoom * 100) !== 100 && <span className="text-xs text-slate-400">{Math.round(tableZoom * 100)}%</span>}
             </button>
             <button
               onClick={() => {
