@@ -8,7 +8,22 @@
 //   us-invoice        sbateman@hayward.com "Inv#: 00134xxxxx  PO: 9xxxxx" → MFX-000x_INVOICE_FT.PDF
 // The two PDFs are the ONLY early signal for US-origin containers, which CDS stopped carrying in Feb 2026.
 
-export type ContainerSource = "shipsgo" | "century" | "chr" | "cds" | "wuxi-packing-slip" | "us-invoice" | "schedule";
+export type ContainerSource = "shipsgo" | "century" | "chr" | "cds" | "wuxi-packing-slip" | "us-invoice" | "schedule" | "forecast";
+
+/** A row of purchasing's "Wuxi Shipment Forecast" workbook — the hand-kept list of customer-direct containers. */
+export interface ForecastInfo {
+  customer: string;            // as keyed ("Pool Pro", "Austral")
+  customerPo?: string;         // customer's PO number
+  so?: string;                 // Arrow sales order ("Hayward Packing Slip" column)
+  dsm?: string;                // sales rep initials
+  origin?: string;             // WUXI / US / Melbourne
+  shippingInfo?: string;       // free text when not a container number ("not shipped yet")
+  value?: number;              // SO value AUD
+  originalEta?: string; updatedEta?: string;
+  notes?: string;
+  delivered: boolean;
+  updatedAt: string;
+}
 
 /** A row of Dimi's hand-kept Shipment Schedule workbook. */
 export interface ScheduleStatus {
@@ -126,6 +141,7 @@ export interface ContainerRecord {
   century?: CenturyStatus;    // latest Century event — status when ShipsGo doesn't track the box
   chr?: ChrStatus;            // C.H. Robinson shipment state (US lane)
   schedule?: ScheduleStatus;  // Dimi's Shipment Schedule row
+  forecast?: ForecastInfo;    // purchasing's Wuxi Shipment Forecast row (customer-direct containers)
   invoiceNos?: string[];
   packingSlipNos?: string[];
   live?: LiveStatus;

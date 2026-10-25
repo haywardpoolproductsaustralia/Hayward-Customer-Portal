@@ -19,7 +19,7 @@ export const K = {
 };
 
 // When two documents disagree on a fact, the higher source wins; lower ones only fill gaps.
-const PRIORITY: Record<ContainerSource, number> = { shipsgo: 7, century: 6, chr: 5, cds: 4, "wuxi-packing-slip": 3, "us-invoice": 2, schedule: 1 };
+const PRIORITY: Record<ContainerSource, number> = { shipsgo: 7, century: 6, chr: 5, cds: 4, "wuxi-packing-slip": 3, "us-invoice": 2, schedule: 1, forecast: 1 };
 const FACT_KEYS: (keyof ContainerRecord)[] = [
   "mbl", "hbl", "forwarder", "vendor", "originPort", "destPort", "shipMode", "vessel", "voyage", "etd", "eta", "deliveredDate", "size", "shipKey", "destCountry",
 ];
@@ -68,6 +68,7 @@ function mergeFacts(existing: ContainerRecord, incoming: Partial<ContainerRecord
   if (incoming.century && (!out.century || incoming.century.updatedAt >= out.century.updatedAt)) out.century = incoming.century;
   if (incoming.chr && (!out.chr || incoming.chr.updatedAt >= out.chr.updatedAt)) out.chr = incoming.chr;
   if (incoming.schedule && (!out.schedule || incoming.schedule.updatedAt >= out.schedule.updatedAt)) out.schedule = incoming.schedule;
+  if (incoming.forecast && (!out.forecast || incoming.forecast.updatedAt >= out.forecast.updatedAt)) out.forecast = incoming.forecast;
   out.sources = [...new Set([...existing.sources, ...(incoming.sources ?? [])])];
   out.pos = [...new Set([...existing.pos, ...(incoming.pos ?? [])])];
   out.invoiceNos = [...new Set([...(existing.invoiceNos ?? []), ...(incoming.invoiceNos ?? [])])];

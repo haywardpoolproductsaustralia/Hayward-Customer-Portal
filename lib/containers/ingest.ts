@@ -5,12 +5,15 @@
 // Recognises the sender/subject/filename, parses, merges into the container store, writes the CDS
 // line index the page already reads, and (optionally) registers new boxes with ShipsGo.
 
+import * as XLSX from "xlsx";
 import { parseShipmentWorkbook } from "@/lib/recon/shipmentIngest";
 import { getJSON, redis } from "@/lib/redis";
 import { parseCdsContainers } from "./parse-cds";
 import { isCenturyCsv, parseCenturyCsv } from "./parse-century";
 import { isChrReport, parseChrReport } from "./parse-chr";
 import { isScheduleWorkbook, parseScheduleWorkbook } from "./parse-schedule";
+import { isForecastWorkbook, parseForecastWorkbook } from "./parse-forecast";
+import { CONTAINER_LINKS_KEY } from "@/lib/container-orders";
 import { looksLikePackingSlip, looksLikeUsInvoice, parseSupplierPdf } from "./parse-supplier-docs";
 import { applyParseResult, getInvoiceLines, indexInvoiceLines, K } from "./store";
 import { registerNew } from "./tracking";
@@ -26,6 +29,14 @@ export interface InboundEmail {
 }
 
 const CDS_SENDER = "noreply@cds-net.com";
+
+/** First 12 rows of every sheet as one string — enough to recognise a workbook whose filename says nothing. */
+function xlsxHeaderText(buf: Buffer): string {
+  try {
+    const wb = XLSX.read(buf, { type: "buffer", sheetRows: 12 });
+    return wb.SheetNames.map((n) => XLSX.utils.sheet_to_csv(wb.Sheets[n])).join("\n");
+  } catch { return ""; }
+}
 const SUPPLIER_SENDERS = ["sbateman@hayward.com", "robot@hayward.com"];
 const isCdsFile = (n: string) => /shipment\s*activity\s*by\s*container/i.test(n) && /\.xlsx?$/i.test(n);
 
@@ -38,7 +49,7 @@ export function isContainerEmail(m: { from: string; subject: string; attachments
   const names = m.attachments.map((a) => a.name);
   return f.includes(CDS_SENDER) || SUPPLIER_SENDERS.some((s) => f.includes(s)) ||
     /^Inv#?:?\s*\d+\s+PO:?\s*\d{6}/i.test(subj) || /^Hayward Shipment for PO/i.test(subj) || /^Shipment Activity by Container/i.test(subj) ||
-    names.some((n) => isCdsFile(n) || looksLikeUsInvoice(n) || looksLikePackingSlip(n) || (/\.csv$/i.test(n) && isCenturyCsv(n)) || (/\.xlsx?$/i.test(n) && (isChrReport(n) || isScheduleWorkbook(n)))) ||
+    names.some((n) => isCdsFile(n) || looksLikeUsInvoice(n) || looksLikePackingSlip(n) || (/\.csv$/i.test(n) && isCenturyCsv(n)) || (/\.xlsx?$/i.test(n) && (isChrReport(n) || isScheduleWorkbook(n) || isForecastWorkbook(n)))) ||
     f.includes("chrobinsonreports@chrobinson.com");
 }
 
@@ -59,7 +70,16 @@ export async function ingestEmail(m: InboundEmail, opts: { register?: boolean; d
 
   for (const att of m.attachments) {
     const name = att.name ?? "";
-    if (/\.xlsx?$/i.test(name) && isScheduleWorkbook(name)) {
+    if (/\.xlsx?$/i.test(name) && (isForecastWorkbook(name) || (!isScheduleWorkbook(name) && !isChrReport(name) && !isCdsFile(name) && isForecastWorkbook(xlsxHeaderText(att.content))))) {
+      const r = parseForecastWorkbook(att.content, observedAt);
+      // PO → SO links for the Container orders page: fill gaps only, never override a link someone pinned by hand.
+      const prevLinks = (await getJSON<Record<string, string>>(CONTAINER_LINKS_KEY)) ?? {};
+      let added = 0;
+      for (const [po, so] of Object.entries(r.links)) if (!prevLinks[po]) { prevLinks[po] = so; added++; }
+      if (added) await redis.set(CONTAINER_LINKS_KEY, JSON.stringify(prevLinks));
+      r.warnings.push(`Forecast: ${added} new PO→SO link(s) written for the Container orders page`);
+      results.push(r);
+    } else if (/\.xlsx?$/i.test(name) && isScheduleWorkbook(name)) {
       const r = parseScheduleWorkbook(att.content, observedAt);
       // Resolve the invoice numbers Dimi keyed against the invoice index → PO lines go into the box.
       let resolved = 0;
@@ -117,6 +137,7 @@ export async function ingestEmail(m: InboundEmail, opts: { register?: boolean; d
     lastIngestAt: new Date().toISOString(), lastSubject: m.subject, lastFrom: m.from,
     ...(sourcesSeen.has("century") ? { lastCenturyAt: observedAt } : {}),
     ...(merged.containers.some((c) => c.sources?.includes("chr")) ? { lastChrAt: observedAt } : {}),
+    ...(merged.containers.some((c) => c.sources?.includes("forecast")) ? { lastForecastAt: observedAt } : {}),
     ...(cdsLines != null ? { lastCdsAt: observedAt } : {}),
     parsed: { lines: merged.lines.length, containers: merged.containers.length, cdsLines }, newContainers: newContainers.length, warnings: merged.warnings,
   }));
@@ -151,7 +172,7 @@ export async function emailFromMsg(buf: Buffer, fallbackName = "message.msg"): P
 
 /** A bare file dropped on the page — wrap it as a one-attachment email so the same routing applies. */
 export function emailFromFile(name: string, content: Buffer, receivedDateTime = new Date().toISOString()): InboundEmail {
-  const from = looksLikeUsInvoice(name) ? "sbateman@hayward.com" : looksLikePackingSlip(name) ? "robot@hayward.com" : isCdsFile(name) ? CDS_SENDER : isChrReport(name) ? "chrobinsonreports@chrobinson.com" : isScheduleWorkbook(name) ? "dsampanis@hayward.com" : "";
+  const from = looksLikeUsInvoice(name) ? "sbateman@hayward.com" : looksLikePackingSlip(name) ? "robot@hayward.com" : isCdsFile(name) ? CDS_SENDER : isChrReport(name) ? "chrobinsonreports@chrobinson.com" : isScheduleWorkbook(name) || isForecastWorkbook(name) ? "dsampanis@hayward.com" : "";
   // A Century CSV with an unhelpful filename is recognised by its header
   const csvName = /\.csv$/i.test(name) && !isCenturyCsv(name) && isCenturyCsv(content.subarray(0, 600).toString("utf8")) ? `century-${name}` : name;
   return { from, subject: `upload: ${name}`, receivedDateTime, attachments: [{ name: csvName, content }] };

@@ -14,8 +14,21 @@ import {
   ChevronDown, ChevronUp, Search, Download, Loader2, RefreshCw, MapPin, Phone, X,
 } from 'lucide-react';
 import type {
-  ContainerOrder, ContainerOrdersPayload, ContainerSo, ContainerStatus,
+  ContainerOrder, ContainerOrdersPayload, ContainerSo, ContainerStatus, ContainerTrack,
 } from '@/lib/container-orders';
+
+const TONE: Record<ContainerTrack['tone'], string> = {
+  done: 'bg-emerald-50 text-emerald-800 border-emerald-200',
+  live: 'bg-sky-50 text-sky-800 border-sky-200',
+  doc: 'bg-violet-50 text-violet-800 border-violet-200',
+  wait: 'bg-amber-50 text-amber-800 border-amber-200',
+};
+function TrackChip({ t }: { t: ContainerTrack }) {
+  return <span className={`inline-block rounded border px-1.5 py-0.5 text-[10px] font-semibold leading-tight ${TONE[t.tone]}`} title={`${t.status}${t.sources.length ? ` · ${t.sources.join(' + ')}` : ''}`}>{t.status}</span>;
+}
+function DirectBadge({ why }: { why: string | null }) {
+  return <span className="inline-flex items-center gap-1 rounded-full bg-wave/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-wave" title={why ?? 'Direct to customer'}><MapPin className="h-3 w-3" />Direct</span>;
+}
 
 // ---------------------------------------------------------------------------
 // Formatting
@@ -218,10 +231,16 @@ function OrderRow({ o, expanded, toggle, links, onLinks }: {
 
         {/* Customer */}
         <td className="px-2 py-3">
+          {o.direct && <div className="mb-1"><DirectBadge why={o.directWhy} /></div>}
           {o.so ? (
             <>
               <div className="font-semibold text-ink text-sm leading-tight">{o.so.customerName}</div>
               <div className="text-xs text-ink/40 font-mono">{o.so.customerCode}</div>
+            </>
+          ) : o.forecast ? (
+            <>
+              <div className="font-semibold text-ink text-sm leading-tight">{o.forecast.customer}</div>
+              <div className="text-[10px] uppercase tracking-wide text-wave">per Wuxi Shipment Forecast{o.forecast.so ? ` — SO ${o.forecast.so}` : ''}</div>
             </>
           ) : o.shipTo === 'customer' ? (
             <>
@@ -268,17 +287,25 @@ function OrderRow({ o, expanded, toggle, links, onLinks }: {
         {/* Containers */}
         <td className="px-2 py-3">
           {o.shipments.length ? (
-            <div className="space-y-1">
-              {o.shipments.slice(0, 3).map((c) => (
-                <div key={c.container} className="text-xs">
-                  <span className={`font-mono ${c.delivered ? 'text-ink/50 line-through decoration-ink/30' : 'text-ink'}`}>{c.container}</span>
-                  {c.vessel && <span className="text-ink/40"> · {c.vessel}</span>}
-                </div>
-              ))}
+            <div className="space-y-1.5">
+              {o.shipments.slice(0, 3).map((c) => {
+                const t = o.tracking.find((x) => x.containerNo === c.container);
+                const done = Boolean(c.delivered) || Boolean(t?.closed);
+                return (
+                  <div key={c.container} className="text-xs">
+                    <div className="flex items-center gap-1.5">
+                      <span className={`font-mono ${done ? 'text-ink/50 line-through decoration-ink/30' : 'text-ink'}`}>{c.container}</span>
+                      {t && <TrackChip t={t} />}
+                      {t?.mapUrl && !done && <a href={t.mapUrl} target="_blank" rel="noreferrer" className="text-[10px] text-wave underline" onClick={(e) => e.stopPropagation()}>map ↗</a>}
+                    </div>
+                    {(c.vessel || t?.vessel) && <div className="text-ink/40">{c.vessel ?? t?.vessel}{t?.pod ? ` → ${t.pod}` : ''}</div>}
+                  </div>
+                );
+              })}
               {o.shipments.length > 3 && <div className="text-[11px] text-ink/40">+{o.shipments.length - 3} more</div>}
             </div>
           ) : (
-            <span className="text-xs text-ink/30">Not in shipment file</span>
+            <span className="text-xs text-ink/30">No container yet</span>
           )}
         </td>
 
@@ -373,13 +400,26 @@ function OrderRow({ o, expanded, toggle, links, onLinks }: {
               <div className="space-y-3 text-xs">
                 <div className="rounded-xl bg-white border border-ink/10 p-3">
                   <p className="text-[10px] uppercase tracking-wide text-ink/40 font-semibold mb-1.5">Containers</p>
-                  {o.shipments.length ? o.shipments.map((c) => (
-                    <div key={c.container} className="py-1.5 border-t first:border-t-0 border-ink/5">
-                      <div className="font-mono text-ink">{c.container}</div>
-                      <div className="text-ink/50">{c.vessel ?? 'vessel tba'}{c.destPort ? ` → ${c.destPort}` : ''}</div>
-                      <div className="text-ink/50">ETD {shortDate(c.etd)} · ETA {shortDate(c.eta)}{c.delivered ? ` · delivered ${shortDate(c.delivered)}` : ''} · {qty(c.units)} units</div>
+                  {o.shipments.length ? o.shipments.map((c) => {
+                    const t = o.tracking.find((x) => x.containerNo === c.container);
+                    return (
+                      <div key={c.container} className="py-1.5 border-t first:border-t-0 border-ink/5 space-y-0.5">
+                        <div className="flex items-center gap-1.5"><span className="font-mono text-ink">{c.container}</span>{t && <TrackChip t={t} />}</div>
+                        <div className="text-ink/50">{c.vessel ?? t?.vessel ?? 'vessel tba'}{(t?.pol || t?.pod) ? ` · ${t?.pol ?? '?'} → ${t?.pod ?? c.destPort ?? '?'}` : c.destPort ? ` → ${c.destPort}` : ''}</div>
+                        <div className="text-ink/50">{c.etd ? `ETD ${shortDate(c.etd)} · ` : ''}ETA {shortDate(c.eta ?? t?.eta ?? null)}{t?.etaInitial && t.etaInitial !== t.eta ? ` (was ${shortDate(t.etaInitial)})` : ''}{c.delivered ? ` · delivered ${shortDate(c.delivered)}` : ''}{c.units ? ` · ${qty(c.units)} units` : ''}</div>
+                        {t && <div className="text-ink/40">{t.sources.join(' + ')}{t.mapUrl ? <> · <a href={t.mapUrl} target="_blank" rel="noreferrer" className="text-wave underline">live map ↗</a></> : null}</div>}
+                        {t?.direct && t.directWhy && <div className="text-wave">{t.directWhy}</div>}
+                      </div>
+                    );
+                  }) : <p className="text-ink/40">No container tied to this PO yet — it appears here as soon as a Century / CDS row, a supplier invoice, the forecast sheet or a ShipsGo reference names it (see the <Link href="/dashboard/reconciliation" className="text-wave underline">Purchasing</Link> page uploads).</p>}
+                  {o.forecast && (
+                    <div className="mt-2 rounded-lg bg-foam px-2.5 py-2 text-ink/70">
+                      <p className="text-[10px] uppercase tracking-wide text-ink/40 font-semibold">Wuxi Shipment Forecast</p>
+                      <p>{o.forecast.customer}{o.forecast.so ? ` · SO ${o.forecast.so}` : ''}{o.forecast.value ? ` · ${AUD(o.forecast.value)}` : ''}</p>
+                      {o.forecast.notes && <p>{o.forecast.notes}</p>}
+                      <p>{o.forecast.delivered ? 'Marked delivered' : o.forecast.updatedEta ? `Purchasing expects ${shortDate(o.forecast.updatedEta)}` : ''}</p>
                     </div>
-                  )) : <p className="text-ink/40">Not yet in the CDS-Net shipment file. Upload the latest file on the <Link href="/dashboard/reconciliation" className="text-wave underline">Purchasing</Link> page.</p>}
+                  )}
                 </div>
 
                 <div className="rounded-xl bg-white border border-ink/10 p-3 space-y-1.5">
@@ -419,6 +459,7 @@ export default function ContainerOrdersPage() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('open');
   const [supplier, setSupplier] = useState<string>('all');
   const [unlinkedOnly, setUnlinkedOnly] = useState(false);
+  const [directOnly, setDirectOnly] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>('eta');
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [exporting, setExporting] = useState(false);
@@ -447,6 +488,8 @@ export default function ContainerOrdersPage() {
       arriving30: in30.length,
       late: open.filter((o) => o.daysLate != null && o.daysLate > 0).length,
       unlinked: orders.filter((o) => !o.so && o.status !== 'cancelled').length,
+      direct: open.filter((o) => o.direct).length,
+      directMoving: open.filter((o) => o.direct && o.tracking.some((t) => !t.closed)).length,
       openValue: open.reduce((s, o) => s + (o.so?.netValue ?? 0), 0),
     };
   }, [orders]);
@@ -460,10 +503,11 @@ export default function ContainerOrdersPage() {
       if (statusFilter !== 'open' && statusFilter !== 'all' && o.status !== statusFilter) return false;
       if (supplier !== 'all' && o.supplierName !== supplier) return false;
       if (unlinkedOnly && o.so) return false;
+      if (directOnly && !o.direct) return false;
       if (!q) return true;
       const hay = [
         o.po, o.customerPoRef, o.so?.orderNo, o.so?.customerName, o.so?.customerCode, o.so?.customerOrderNo,
-        o.so?.description, ...o.shipments.map((c) => c.container), ...o.shipments.map((c) => c.vessel),
+        o.so?.description, ...o.shipments.map((c) => c.container), ...o.shipments.map((c) => c.vessel), o.forecast?.customer, o.forecast?.notes, ...o.tracking.map((t) => t.status),
         ...(o.so?.address.lines ?? []), ...o.lines.map((l) => l.sku),
       ].filter(Boolean).join(' ').toLowerCase();
       return hay.includes(q);
@@ -476,7 +520,7 @@ export default function ContainerOrdersPage() {
     };
     rows = [...rows].sort(cmp[sortKey]);
     return rows;
-  }, [orders, query, statusFilter, supplier, unlinkedOnly, sortKey]);
+  }, [orders, query, statusFilter, supplier, unlinkedOnly, directOnly, sortKey]);
 
   const onLinks = useCallback((links: Record<string, string>) => {
     setData((d) => (d ? { ...d, links } : d));
@@ -500,7 +544,10 @@ export default function ContainerOrdersPage() {
         'Customer PO': o.so?.customerOrderNo ?? o.customerPoRef ?? '',
         'Arrow PO': o.po,
         'Supplier': o.supplierName,
-        'Ships': o.shipTo === 'customer' ? 'Direct to customer' : o.shipTo === 'hayward' ? 'Via Melbourne' : '',
+        'Ships': o.direct ? 'Direct to customer' : o.shipTo === 'hayward' ? 'Via Melbourne' : '',
+        'Direct because': o.directWhy ?? '',
+        'Tracking': o.tracking.map((t) => `${t.containerNo} ${t.status}${t.eta ? ` ETA ${t.eta}` : ''}`).join(' | '),
+        'Live map': o.tracking.map((t) => t.mapUrl).filter(Boolean).join(' '),
         'PO date': o.poDate ?? '',
         'PO units': o.poQty,
         'Received': o.poReceived,
@@ -563,13 +610,14 @@ export default function ContainerOrdersPage() {
       )}
 
       {/* Tiles */}
-      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-3">
         <Tile label="Open orders" value={counts.open} hint={AUD(counts.openValue) + ' SO value'} accent="text-deep" active={statusFilter === 'open' && !unlinkedOnly} onClick={() => { setStatusFilter('open'); setUnlinkedOnly(false); }} />
         <Tile label="In transit" value={counts.inTransit} accent="text-wave" active={statusFilter === 'in_transit'} onClick={() => { setStatusFilter('in_transit'); setUnlinkedOnly(false); }} />
         <Tile label="Arriving ≤ 30 days" value={counts.arriving30} accent="text-splash" active={false} onClick={() => { setStatusFilter('in_transit'); setSortKey('eta'); setUnlinkedOnly(false); }} />
         <Tile label="Awaiting shipment" value={counts.awaiting} accent="text-amber" active={statusFilter === 'awaiting_shipment'} onClick={() => { setStatusFilter('awaiting_shipment'); setUnlinkedOnly(false); }} />
         <Tile label="Running late" value={counts.late} hint="container ETA past PO date" accent="text-coral" active={false} onClick={() => { setStatusFilter('open'); setSortKey('eta'); setUnlinkedOnly(false); }} />
-        <Tile label="PO without SO" value={counts.unlinked} hint="needs a link" accent={counts.unlinked ? 'text-amber' : 'text-ink/40'} active={unlinkedOnly} onClick={() => { setUnlinkedOnly((v) => !v); setStatusFilter('all'); }} />
+        <Tile label="Direct to customer" value={counts.direct} hint={`${counts.directMoving} with a box moving`} accent="text-wave" active={directOnly} onClick={() => { setDirectOnly((v) => !v); setUnlinkedOnly(false); setStatusFilter('open'); }} />
+        <Tile label="PO without SO" value={counts.unlinked} hint="needs a link" accent={counts.unlinked ? 'text-amber' : 'text-ink/40'} active={unlinkedOnly} onClick={() => { setUnlinkedOnly((v) => !v); setDirectOnly(false); setStatusFilter('all'); }} />
       </div>
 
       {/* Filters */}
