@@ -13,7 +13,7 @@ const SCROLLBAR_STYLE = `
 
 // Fixed column widths (px) — 22 columns. Sticky left offsets are derived from these,
 // so change a width here and the frozen columns stay aligned.
-const COL_ORDER  = [66, 84, 80, 78];                      // Order: PO, Customer PO, Status, Type
+const COL_ORDER  = [66, 84, 80, 100];                     // Order: PO, Customer PO, Status, Type
 const COL_ARROW  = [120, 112, 76, 76, 60, 64, 56];        // Arrow AU: Stock, Supplier SKU, Order date, ETA, Ordered, Received, SOH
 const COL_SUPPLY = [100, 56, 56, 76, 76, 104];            // Supplier: PO ref, ENT, SHPD, Ship date, ETA, US SO#
 const COL_SUPPLY_COLLAPSED = [34];                        // Supplier group collapsed to one narrow toggle column
@@ -552,6 +552,22 @@ export default function ReconciliationPage() {
     return fi >= 0 && FLEX_SHIP[fi] ? Math.floor(w + (slack * FLEX_SHIP[fi]) / flexSum) : w;
   });
   const tableW = cols.reduce((a, b) => a + b, 0);
+  // Frozen-column offsets (cumulative widths of the Order + Arrow columns).
+  const left = cols.reduce<number[]>((acc, w, i) => { acc.push(i === 0 ? 0 : acc[i - 1] + cols[i - 1]); return acc; }, []);
+  // Frozen header: the two header rows stick under the filter bar while the page scrolls. Only possible in
+  // fit mode, where the card needs no horizontal scrollbar (a scroll container would trap the sticky header).
+  const filterRef = useRef<HTMLDivElement>(null);
+  const [filterH, setFilterH] = useState(60);
+  useEffect(() => {
+    const el = filterRef.current;
+    if (!el) return;
+    const m = () => setFilterH(el.offsetHeight);
+    m();
+    const ro = new ResizeObserver(m);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const headTop = fitToScreen ? filterH / tableZoom : undefined;
 
   useEffect(() => {
     Promise.all([
@@ -834,7 +850,7 @@ export default function ReconciliationPage() {
       </div>
 
       {/* ── Filter row — sticky below dashboard header ── */}
-      <div className="sticky top-0 z-30 -mx-8 bg-white/95 backdrop-blur px-8 py-3 border-b border-slate-100 shadow-sm flex flex-wrap items-center gap-2">
+      <div ref={filterRef} className="sticky top-0 z-30 -mx-8 bg-white/95 backdrop-blur px-8 py-3 border-b border-slate-100 shadow-sm flex flex-wrap items-center gap-2">
         {/* Stock group toggles — LEFT */}
         <div className="flex gap-2 mr-4">
           {([
@@ -968,9 +984,9 @@ export default function ReconciliationPage() {
               Export to Excel
             </button>
           </div>
-          <div ref={tableWrapRef} className="rounded-2xl border border-ink/10 bg-white shadow-soft overflow-hidden">
+          <div ref={tableWrapRef} className="rounded-2xl border border-ink/10 bg-white shadow-soft" style={{ overflow: 'clip' }}>
           {/* Top scrollbar mirror — synced to bottom scroll */}
-          <div
+          {!fitToScreen && <div
             id="top-scroll"
             className="overflow-x-auto"
             style={{ height: '18px' }}
@@ -980,12 +996,11 @@ export default function ReconciliationPage() {
             }}
           >
             <div id="top-scroll-inner" style={{ height: '1px' }} />
-          </div>
+          </div>}
           {/* Table — full height (the page scrolls, not the table); horizontal scroll only */}
           <div
             id="bottom-scroll"
-            className="overflow-x-auto"
-            style={{ overflowY: 'visible' }}
+            style={{ overflowX: fitToScreen ? 'clip' : 'auto', overflowY: 'visible' }}
             onScroll={(e) => {
               const top = document.getElementById('top-scroll');
               if (top) top.scrollLeft = (e.target as HTMLDivElement).scrollLeft;
@@ -1011,7 +1026,7 @@ export default function ReconciliationPage() {
             <colgroup>
               {cols.map((w, ci) => <col key={ci} style={{ width: `${w}px` }} />)}
             </colgroup>
-            <thead className="sticky top-0 z-20">
+            <thead className="sticky z-20" style={{ top: headTop ?? 0 }}>
               <tr className="text-[11px] font-bold uppercase tracking-widest">
                 <th colSpan={4} style={{ background: '#334155', color: 'white', padding: '6px 8px', borderRight: '2px solid white', position: 'sticky', left: 0, zIndex: 11, opacity: 1 }}>
                   Order
@@ -1030,16 +1045,16 @@ export default function ReconciliationPage() {
               </tr>
               <tr className="border-b border-slate-200 text-[11px] font-semibold uppercase tracking-normal">
                 <th className="sticky left-0 z-10 bg-slate-800 px-2 py-2 whitespace-nowrap text-white opacity-100">PO</th>
-                <th title="Customer PO (DELIVERY_NOTE_4)" className="sticky bg-slate-700 px-2 py-2 whitespace-nowrap text-white opacity-100" style={{ left: '66px' }}>Cust PO</th>
-                <th className="sticky bg-slate-700 px-2 py-2 whitespace-nowrap text-white opacity-100" style={{ left: '150px' }}>Status</th>
-                <th className="sticky bg-slate-600 px-2 py-2 whitespace-nowrap text-white border-r border-slate-500 opacity-100" style={{ left: '230px' }}>Type</th>
-                <th className="sticky bg-emerald-200 px-2 py-2 whitespace-nowrap text-emerald-900 opacity-100" style={{ left: '308px' }}>Stock code</th>
-                <th className="sticky bg-emerald-200 px-2 py-2 whitespace-nowrap text-emerald-900 opacity-100" style={{ left: '428px' }}>Supplier SKU</th>
-                <th title="PO order date" className="sticky bg-emerald-200 px-2 py-2 whitespace-nowrap text-emerald-900 opacity-100" style={{ left: '540px' }}>Order dt</th>
-                <th title="Date keyed on the Arrow PO — reference only, not a forecast" className="sticky bg-emerald-200 px-2 py-2 whitespace-nowrap text-emerald-900 opacity-100" style={{ left: '616px' }}>ETA</th>
-                <th title="Qty ordered in Arrow" className="sticky bg-emerald-200 px-2 py-2 text-right whitespace-nowrap text-emerald-900 opacity-100" style={{ left: '692px' }}>Qty</th>
-                <th title="Qty received in Arrow" className="sticky bg-emerald-200 px-2 py-2 text-right whitespace-nowrap text-emerald-900 opacity-100" style={{ left: '752px' }}>Rcvd</th>
-                <th title="Stock on hand in Arrow, all locations (hover for allocated / backordered)" className="sticky bg-emerald-200 px-2 py-2 text-right whitespace-nowrap text-emerald-900 border-r-2 border-emerald-400 opacity-100" style={{ left: '816px' }}>SOH</th>
+                <th title="Customer PO (DELIVERY_NOTE_4)" className="sticky bg-slate-700 px-2 py-2 whitespace-nowrap text-white opacity-100" style={{ left: `${left[1]}px` }}>Cust PO</th>
+                <th className="sticky bg-slate-700 px-2 py-2 whitespace-nowrap text-white opacity-100" style={{ left: `${left[2]}px` }}>Status</th>
+                <th className="sticky bg-slate-600 px-2 py-2 whitespace-nowrap text-white border-r border-slate-500 opacity-100" style={{ left: `${left[3]}px` }}>Type</th>
+                <th className="sticky bg-emerald-200 px-2 py-2 whitespace-nowrap text-emerald-900 opacity-100" style={{ left: `${left[4]}px` }}>Stock code</th>
+                <th className="sticky bg-emerald-200 px-2 py-2 whitespace-nowrap text-emerald-900 opacity-100" style={{ left: `${left[5]}px` }}>Supplier SKU</th>
+                <th title="PO order date" className="sticky bg-emerald-200 px-2 py-2 whitespace-nowrap text-emerald-900 opacity-100" style={{ left: `${left[6]}px` }}>Order dt</th>
+                <th title="Date keyed on the Arrow PO — reference only, not a forecast" className="sticky bg-emerald-200 px-2 py-2 whitespace-nowrap text-emerald-900 opacity-100" style={{ left: `${left[7]}px` }}>ETA</th>
+                <th title="Qty ordered in Arrow" className="sticky bg-emerald-200 px-2 py-2 text-right whitespace-nowrap text-emerald-900 opacity-100" style={{ left: `${left[8]}px` }}>Qty</th>
+                <th title="Qty received in Arrow" className="sticky bg-emerald-200 px-2 py-2 text-right whitespace-nowrap text-emerald-900 opacity-100" style={{ left: `${left[9]}px` }}>Rcvd</th>
+                <th title="Stock on hand in Arrow, all locations (hover for allocated / backordered)" className="sticky bg-emerald-200 px-2 py-2 text-right whitespace-nowrap text-emerald-900 border-r-2 border-emerald-400 opacity-100" style={{ left: `${left[10]}px` }}>SOH</th>
                 {supplierOpen ? (<>
                 <th title="Matched AS400 PO / item" className="bg-[#fef3c7] px-2 py-2 whitespace-nowrap text-[#78350f] opacity-100">Arrow PO</th>
                 <th className="bg-[#fef3c7] px-2 py-2 text-right whitespace-nowrap text-[#78350f] opacity-100">ENT</th>
@@ -1096,22 +1111,22 @@ export default function ReconciliationPage() {
                       <td className="sticky left-0 z-10 bg-slate-900 px-2 py-1.5 whitespace-nowrap">
                         <Link href={`/dashboard/reconciliation?po=${r.po}`} className="font-bold text-white hover:text-wave">{r.po}</Link>
                       </td>
-                      <td className="sticky bg-slate-800 px-2 py-1.5 font-mono text-[11px] whitespace-nowrap text-slate-200" style={{ left: '66px' }}>{r.deliveryNote4 || '—'}</td>
-                      <td className="sticky bg-slate-800 px-2 py-1.5" style={{ left: '150px' }}>
+                      <td className="sticky bg-slate-800 px-2 py-1.5 font-mono text-[11px] whitespace-nowrap text-slate-200" style={{ left: `${left[1]}px` }}>{r.deliveryNote4 || '—'}</td>
+                      <td className="sticky bg-slate-800 px-2 py-1.5" style={{ left: `${left[2]}px` }}>
                         {statusBadge(r.status)}
                       </td>
-                      <td className="sticky bg-slate-700 px-2 py-1.5 border-r border-slate-600" style={{ left: '230px' }}>
+                      <td className="sticky bg-slate-700 px-2 py-1.5 border-r border-slate-600" style={{ left: `${left[3]}px` }}>
                         {supplierTypeBadge(r.creditor, r.stockCategory)}
                       </td>
-                      <td className="sticky bg-emerald-50 px-2 py-1.5 font-mono text-[11px] whitespace-nowrap text-slate-800" style={{ left: '308px' }}>{r.arrowStock}</td>
-                      <td className="sticky bg-emerald-50 px-2 py-1.5 font-mono text-[11px] whitespace-nowrap text-slate-700" style={{ left: '428px' }}>{r.supplierSku || '—'}</td>
-                      <td className="sticky bg-emerald-50 px-2 py-1.5 whitespace-nowrap text-slate-500" style={{ left: '540px' }}>{fmt(r.orderDate)}</td>
-                      <td className="sticky bg-emerald-50 px-2 py-1.5 whitespace-nowrap text-slate-700" style={{ left: '616px' }}>
+                      <td className="sticky bg-emerald-50 px-2 py-1.5 font-mono text-[11px] whitespace-nowrap text-slate-800" style={{ left: `${left[4]}px` }}>{r.arrowStock}</td>
+                      <td className="sticky bg-emerald-50 px-2 py-1.5 font-mono text-[11px] whitespace-nowrap text-slate-700" style={{ left: `${left[5]}px` }}>{r.supplierSku || '—'}</td>
+                      <td className="sticky bg-emerald-50 px-2 py-1.5 whitespace-nowrap text-slate-500" style={{ left: `${left[6]}px` }}>{fmt(r.orderDate)}</td>
+                      <td className="sticky bg-emerald-50 px-2 py-1.5 whitespace-nowrap text-slate-700" style={{ left: `${left[7]}px` }}>
                         {fmt(r.requestedDate)}
                       </td>
-                      <td className="sticky bg-emerald-50 px-2 py-1.5 text-right font-bold text-emerald-900" style={{ left: '692px' }}>{r.qtyOrdered}</td>
-                      <td className="sticky bg-emerald-50 px-2 py-1.5 text-right text-slate-600" style={{ left: '752px' }}>{r.qtyReceived}</td>
-                      <td className="sticky bg-emerald-50 px-2 py-1.5 text-right border-r-2 border-emerald-300" style={{ left: '816px' }}
+                      <td className="sticky bg-emerald-50 px-2 py-1.5 text-right font-bold text-emerald-900" style={{ left: `${left[8]}px` }}>{r.qtyOrdered}</td>
+                      <td className="sticky bg-emerald-50 px-2 py-1.5 text-right text-slate-600" style={{ left: `${left[9]}px` }}>{r.qtyReceived}</td>
+                      <td className="sticky bg-emerald-50 px-2 py-1.5 text-right border-r-2 border-emerald-300" style={{ left: `${left[10]}px` }}
                           title={r.onHand != null ? `On hand ${r.onHand} · allocated ${r.allocated ?? 0} · backordered ${r.backordered ?? 0}` : 'No stock record'}>
                         {r.onHand == null ? <span className="text-slate-300">—</span>
                           : r.onHand <= 0 ? <span className="font-semibold text-rose-600">{r.onHand}</span>
