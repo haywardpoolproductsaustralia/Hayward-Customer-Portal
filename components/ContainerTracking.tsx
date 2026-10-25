@@ -1,5 +1,7 @@
 'use client';
 
+import { Fragment, useState } from 'react';
+
 // components/ContainerTracking.tsx
 // The tracking panel that opens under a Purchasing row, plus the helpers the page uses to fold
 // container-store data (ShipsGo live + CDS + supplier PDFs) into its existing reconcile().
@@ -221,6 +223,51 @@ function ContainerCard({ c, po, item, poOnly, probable }: { c: CtContainer; po: 
 }
 
 /** The expandable panel rendered under a Purchasing row. */
+/** Compact one-row-per-box table for the PO's other containers; a row expands to the full card. */
+function PoBoxesTable({ po, item, boxes, poLevelOnly }: { po: string; item: string; boxes: CtContainer[]; poLevelOnly?: boolean }) {
+  const [open, setOpen] = useState<Set<string>>(new Set());
+  const toggle = (no: string) => setOpen((prev) => { const n = new Set(prev); if (n.has(no)) n.delete(no); else n.add(no); return n; });
+  const sorted = [...boxes].sort((a, b) => (bestEta(a) ?? '9999').localeCompare(bestEta(b) ?? '9999'));
+  return (
+    <table className="w-full text-xs">
+      <thead>
+        <tr className="text-[10px] uppercase tracking-wide text-slate-400">
+          <th className="py-1 pr-3 text-left font-semibold">Container</th>
+          <th className="py-1 pr-3 text-left font-semibold">Status</th>
+          <th className="py-1 pr-3 text-left font-semibold">ETA</th>
+          <th className="py-1 pr-3 text-left font-semibold">Vessel</th>
+          <th className="py-1 text-left font-semibold">Items of PO {po} in this box</th>
+        </tr>
+      </thead>
+      <tbody>
+        {sorted.map((c) => {
+          const mine = c.lines.filter((l) => l.po === po);
+          const isOpen = open.has(c.containerNo);
+          return (
+            <Fragment key={c.containerNo}>
+              <tr className="cursor-pointer border-t border-slate-100 hover:bg-slate-50" onClick={() => toggle(c.containerNo)} title={isOpen ? 'Hide detail' : 'Show route, milestones and sources'}>
+                <td className="py-1.5 pr-3 font-mono font-semibold text-slate-900"><span className="mr-1 text-[10px] text-slate-400">{isOpen ? '▾' : '▸'}</span>{c.containerNo}</td>
+                <td className="py-1.5 pr-3"><StatusChip c={c} /></td>
+                <td className="py-1.5 pr-3 whitespace-nowrap"><EtaCell c={c} /></td>
+                <td className="py-1.5 pr-3 text-slate-700">{bestVessel(c) ?? '—'}</td>
+                <td className="py-1.5 text-slate-600">
+                  {mine.length
+                    ? mine.map((l, i) => <span key={i} className="mr-2 inline-block whitespace-nowrap"><span className="font-mono">{l.item ?? (l as any).supplierItem}</span> × {l.qty}</span>)
+                    : <span className="text-slate-400">{poLevelOnly ? 'booking names the PO; no item detail yet' : '—'}</span>}
+                </td>
+              </tr>
+              {isOpen && (
+                <tr><td colSpan={5} className="pb-2"><ContainerCard c={c} po={po} item={item} poOnly /></td></tr>
+              )}
+            </Fragment>
+          );
+        })}
+      </tbody>
+    </table>
+  );
+}
+
+/** The expandable panel rendered under a Purchasing row. */
 export function TrackingPanel({ po, item, lineContainers, poContainers, probable = [] }: {
   po: string; item: string; lineContainers: CtContainer[]; poContainers: CtContainer[];
   probable?: Array<{ c: CtContainer; why: string }>;
@@ -230,15 +277,29 @@ export function TrackingPanel({ po, item, lineContainers, poContainers, probable
   if (!lineContainers.length && !extra.length && !probable.length) {
     return <div className="px-3 py-2 text-xs text-slate-500">No container document or ShipsGo shipment mentions PO {po} yet.</div>;
   }
+  const inBoxes = lineContainers.reduce((n, c) => n + (qtyInContainer(c, po, item) ?? 0), 0);
   return (
     <div className="space-y-2 px-3 py-2">
+      {/* Verdict for the clicked line */}
+      <div className="text-xs text-slate-700">
+        <span className="font-mono font-semibold">{item}</span>{' '}
+        {lineContainers.length
+          ? <>— <b>{inBoxes}</b> in {lineContainers.length} container{lineContainers.length === 1 ? '' : 's'}:</>
+          : probable.length
+            ? <>— probably in {probable.map((p) => p.c.containerNo).join(', ')} (see note)</>
+            : <>— <b>not in any container yet</b>. PO {po} has {extra.length} box{extra.length === 1 ? '' : 'es'} carrying other lines:</>}
+      </div>
       {lineContainers.map((c) => <ContainerCard key={c.containerNo} c={c} po={po} item={item} />)}
       {probable.map(({ c, why }) => <ContainerCard key={`p-${c.containerNo}`} c={c} po={po} item={item} probable={why} />)}
       {extra.length > 0 && (
-        <details className="text-xs" open={!lineContainers.length}>
-          <summary className="cursor-pointer text-slate-500">{extra.length} more container{extra.length > 1 ? 's' : ''} on PO {po} (other items, or item not confirmed)</summary>
-          <div className="mt-2 space-y-2">{extra.map((c) => <ContainerCard key={c.containerNo} c={c} po={po} item={item} poOnly />)}</div>
-        </details>
+        lineContainers.length || probable.length
+          ? (
+            <details className="text-xs">
+              <summary className="cursor-pointer text-slate-500">{extra.length} other container{extra.length > 1 ? 's' : ''} on PO {po}</summary>
+              <div className="mt-1 rounded-lg border border-slate-200 bg-white px-3 py-1"><PoBoxesTable po={po} item={item} boxes={extra} poLevelOnly={extra.every((c) => !c.lines.length)} /></div>
+            </details>
+          )
+          : <div className="rounded-lg border border-slate-200 bg-white px-3 py-1"><PoBoxesTable po={po} item={item} boxes={extra} poLevelOnly={extra.every((c) => !c.lines.length)} /></div>
       )}
     </div>
   );
