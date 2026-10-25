@@ -13,7 +13,7 @@ export default async function Home() {
       <div className="flex flex-col items-center gap-6 text-center max-w-2xl">
         <Image src="/hayward-logo.png" alt="Hayward" width={220} height={50} className="h-10 w-auto" priority />
 
-        <h1 className="font-display text-5xl md:text-6xl text-deep font-bold tracking-tight">
+        <h1 className="font-display text-4xl sm:text-5xl md:text-6xl text-deep font-bold tracking-tight">
           Everything you need,
           <br />
           in one place.
@@ -30,7 +30,7 @@ export default async function Home() {
           </button>
         </SignInButton>
 
-        <div className="mt-12 grid grid-cols-3 gap-8 text-ink/50">
+        <div className="mt-10 sm:mt-12 grid grid-cols-3 gap-4 sm:gap-8 text-ink/50">
           <div className="flex flex-col items-center gap-2">
             <Boxes className="h-6 w-6 text-wave" />
             <span className="text-sm font-medium">Live stock</span>

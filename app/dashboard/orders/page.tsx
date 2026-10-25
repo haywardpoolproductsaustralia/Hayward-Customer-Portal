@@ -43,6 +43,16 @@ interface StockInfo {
 type SortColumn = 'orderNo' | 'customerOrderNo' | 'branchName' | 'orderDate' | 'expectedDate' | 'invoiceDate' | 'sku' | 'qtyOrdered' | 'qtyShipped' | 'qtyBackordered' | 'statusFlag' | 'onHand' | 'onOrderQty' | 'nextEta';
 type SortDirection = 'asc' | 'desc';
 
+// Mobile card list has no clickable column headers, so sorting is a <select>.
+const MOBILE_SORT_OPTIONS: Array<{ value: string; label: string; column: SortColumn; direction: SortDirection }> = [
+  { value: 'orderDate:desc', label: 'Newest first', column: 'orderDate', direction: 'desc' },
+  { value: 'orderDate:asc', label: 'Oldest first', column: 'orderDate', direction: 'asc' },
+  { value: 'expectedDate:asc', label: 'Est. delivery (soonest)', column: 'expectedDate', direction: 'asc' },
+  { value: 'statusFlag:asc', label: 'Status', column: 'statusFlag', direction: 'asc' },
+  { value: 'orderNo:desc', label: 'Order # (high to low)', column: 'orderNo', direction: 'desc' },
+  { value: 'sku:asc', label: 'SKU (A to Z)', column: 'sku', direction: 'asc' },
+];
+
 const STATUS: Record<string, { label: string; icon: typeof CheckCircle2; className: string }> = {
   C: { label: 'Completed', icon: CheckCircle2, className: 'bg-ink/5 text-ink/50' },
   A: { label: 'In Progress', icon: Clock, className: 'bg-wave/10 text-wave' },
@@ -504,7 +514,7 @@ export default function OrdersPage() {
     <div className="space-y-6">
       <div className="flex items-end justify-between flex-wrap gap-3">
         <div>
-          <h1 className="font-display text-3xl text-deep font-bold">Orders</h1>
+          <h1 className="font-display text-2xl sm:text-3xl text-deep font-bold">Orders</h1>
           <p className="text-ink/50 mt-1">
             {selectedCustomer
               ? `Showing orders for ${selectedCustomer.name}.`
@@ -584,7 +594,83 @@ export default function OrdersPage() {
         </div>
       ) : (
         <div className="rounded-2xl border border-ink/10 bg-white shadow-soft" style={{ overflow: 'clip' }}>
-          <div>
+          {/* Phones: one card per order line. The 14-column table below is md+ only. */}
+          <div className="md:hidden">
+            <div className="flex items-center justify-between gap-3 px-4 py-2.5 border-b border-ink/10 bg-foam/60">
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-ink/40">Sort</span>
+              <select
+                aria-label="Sort orders"
+                value={`${sortRules[0]?.column ?? 'orderDate'}:${sortRules[0]?.direction ?? 'desc'}`}
+                onChange={(e) => {
+                  const opt = MOBILE_SORT_OPTIONS.find((o) => o.value === e.target.value);
+                  if (opt) setSortRules([{ column: opt.column, direction: opt.direction }]);
+                }}
+                className="rounded-lg border border-ink/10 bg-white px-2.5 py-1.5 text-xs font-medium text-ink/70 outline-none focus:border-wave"
+              >
+                {MOBILE_SORT_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+            </div>
+            <ul className="divide-y divide-ink/5">
+              {filtered.slice(0, visibleCount).map((o, i) => {
+                const status = STATUS[o.statusFlag] ?? {
+                  label: o.statusFlag || 'Unknown',
+                  icon: FileText,
+                  className: 'bg-ink/5 text-ink/50',
+                };
+                const StatusIcon = status.icon;
+                const stock = stockBySku[o.sku.toUpperCase()];
+                return (
+                  <li key={`m-${o.orderNo}-${o.sku}-${i}`} className="px-4 py-3 space-y-2">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="font-mono text-sm font-semibold text-ink break-all">{o.sku}</p>
+                        <p className="text-xs text-ink/50 mt-0.5">
+                          Order <span className="font-semibold text-ink/70">{o.orderNo}</span>
+                          {o.customerOrderNo ? <> · Your ref <span className="text-ink/70">{o.customerOrderNo}</span></> : null}
+                        </p>
+                        {isHeadOffice && <p className="text-xs text-ink/50 truncate">{o.branchName}</p>}
+                      </div>
+                      <span
+                        className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold leading-tight flex-shrink-0 ${status.className}`}
+                      >
+                        <StatusIcon className="h-3 w-3 shrink-0" />
+                        {status.label}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                      <div className="rounded-lg bg-foam/70 py-1.5">
+                        <p className="text-[10px] uppercase tracking-wide text-ink/40">Ordered</p>
+                        <p className="font-semibold tabular-nums text-ink">{o.qtyOrdered}</p>
+                      </div>
+                      <div className="rounded-lg bg-foam/70 py-1.5">
+                        <p className="text-[10px] uppercase tracking-wide text-ink/40">Shipped</p>
+                        <p className="font-semibold tabular-nums text-ink">{o.qtyShipped}</p>
+                      </div>
+                      <div className="rounded-lg bg-foam/70 py-1.5">
+                        <p className="text-[10px] uppercase tracking-wide text-ink/40">B/Order</p>
+                        <p className={`font-semibold tabular-nums ${o.qtyBackordered ? 'text-amber' : 'text-ink/40'}`}>{o.qtyBackordered || '-'}</p>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-ink/50">
+                      <span>Ordered {shortDate(o.orderDate)}</span>
+                      <span>Est. {shortDate(o.expectedDate)}</span>
+                      <span>{o.invoiceDate ? `Invoiced ${shortDate(o.invoiceDate)}` : 'Not yet invoiced'}</span>
+                    </div>
+                    {stock && (o.qtyBackordered > 0 || stock.onOrderQty > 0) && (
+                      <p className="text-[11px] text-ink/50">
+                        Stock: <span className="font-medium text-ink/70">{stock.onHand} on hand</span>
+                        {stock.onOrderQty ? <> · {stock.onOrderQty} on order{stock.nextEta ? `, next arrival ${shortDate(stock.nextEta)}` : ''}</> : null}
+                      </p>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+
+          <div className="hidden md:block">
             <table className="w-full table-fixed text-sm border-collapse">
               <thead>
                 <tr style={{ top: headTop }} className="sticky z-10 bg-deep text-left text-[11px] uppercase tracking-[0.08em] text-white/70 divide-x divide-white/10 [&>th]:px-3 [&>th]:py-3 [&>th]:font-semibold [&>th]:break-words shadow-[0_1px_0_0_rgba(7,89,133,0.25)]">
@@ -760,7 +846,7 @@ export default function OrdersPage() {
             </table>
           </div>
           {filtered.length > visibleCount && (
-            <div className="flex items-center justify-center gap-3 border-t border-ink/5 bg-foam/40 px-4 py-3 text-xs text-ink/50">
+            <div className="flex flex-wrap items-center justify-center gap-3 border-t border-ink/5 bg-foam/40 px-4 py-3 text-xs text-ink/50">
               <span>Showing {visibleCount.toLocaleString()} of {filtered.length.toLocaleString()} lines</span>
               <button
                 onClick={() => setVisibleCount((c) => c + 500)}

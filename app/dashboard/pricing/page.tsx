@@ -509,7 +509,7 @@ export default function PricingPage() {
     <div className="space-y-6">
       <div className="flex items-end justify-between flex-wrap gap-3">
         <div>
-          <h1 className="font-display text-3xl text-deep font-bold">
+          <h1 className="font-display text-2xl sm:text-3xl text-deep font-bold">
             {orderingOn ? 'Quote & order' : 'Quote builder'}
           </h1>
           <p className="text-ink/50 mt-1">
@@ -518,7 +518,7 @@ export default function PricingPage() {
               : 'Add products, set quantities, get your discounted price per line.'}
           </p>
         </div>
-        <div className="flex items-center gap-2 print:hidden">
+        <div className="flex flex-wrap items-center gap-2 print:hidden w-full sm:w-auto [&>button]:flex-1 sm:[&>button]:flex-none [&>button]:justify-center">
           {myOrders.length > 0 && (
             <button
               onClick={() => setHistoryOpen((v) => !v)}
@@ -572,7 +572,38 @@ export default function PricingPage() {
       )}
 
       {historyOpen && myOrders.length > 0 && (
-        <div className="overflow-x-auto rounded-2xl border border-ink/10 bg-white shadow-soft print:hidden">
+        <ul className="md:hidden rounded-2xl border border-ink/10 bg-white shadow-soft divide-y divide-ink/5 print:hidden">
+          {myOrders.map((o) => (
+            <li key={`m-${o.id}`} className="px-4 py-3 space-y-1.5">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="font-mono text-xs text-deep font-semibold">{o.ref}</p>
+                  <p className="text-sm text-ink truncate">PO {o.poRef}</p>
+                  <p className="text-xs text-ink/50 truncate">{o.debtorName ?? '-'} · {formatDate(o.submittedAt)}</p>
+                </div>
+                <p className="font-semibold text-deep whitespace-nowrap">{formatMoney(o.subTotal)}</p>
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <span className="min-w-0">
+                  <span className="rounded-full bg-foam text-deep px-2.5 py-1 text-xs font-medium">{o.statusLabel}</span>
+                  {o.statusDetail && <span className="text-xs text-ink/40 ml-2">{o.statusDetail}</span>}
+                </span>
+                {o.lines && o.lines.length > 0 && (
+                  <button
+                    onClick={() => reorder(o)}
+                    className="rounded-lg border border-ink/10 bg-white px-3 py-1.5 text-xs font-medium hover:border-wave/30 hover:text-wave inline-flex items-center gap-1.5 flex-shrink-0"
+                  >
+                    <RotateCcw className="h-3.5 w-3.5" /> Reorder
+                  </button>
+                )}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {historyOpen && myOrders.length > 0 && (
+        <div className="hidden md:block overflow-x-auto rounded-2xl border border-ink/10 bg-white shadow-soft print:hidden">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-ink/10 text-left text-ink/40">
@@ -658,7 +689,143 @@ export default function PricingPage() {
           </p>
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-2xl border border-ink/10 bg-white shadow-soft">
+        <>
+        {/* Phones: one card per line. The table below is md+ (and print). */}
+        <div className="md:hidden print:hidden rounded-2xl border border-ink/10 bg-white shadow-soft overflow-hidden">
+          <ul className="divide-y divide-ink/5">
+            {lines.map((l) => {
+              const unitPrice = resolvePrice(l.tiers, l.qty);
+              const discountPercent =
+                l.listPrice && unitPrice != null
+                  ? Math.round((1 - unitPrice / l.listPrice) * 1000) / 10
+                  : null;
+              const suggestion = getNextTierSuggestion(l.tiers, l.qty, unitPrice);
+              const sortedTiers = [...l.tiers].sort((a, b) => a.qty - b.qty);
+              const avail = availabilityFor(stockBySku.get(l.sku), l.qty);
+              return (
+                <li key={`m-${l.sku}`} className="px-4 py-3.5 space-y-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="font-medium text-ink leading-snug">{l.name}</p>
+                      <p className="text-xs text-ink/40 font-mono">{l.sku}</p>
+                      {avail.free != null && (
+                        <p
+                          className={`mt-1 text-xs font-medium flex items-start gap-1 ${
+                            avail.shortfall === 0 ? 'text-splash' : 'text-amber'
+                          }`}
+                        >
+                          {avail.shortfall === 0 ? (
+                            <>
+                              <PackageCheck className="h-3.5 w-3.5 flex-shrink-0 mt-px" /> In stock
+                            </>
+                          ) : (
+                            <>
+                              <Clock className="h-3.5 w-3.5 flex-shrink-0 mt-px" />
+                              <span>
+                                {avail.free > 0 ? `${avail.free} available, ` : ''}
+                                {avail.shortfall} on backorder
+                                {avail.eta ? ` - ETA ${formatEta(avail.eta)}` : ' - ETA to be confirmed'}
+                              </span>
+                            </>
+                          )}
+                        </p>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => removeLine(l.sku)}
+                      aria-label={`Remove ${l.sku}`}
+                      className="p-2 -mr-2 -mt-1 rounded-full hover:bg-coral/10 flex-shrink-0"
+                    >
+                      <Trash2 className="h-4 w-4 text-ink/30" />
+                    </button>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="inline-flex items-center rounded-lg border border-ink/10 overflow-hidden">
+                      <button
+                        onClick={() => updateQty(l.sku, Math.max(1, l.qty - 1))}
+                        aria-label="Decrease quantity"
+                        className="px-3 py-2 text-ink/60 hover:bg-ink/5 active:bg-ink/10 disabled:opacity-30"
+                        disabled={l.qty <= 1}
+                      >
+                        -
+                      </button>
+                      <input
+                        type="number"
+                        inputMode="numeric"
+                        min="1"
+                        value={l.qty}
+                        onChange={(e) => updateQty(l.sku, Number(e.target.value) || 1)}
+                        className="w-14 py-2 text-center text-sm outline-none border-x border-ink/10 focus:border-wave"
+                      />
+                      <button
+                        onClick={() => updateQty(l.sku, l.qty + 1)}
+                        aria-label="Increase quantity"
+                        className="px-3 py-2 text-ink/60 hover:bg-ink/5 active:bg-ink/10"
+                      >
+                        +
+                      </button>
+                    </div>
+                    <div className="text-right">
+                      {l.loading ? (
+                        <Loader2 className="h-4 w-4 animate-spin inline text-ink/30" />
+                      ) : l.error ? (
+                        <span className="text-xs text-amber">{l.error}</span>
+                      ) : (
+                        <>
+                          <p className="font-semibold text-deep">{formatMoney((unitPrice ?? 0) * l.qty)}</p>
+                          <p className="text-xs text-ink/50">
+                            {formatMoney(unitPrice)} each
+                            {discountPercent ? <span className="text-sunset font-semibold"> · -{discountPercent}%</span> : null}
+                            {l.listPrice && discountPercent ? <span className="text-ink/30"> · list {formatMoney(l.listPrice)}</span> : null}
+                          </p>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  {!l.loading && !l.error && sortedTiers.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {sortedTiers.map((t, idx) => {
+                        const lowerBound = idx === 0 ? 1 : sortedTiers[idx - 1].qty + 1;
+                        const isActive = l.qty >= lowerBound && l.qty <= t.qty;
+                        const label = tierLabel(sortedTiers, idx);
+                        return (
+                          <span
+                            key={t.qty}
+                            className={`text-[11px] rounded-full px-2 py-0.5 font-medium ${
+                              isActive ? 'bg-wave text-white' : 'bg-foam text-ink/50'
+                            }`}
+                          >
+                            {label}: {formatMoney(t.price)}
+                          </span>
+                        );
+                      })}
+                      {suggestion && (
+                        <button
+                          onClick={() => updateQty(l.sku, suggestion.newQty)}
+                          className="w-full mt-1 flex items-start gap-1.5 text-left text-xs rounded-lg bg-splash/10 text-splash px-2.5 py-1.5 font-medium hover:bg-splash/20 transition-colors"
+                        >
+                          <TrendingUp className="h-3.5 w-3.5 flex-shrink-0 mt-px" />
+                          <span>
+                            Add {suggestion.extraUnits} more ({suggestion.newQty} total) to drop to{' '}
+                            {formatMoney(suggestion.newUnitPrice)}/unit - save {formatMoney(suggestion.savingsPerUnit)}/unit
+                          </span>
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+          <div className="bg-foam px-4 py-3.5 flex items-center justify-between">
+            <span className="font-semibold text-deep">Total (ex GST)</span>
+            <span className="font-display text-lg text-deep font-bold">{formatMoney(grandTotal)}</span>
+          </div>
+        </div>
+
+        <div className="hidden md:block print:block overflow-x-auto rounded-2xl border border-ink/10 bg-white shadow-soft">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-ink/10 text-left text-ink/40">
@@ -794,19 +961,57 @@ export default function PricingPage() {
             </tfoot>
           </table>
         </div>
+        </>
       )}
+
+      {/* Phones: sticky bottom bar with the running total and the primary action,
+          so the user doesn't have to scroll back up to place the order. */}
+      {lines.length > 0 && !orderOpen && (
+        <div
+          className="md:hidden print:hidden fixed inset-x-0 bottom-0 z-20 border-t border-ink/10 bg-white/95 backdrop-blur px-4 py-3 flex items-center justify-between gap-3"
+          style={{ paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom))' }}
+        >
+          <div className="min-w-0">
+            <p className="text-[11px] uppercase tracking-wide text-ink/40">
+              {lines.length} line{lines.length === 1 ? '' : 's'} · ex GST
+            </p>
+            <p className="font-display text-lg text-deep font-bold leading-tight">{formatMoney(grandTotal)}</p>
+          </div>
+          {orderingOn ? (
+            <button
+              onClick={() => {
+                setOrderOpen(true);
+                setSubmitted(null);
+                setTimeout(() => document.getElementById('place-order-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
+              }}
+              className="rounded-xl bg-wave text-white px-5 py-2.5 text-sm font-semibold shadow-soft hover:bg-deep flex items-center gap-2 flex-shrink-0"
+            >
+              <ShoppingCart className="h-4 w-4" /> Place order
+            </button>
+          ) : (
+            <button
+              onClick={() => window.print()}
+              className="rounded-xl border border-ink/10 bg-white px-4 py-2.5 text-sm font-medium shadow-soft flex items-center gap-2 flex-shrink-0"
+            >
+              <Printer className="h-4 w-4" /> Print
+            </button>
+          )}
+        </div>
+      )}
+      {/* Keep the sticky bar from covering the last line on phones */}
+      {lines.length > 0 && !orderOpen && <div className="md:hidden h-16" aria-hidden="true" />}
 
       {/* ---------------- Convert to order ---------------- */}
       {orderingOn && orderOpen && lines.length > 0 && (
-        <div className="rounded-2xl border border-wave/30 bg-white shadow-soft print:hidden">
-          <div className="flex items-center justify-between px-5 py-4 border-b border-ink/10">
+        <div id="place-order-panel" className="rounded-2xl border border-wave/30 bg-white shadow-soft print:hidden scroll-mt-20">
+          <div className="flex items-center justify-between px-4 sm:px-5 py-4 border-b border-ink/10">
             <h2 className="font-display text-xl text-deep font-bold">Place your order</h2>
             <button onClick={() => setOrderOpen(false)} className="p-1.5 rounded-full hover:bg-ink/5">
               <X className="h-4 w-4 text-ink/40" />
             </button>
           </div>
 
-          <div className="px-5 py-5 space-y-4">
+          <div className="px-4 sm:px-5 py-5 space-y-4">
             {unpricedLines.length > 0 && (
               <div className="rounded-xl bg-amber/10 border border-amber/30 px-4 py-3 text-sm text-ink/70 flex items-start gap-2">
                 <AlertTriangle className="h-4 w-4 text-amber flex-shrink-0 mt-0.5" />
@@ -982,7 +1187,7 @@ export default function PricingPage() {
               </div>
             )}
 
-            <div className="flex items-center justify-end gap-2 pt-1">
+            <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2 pt-1">
               <button
                 onClick={() => setOrderOpen(false)}
                 className="rounded-xl border border-ink/10 bg-white px-4 py-2.5 text-sm font-medium"
@@ -992,7 +1197,7 @@ export default function PricingPage() {
               <button
                 onClick={() => submitOrder(false)}
                 disabled={!canSubmit}
-                className="rounded-xl bg-wave text-white px-5 py-2.5 text-sm font-semibold shadow-soft hover:bg-deep disabled:opacity-40 disabled:hover:bg-wave flex items-center gap-2"
+                className="rounded-xl bg-wave text-white px-5 py-2.5 text-sm font-semibold shadow-soft hover:bg-deep disabled:opacity-40 disabled:hover:bg-wave flex items-center justify-center gap-2"
               >
                 {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShoppingCart className="h-4 w-4" />}
                 Place order

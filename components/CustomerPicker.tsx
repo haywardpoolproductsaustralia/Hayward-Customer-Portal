@@ -106,19 +106,28 @@ export function CustomerPicker() {
     <div className="relative">
       <button
         onClick={() => setOpen((v) => !v)}
-        className={`flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors ${
+        className={`flex items-center gap-1.5 sm:gap-2 rounded-lg border px-2.5 sm:px-3 py-1.5 text-sm font-medium transition-colors min-w-0 ${
           selectedCustomer
             ? 'border-wave/30 bg-wave/5 text-deep'
             : 'border-ink/10 bg-white text-ink/60 hover:border-wave/30'
         }`}
       >
-        <User className="h-3.5 w-3.5" />
-        {selectedCustomer ? `Pricing as: ${selectedCustomer.name}` : 'All customers'}
-        <ChevronDown className="h-3.5 w-3.5" />
+        <User className="h-3.5 w-3.5 flex-shrink-0" />
+        <span className="truncate max-w-[9rem] sm:max-w-[16rem] md:max-w-none">
+          {selectedCustomer ? (
+            <>
+              <span className="hidden sm:inline">Pricing as: </span>
+              {selectedCustomer.name}
+            </>
+          ) : (
+            'All customers'
+          )}
+        </span>
+        <ChevronDown className="h-3.5 w-3.5 flex-shrink-0" />
       </button>
 
       {open && (
-        <div className="absolute right-0 z-30 mt-2 w-96 rounded-2xl border border-ink/10 bg-white shadow-soft overflow-hidden">
+        <div className="fixed inset-x-3 top-16 sm:absolute sm:inset-auto sm:right-0 sm:top-auto z-30 sm:mt-2 sm:w-96 rounded-2xl border border-ink/10 bg-white shadow-soft overflow-hidden">
           <div className="flex items-center justify-between px-4 py-3 border-b border-ink/10">
             {viewingDetail ? (
               <button

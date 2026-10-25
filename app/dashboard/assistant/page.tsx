@@ -91,7 +91,7 @@ export default function AssistantPage() {
   return (
     <div className="flex flex-col h-[calc(100vh-200px)] max-w-3xl">
       <div>
-        <h1 className="font-display text-3xl text-deep font-bold">Assistant</h1>
+        <h1 className="font-display text-2xl sm:text-3xl text-deep font-bold">Assistant</h1>
         <p className="text-ink/50 mt-1">Ask about stock, pricing, your orders, or how to install something.</p>
       </div>
 

@@ -303,7 +303,7 @@ export default function ProductsPage() {
     <div className="space-y-5">
       <div className="flex items-end justify-between flex-wrap gap-3">
         <div>
-          <h1 className="font-display text-3xl text-deep font-bold">Products</h1>
+          <h1 className="font-display text-2xl sm:text-3xl text-deep font-bold">Products</h1>
           <p className="text-ink/50 mt-1">Search stock and pricing across every location.</p>
         </div>
         <PriceListExportButton />
@@ -353,7 +353,7 @@ export default function ProductsPage() {
 
       {/* Toolbar: full-width search, sort, grid/list toggle */}
       <div className="flex flex-wrap items-center gap-2">
-        <div className="relative flex-1 min-w-[260px]">
+        <div className="relative flex-1 min-w-full sm:min-w-[260px]">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-ink/30" />
           <input
             value={query}
@@ -501,10 +501,10 @@ export default function ProductsPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-left text-[11px] uppercase tracking-wide text-ink/40 border-b border-ink/10 bg-foam/60">
-                    <th className="px-4 py-3 font-semibold w-44">SKU</th>
+                    <th className="hidden sm:table-cell px-4 py-3 font-semibold w-44">SKU</th>
                     <th className="px-4 py-3 font-semibold">Product</th>
                     <th className="px-4 py-3 font-semibold w-36">Availability</th>
-                    <th className="px-4 py-3 font-semibold w-48">On the way</th>
+                    <th className="hidden md:table-cell px-4 py-3 font-semibold w-48">On the way</th>
                     <th className="px-4 py-3 font-semibold text-right w-40">Price</th>
                   </tr>
                 </thead>
@@ -519,12 +519,22 @@ export default function ProductsPage() {
                         onClick={() => setSelected(item)}
                         className="border-b border-ink/5 last:border-0 hover:bg-foam/50 cursor-pointer transition-colors"
                       >
-                        <td className="px-4 py-2.5 font-mono text-xs text-ink/60 whitespace-nowrap">{item.sku}</td>
-                        <td className="px-4 py-2.5 font-medium text-ink">{item.name || item.sku}</td>
-                        <td className="px-4 py-2.5">
+                        <td className="hidden sm:table-cell px-4 py-2.5 font-mono text-xs text-ink/60 whitespace-nowrap">{item.sku}</td>
+                        <td className="px-3 sm:px-4 py-2.5 font-medium text-ink">
+                          <span className="line-clamp-2 sm:line-clamp-none">{item.name || item.sku}</span>
+                          <span className="block sm:hidden font-mono text-[11px] font-normal text-ink/40 mt-0.5">{item.sku}</span>
+                          {incoming && (
+                            <span className="md:hidden mt-0.5 inline-flex items-center gap-1 text-[11px] font-medium text-wave">
+                              <Truck className="h-3 w-3" />
+                              {incoming.onOrderQty}
+                              {incoming.nextEta ? ` · ${shortDate(incoming.nextEta)}` : ''}
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-2 sm:px-4 py-2.5">
                           <StockPill stock={stock} compact />
                         </td>
-                        <td className="px-4 py-2.5 whitespace-nowrap">
+                        <td className="hidden md:table-cell px-4 py-2.5 whitespace-nowrap">
                           {incoming ? (
                             <span className="inline-flex items-center gap-1 text-xs font-medium text-wave">
                               <Truck className="h-3 w-3" />
@@ -535,7 +545,7 @@ export default function ProductsPage() {
                             <span className="text-xs text-ink/25">—</span>
                           )}
                         </td>
-                        <td className="px-4 py-2.5 text-right whitespace-nowrap">
+                        <td className="px-3 sm:px-4 py-2.5 text-right whitespace-nowrap">
                           <PriceCell price={price} loading={pricesLoading} align="right" />
                         </td>
                       </tr>
