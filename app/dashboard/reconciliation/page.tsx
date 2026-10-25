@@ -9,6 +9,9 @@ const SCROLLBAR_STYLE = `
   #top-scroll { -ms-overflow-style: none; scrollbar-width: none; }
   #bottom-scroll { -ms-overflow-style: none; scrollbar-width: none; }
   #recon-table th, #recon-table td { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* vertical grid lines in the Shipment On Water group */
+  #recon-table th.bg-violet-100, #recon-table td.bg-violet-50 { border-right: 1px solid #c4b5fd; }
+  #recon-table td.bg-violet-50 { border-bottom: 1px solid #ede9fe; }
 `;
 
 // Fixed column widths (px) — 22 columns. Sticky left offsets are derived from these,
