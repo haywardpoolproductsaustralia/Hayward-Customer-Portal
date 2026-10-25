@@ -543,8 +543,6 @@ export default function ReconciliationPage() {
   const [docsNote, setDocsNote] = useState<string | null>(null);
   // Stock scope: 'all' (default) shows every Arrow line; the other two narrow it.
   const [scope,            setScope]            = useState<'all' | 'hayward' | 'paramount'>('all');
-  const showParamount = scope === 'paramount';
-  const [selectedCustomerPO, setSelectedCustomerPO] = useState<string | null>(null);
 
   // Fit-to-screen: scale the table so all 23 columns are visible at 100% browser zoom.
   const [fitToScreen, setFitToScreen] = useState(true);
@@ -690,13 +688,6 @@ export default function ReconciliationPage() {
     }
   }, [arrowLines]);
 
-  // Clear selectedCustomerPO when Paramount is turned off
-  useEffect(() => {
-    if (!showParamount) {
-      setSelectedCustomerPO(null);
-    }
-  }, [showParamount]);
-
   // AS400 CSV upload
   const handleAs400File = useCallback(async (file: File) => {
     setUploadingA4(true);
@@ -776,9 +767,6 @@ export default function ReconciliationPage() {
     let r = rows;
     if (scope === 'paramount') r = r.filter((x) => x.stockCategory === 'PR');
     if (scope === 'hayward')   r = r.filter((x) => x.stockCategory !== 'PR');
-    if (selectedCustomerPO) {
-      r = r.filter((x) => x.deliveryNote4 === selectedCustomerPO);
-    }
     if (tab === 'exceptions')   r = r.filter(isException);
     if (tab === 'stale')        r = r.filter((x) => !!x.stale);
     if (tab === 'not_received') r = r.filter((x) => x.status === 'not_received');
@@ -807,7 +795,7 @@ export default function ReconciliationPage() {
       );
     }
     return r;
-  }, [rows, tab, search, scope, selectedCustomerPO, containerText]);
+  }, [rows, tab, search, scope, containerText]);
 
   const stats = useMemo(() => {
     const inScope = rows.filter((x) =>
@@ -838,17 +826,6 @@ export default function ReconciliationPage() {
     if (ctInfo.shipsgoConfigured && ageH(ctInfo.refresh?.at ?? null) > 8) w.push(`ShipsGo tracking last refreshed ${ctInfo.refresh?.at ? new Date(ctInfo.refresh.at).toLocaleString('en-AU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'never'} — check the /api/containers/refresh cron, or press Refresh tracking`);
     return w;
   }, [arrowMeta, as400Meta, shipMeta, ctInfo]);
-
-  // Get unique customer POs when Paramount is enabled
-  const paramountCustomerPOs = useMemo(() => {
-    if (!showParamount) return [];
-    const pos = new Set(
-      rows
-        .filter((x) => x.stockCategory === 'PR' && x.deliveryNote4)
-        .map((x) => x.deliveryNote4)
-    );
-    return Array.from(pos).sort();
-  }, [rows, showParamount]);
 
   const fmtMeta = (d: string | null) =>
     d ? new Date(d).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : null;
@@ -922,25 +899,6 @@ export default function ReconciliationPage() {
             </button>
           ))}
         </div>
-
-        {/* Customer PO buttons — RIGHT (only visible when Paramount is on) */}
-        {showParamount && paramountCustomerPOs.length > 0 && (
-          <div className="ml-auto flex flex-wrap gap-1 justify-end">
-            {paramountCustomerPOs.map((po) => (
-              <button
-                key={po}
-                onClick={() => setSelectedCustomerPO(selectedCustomerPO === po ? null : po)}
-                className={`rounded-lg px-2.5 py-1.5 text-xs font-medium border transition-colors ${
-                  selectedCustomerPO === po
-                    ? 'bg-purple-600 text-white border-purple-600'
-                    : 'bg-white text-slate-600 border-slate-200 hover:border-purple-300 hover:text-purple-600'
-                }`}
-              >
-                {po}
-              </button>
-            ))}
-          </div>
-        )}
       </div>
 
       {/* ── Table ── */}
