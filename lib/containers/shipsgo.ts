@@ -132,15 +132,13 @@ export async function listAllShipments(): Promise<SgShipment[]> {
 
 /** Diagnostic: how does the list endpoint page? (the dashboard shows more shipments than listAllShipments returns) */
 export async function probeList(): Promise<any> {
-  const out: any = {};
-  for (const q of ["skip=0&take=100", "skip=0&take=50", "skip=0&take=20", "skip=0&take=10", "skip=16&take=100", "page=1&per_page=100", "skip=0&take=100&filters[status]=in:DISCHARGED", "skip=0&take=100&include_archived=1"]) {
-    try {
-      const res = await call(`/ocean/shipments?${q}`);
-      const ships: any[] = Array.isArray(res?.shipments) ? res.shipments : Array.isArray(res) ? res : [];
-      out[q] = { n: ships.length, meta: res?.meta ?? null, keys: Object.keys(res ?? {}), ids: ships.map((x) => x.id), statuses: [...new Set(ships.map((x) => x.status))] };
-    } catch (e: any) { out[q] = { error: e?.message?.slice(0, 300) }; }
-  }
-  return out;
+  const res = await call(`/ocean/shipments?skip=0&take=100`);
+  const ships: any[] = Array.isArray(res?.shipments) ? res.shipments : [];
+  return {
+    n: ships.length,
+    keys: Object.keys(ships[0] ?? {}),
+    rows: ships.map((x) => ({ id: x.id, status: x.status, discarded_at: x.discarded_at ?? null, archived_at: x.archived_at ?? null, container: x.container_number, updated_at: x.updated_at, created_at: x.created_at })),
+  };
 }
 
 /** Is this container already tracked on the account? (free — no credit) */
