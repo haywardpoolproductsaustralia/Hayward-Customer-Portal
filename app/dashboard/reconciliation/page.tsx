@@ -47,7 +47,8 @@ import {
 type ArrowLine = {
   po: string;
   deliveryNote4: string;
-  poStatus?: string;                     // PORMAST.STATUS_FLAG — 'O' open, 'Q' quote, '' as keyed (C/X never reach the page)
+  poStatus?: string;                     // PORMAST.STATUS_FLAG — 'O' open, 'I' something received, 'Q' quote (C/X never reach the page)
+  lineStatus?: string;                   // PORTRAN.STATUS_FLAG — 'O' open, 'E' partially received, 'C' closed (incl. closed short)
   arrowStock: string;
   supplierSku: string;
   description: string | null;
@@ -110,7 +111,7 @@ type ReconRow = ArrowLine & {
   vessel: string | null;
   containerEta: string | null;
   carrier: string | null;
-  status: 'received' | 'missing' | 'not_received' | 'shipped' | 'in_transit' | 'delivered' | 'ok';
+  status: 'received' | 'closed' | 'missing' | 'not_received' | 'shipped' | 'in_transit' | 'delivered' | 'ok';
   lateVsRequest: boolean;
   qtyMismatch: boolean;
   matchType: 'exact' | 'alias' | null;   // alias = matched on PO + qty because SKU codes differ
@@ -175,6 +176,7 @@ const AUNZ_PORTS = new Set([
 function statusBadge(s: ReconRow['status']) {
   const map: Record<ReconRow['status'], { label: string; cls: string }> = {
     received:     { label: 'Received',    cls: 'bg-emerald-600 text-white' },
+    closed:       { label: 'Closed short', cls: 'bg-slate-600 text-white' },
     missing:      { label: 'Missing',     cls: 'bg-red-500 text-white' },
     not_received: { label: 'Awaiting',    cls: 'bg-orange-400 text-white' },
     shipped:      { label: 'Shipped',     cls: 'bg-sky-500 text-white' },
@@ -195,7 +197,7 @@ const STALE_WHY: Record<NonNullable<ReconRow['stale']>, string> = {
 };
 
 function isException(x: ReconRow) {
-  return x.status !== 'received' && (x.status === 'missing' || x.qtyMismatch || x.matchType === 'alias');
+  return x.status !== 'received' && x.status !== 'closed' && (x.status === 'missing' || x.qtyMismatch || x.matchType === 'alias');
 }
 
 function addrMatch(row: ReconRow): 'ok' | 'warn' | 'unknown' {
@@ -409,7 +411,7 @@ function reconcile(arrow: ArrowLine[], as400: As400Line[], ship: ShipLine[]): Re
     const shipped = ctUnits > 0 || (!!a4 && as400Shpd > 0);
     const shipDateOverdue = !shipped && !!a4?.shipDate && a4.shipDate < today && a.qtyOutstanding > 0;
     const daysOpen = a.orderDate ? Math.round((Date.parse(today) - Date.parse(a.orderDate)) / 86400000) : 0;
-    const stale: ReconRow['stale'] = !shipped && a.qtyReceived <= 0 && a.qtyOutstanding > 0 && daysOpen >= STALE_DAYS && !(a4?.eta && a4.eta > today)
+    const stale: ReconRow['stale'] = !shipped && a.qtyReceived <= 0 && a.qtyOutstanding > 0 && a.lineStatus !== 'C' && daysOpen >= STALE_DAYS && !(a4?.eta && a4.eta > today)
       ? (!a4 ? (as400Pos.has(a.po) ? 'item-missing' : 'po-missing') : 'never-shipped')
       : null;
     const onWater = !shipped ? 0
@@ -419,7 +421,8 @@ function reconcile(arrow: ArrowLine[], as400: As400Line[], ship: ShipLine[]): Re
 
     let status: ReconRow['status'] = 'ok';
     // Fully received in Arrow — the line is done whatever AS400 or the forwarders say; kept on the page so the whole PO is visible.
-    if (a.qtyOutstanding <= 0 && a.qtyReceived > 0) status = 'received';
+    if (a.qtyOutstanding <= 0 && a.qtyReceived >= a.qtyOrdered && a.qtyReceived > 0) status = 'received';
+    else if (a.qtyOutstanding <= 0 || a.lineStatus === 'C') status = 'closed';   // closed short in Arrow — done, whatever was received
     else if (!a4)                  status = 'missing';
     else if (latest?.delivered)    status = 'delivered';
     else if (latest)               status = 'in_transit';
@@ -785,7 +788,7 @@ export default function ReconciliationPage() {
     if (tab === 'shipped')      r = r.filter((x) => x.status === 'shipped');
     if (tab === 'in_transit')   r = r.filter((x) => x.status === 'in_transit');
     if (tab === 'delivered')    r = r.filter((x) => x.status === 'delivered');
-    if (tab === 'received')     r = r.filter((x) => x.status === 'received');
+    if (tab === 'received')     r = r.filter((x) => x.status === 'received' || x.status === 'closed');
     if (search.trim()) {
       const q = search.trim().toLowerCase();
       r = r.filter((x) =>
@@ -823,7 +826,7 @@ export default function ReconciliationPage() {
       shipped:    inScope.filter((x) => x.status === 'shipped').length,
       inTransit:  inScope.filter((x) => x.status === 'in_transit').length,
       delivered:  inScope.filter((x) => x.status === 'delivered').length,
-      received:   inScope.filter((x) => x.status === 'received').length,
+      received:   inScope.filter((x) => x.status === 'received' || x.status === 'closed').length,
       late:       inScope.filter((x) => x.lateVsRequest).length,
     };
   }, [rows, scope]);
@@ -1112,7 +1115,7 @@ export default function ReconciliationPage() {
               ) : (
                 filtered.map((r, i) => {
                   const addr = addrMatch(r);
-                  const rowBase = r.status === 'received' ? 'opacity-60' : '';
+                  const rowBase = r.status === 'received' || r.status === 'closed' ? 'opacity-60' : '';
                   // container tracking for this line: by supplier SKU, else by the AS400 item code, else PO-level
                   const lineCts = ctIdx.byLine.get(ctLineKey(r.po, r.supplierSku))
                     ?? (r.as400Item ? ctIdx.byLine.get(ctLineKey(r.po, r.as400Item)) : undefined) ?? [];
