@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import {
   CheckCircle2,
   Clock,
@@ -217,6 +217,13 @@ export default function OrdersPage() {
   const [branchFilter, setBranchFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
 
+  // Rendering all ~7k lines at once is what makes the page freeze after clearing a filter.
+  // Only the first PAGE rows are mounted; the rest load on demand. The count resets whenever
+  // the filter set changes.
+  const PAGE = 150;
+  const [visibleCount, setVisibleCount] = useState(PAGE);
+  useEffect(() => { setVisibleCount(PAGE); }, [orderNoSearch, customerOrderNoSearch, skuSearch, branchFilter, statusFilter]);
+
   const [sortRules, setSortRules] = useState<SortRule[]>([
     { column: 'orderDate', direction: 'desc' },
   ]);
@@ -355,17 +362,25 @@ export default function OrdersPage() {
     }
   };
 
+  // Deferred copies: React commits the control's own change first, then recomputes the table
+  // in the background, so clicking ✕ / Clear filters feels instant.
+  const dOrderNo = useDeferredValue(orderNoSearch);
+  const dCustomerOrderNo = useDeferredValue(customerOrderNoSearch);
+  const dSku = useDeferredValue(skuSearch);
+  const dBranch = useDeferredValue(branchFilter);
+  const dStatus = useDeferredValue(statusFilter);
+
   const filtered = useMemo(() => {
-    const orderNoTrim = orderNoSearch.trim();
-    const customerOrderNoTrim = customerOrderNoSearch.trim().toUpperCase();
-    const skuTrim = skuSearch.trim().toUpperCase();
+    const orderNoTrim = dOrderNo.trim();
+    const customerOrderNoTrim = dCustomerOrderNo.trim().toUpperCase();
+    const skuTrim = dSku.trim().toUpperCase();
 
     let result = orders
       .filter((o) => !orderNoTrim || o.orderNo.includes(orderNoTrim))
       .filter((o) => !customerOrderNoTrim || (o.customerOrderNo ?? '').toUpperCase().includes(customerOrderNoTrim))
       .filter((o) => !skuTrim || o.sku.toUpperCase().includes(skuTrim))
-      .filter((o) => branchFilter === 'all' || o.customerCode === branchFilter)
-      .filter((o) => statusFilter === 'all' || o.statusFlag === statusFilter);
+      .filter((o) => dBranch === 'all' || o.customerCode === dBranch)
+      .filter((o) => dStatus === 'all' || o.statusFlag === dStatus);
 
     // Apply multi-column sorting
     if (sortRules.length > 0) {
@@ -402,7 +417,7 @@ export default function OrdersPage() {
     }
 
     return result;
-  }, [orders, orderNoSearch, customerOrderNoSearch, skuSearch, branchFilter, statusFilter, sortRules, stockBySku]);
+  }, [orders, dOrderNo, dCustomerOrderNo, dSku, dBranch, dStatus, sortRules, stockBySku]);
 
   function clearFilters() {
     setOrderNoSearch('');
@@ -700,7 +715,7 @@ export default function OrdersPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-ink/5">
-                {filtered.map((o, i) => {
+                {filtered.slice(0, visibleCount).map((o, i) => {
                   const status = STATUS[o.statusFlag] ?? {
                     label: o.statusFlag || 'Unknown',
                     icon: FileText,
@@ -744,6 +759,23 @@ export default function OrdersPage() {
               </tbody>
             </table>
           </div>
+          {filtered.length > visibleCount && (
+            <div className="flex items-center justify-center gap-3 border-t border-ink/5 bg-foam/40 px-4 py-3 text-xs text-ink/50">
+              <span>Showing {visibleCount.toLocaleString()} of {filtered.length.toLocaleString()} lines</span>
+              <button
+                onClick={() => setVisibleCount((c) => c + 500)}
+                className="rounded-lg border border-ink/10 bg-white px-3 py-1.5 font-medium text-deep hover:border-wave/40"
+              >
+                Show 500 more
+              </button>
+              <button
+                onClick={() => setVisibleCount(filtered.length)}
+                className="rounded-lg px-2 py-1.5 font-medium text-wave hover:underline"
+              >
+                Show all
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>
