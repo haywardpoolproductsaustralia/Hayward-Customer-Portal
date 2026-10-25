@@ -9,6 +9,14 @@ const outfit = Outfit({ subsets: ['latin'], variable: '--font-outfit' });
 export const metadata: Metadata = {
   title: 'Hayward Customer Portal',
   description: 'Stock, order status, and your pricing - all in one place.',
+  icons: {
+    icon: [
+      { url: '/favicon.ico', sizes: 'any' },
+      { url: '/icon.png', type: 'image/png', sizes: '512x512' },
+    ],
+    apple: '/apple-icon.png',
+    shortcut: '/favicon.ico',
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
