@@ -109,7 +109,7 @@ type ReconRow = ArrowLine & {
   vessel: string | null;
   containerEta: string | null;
   carrier: string | null;
-  status: 'missing' | 'not_received' | 'shipped' | 'in_transit' | 'delivered' | 'ok';
+  status: 'received' | 'missing' | 'not_received' | 'shipped' | 'in_transit' | 'delivered' | 'ok';
   lateVsRequest: boolean;
   qtyMismatch: boolean;
   matchType: 'exact' | 'alias' | null;   // alias = matched on PO + qty because SKU codes differ
@@ -165,6 +165,7 @@ const AUNZ_PORTS = new Set([
 
 function statusBadge(s: ReconRow['status']) {
   const map: Record<ReconRow['status'], { label: string; cls: string }> = {
+    received:     { label: 'Received',    cls: 'bg-emerald-600 text-white' },
     missing:      { label: 'Missing',     cls: 'bg-red-500 text-white' },
     not_received: { label: 'Awaiting',    cls: 'bg-orange-400 text-white' },
     shipped:      { label: 'Shipped',     cls: 'bg-sky-500 text-white' },
@@ -177,7 +178,7 @@ function statusBadge(s: ReconRow['status']) {
 }
 
 function isException(x: ReconRow) {
-  return x.status === 'missing' || x.qtyMismatch || x.matchType === 'alias';
+  return x.status !== 'received' && (x.status === 'missing' || x.qtyMismatch || x.matchType === 'alias');
 }
 
 function addrMatch(row: ReconRow): 'ok' | 'warn' | 'unknown' {
@@ -395,7 +396,9 @@ function reconcile(arrow: ArrowLine[], as400: As400Line[], ship: ShipLine[]): Re
       : a.qtyOutstanding;
 
     let status: ReconRow['status'] = 'ok';
-    if (!a4)                       status = 'missing';
+    // Fully received in Arrow — the line is done whatever AS400 or the forwarders say; kept on the page so the whole PO is visible.
+    if (a.qtyOutstanding <= 0 && a.qtyReceived > 0) status = 'received';
+    else if (!a4)                  status = 'missing';
     else if (latest?.delivered)    status = 'delivered';
     else if (latest)               status = 'in_transit';
     else if (shipped)              status = 'shipped';
@@ -494,7 +497,7 @@ function UploadBanner({
 // Page
 // ---------------------------------------------------------------------------
 
-type FilterTab = 'all' | 'exceptions' | 'not_received' | 'shipped' | 'in_transit' | 'delivered';
+type FilterTab = 'all' | 'exceptions' | 'not_received' | 'shipped' | 'in_transit' | 'delivered' | 'received';
 
 export default function ReconciliationPage() {
   const [arrowLines, setArrowLines] = useState<ArrowLine[]>([]);
@@ -740,6 +743,7 @@ export default function ReconciliationPage() {
     if (tab === 'shipped')      r = r.filter((x) => x.status === 'shipped');
     if (tab === 'in_transit')   r = r.filter((x) => x.status === 'in_transit');
     if (tab === 'delivered')    r = r.filter((x) => x.status === 'delivered');
+    if (tab === 'received')     r = r.filter((x) => x.status === 'received');
     if (search.trim()) {
       const q = search.trim().toLowerCase();
       r = r.filter((x) =>
@@ -776,6 +780,7 @@ export default function ReconciliationPage() {
       shipped:    inScope.filter((x) => x.status === 'shipped').length,
       inTransit:  inScope.filter((x) => x.status === 'in_transit').length,
       delivered:  inScope.filter((x) => x.status === 'delivered').length,
+      received:   inScope.filter((x) => x.status === 'received').length,
       late:       inScope.filter((x) => x.lateVsRequest).length,
     };
   }, [rows, scope]);
@@ -812,6 +817,7 @@ export default function ReconciliationPage() {
     { id: 'shipped',      label: 'Shipped · no container', count: stats.shipped },
     { id: 'in_transit',   label: 'In transit',    count: stats.inTransit },
     { id: 'delivered',    label: 'Delivered',      count: stats.delivered },
+    { id: 'received',     label: 'Received',       count: stats.received },
   ];
 
   return (
@@ -1061,7 +1067,7 @@ export default function ReconciliationPage() {
               ) : (
                 filtered.map((r, i) => {
                   const addr = addrMatch(r);
-                  const rowBase = '';
+                  const rowBase = r.status === 'received' ? 'opacity-60' : '';
                   // container tracking for this line: by supplier SKU, else by the AS400 item code, else PO-level
                   const lineCts = ctIdx.byLine.get(ctLineKey(r.po, r.supplierSku))
                     ?? (r.as400Item ? ctIdx.byLine.get(ctLineKey(r.po, r.as400Item)) : undefined) ?? [];
