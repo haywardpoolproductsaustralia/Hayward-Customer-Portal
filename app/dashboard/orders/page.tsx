@@ -198,6 +198,20 @@ export default function OrdersPage() {
   const { selectedCustomer } = useSelectedCustomer();
 
   const [orderNoSearch, setOrderNoSearch] = useState('');
+
+  // Frozen table header: sticks just under the dashboard's sticky top bar while the page scrolls.
+  // The card must NOT be a scroll container (overflow-x-auto traps position:sticky), same approach
+  // as the Purchasing page.
+  const [headTop, setHeadTop] = useState(57);
+  useEffect(() => {
+    const bar = document.querySelector<HTMLElement>('header');
+    if (!bar) return;
+    const m = () => setHeadTop(bar.offsetHeight);
+    m();
+    const ro = new ResizeObserver(m);
+    ro.observe(bar);
+    return () => ro.disconnect();
+  }, []);
   const [customerOrderNoSearch, setCustomerOrderNoSearch] = useState('');
   const [skuSearch, setSkuSearch] = useState('');
   const [branchFilter, setBranchFilter] = useState('all');
@@ -522,7 +536,6 @@ export default function OrdersPage() {
             label="Branch"
             placeholder="All branches"
             mono={false}
-            liveFilter={false}
             options={branchStringOptions}
             value={branchFilter === 'all' ? '' : (branchLabelByCode.get(branchFilter) ?? '')}
             onChange={(v) => setBranchFilter(v ? (branchCodeByLabel.get(v) ?? 'all') : 'all')}
@@ -555,11 +568,11 @@ export default function OrdersPage() {
           <p className="text-ink/40">No orders matched those filters.</p>
         </div>
       ) : (
-        <div className="rounded-2xl border border-ink/10 bg-white shadow-soft overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[1200px] table-fixed text-sm border-collapse">
+        <div className="rounded-2xl border border-ink/10 bg-white shadow-soft" style={{ overflow: 'clip' }}>
+          <div>
+            <table className="w-full table-fixed text-sm border-collapse">
               <thead>
-                <tr className="sticky top-0 z-10 bg-deep text-left text-[11px] uppercase tracking-[0.08em] text-white/70 divide-x divide-white/10 [&>th]:px-3 [&>th]:py-3 [&>th]:font-semibold [&>th]:break-words shadow-[0_1px_0_0_rgba(7,89,133,0.25)]">
+                <tr style={{ top: headTop }} className="sticky z-10 bg-deep text-left text-[11px] uppercase tracking-[0.08em] text-white/70 divide-x divide-white/10 [&>th]:px-3 [&>th]:py-3 [&>th]:font-semibold [&>th]:break-words shadow-[0_1px_0_0_rgba(7,89,133,0.25)]">
                   <th className="w-[7%]">
                     <SortableHeader
                       label="Order #"
@@ -568,7 +581,7 @@ export default function OrdersPage() {
                       onSort={handleSort}
                     />
                   </th>
-                  <th className="w-[7%]">
+                  <th className="w-[9%]">
                     <SortableHeader
                       label="Customer order #"
                       column="customerOrderNo"
@@ -577,7 +590,7 @@ export default function OrdersPage() {
                     />
                   </th>
                   {isHeadOffice && (
-                    <th className="w-[13%]">
+                    <th className="w-[12%]">
                       <SortableHeader
                         label="Branch"
                         column="branchName"
@@ -610,7 +623,7 @@ export default function OrdersPage() {
                       onSort={handleSort}
                     />
                   </th>
-                  <th className="w-[11%]">
+                  <th className="w-[10%]">
                     <SortableHeader
                       label="SKU"
                       column="sku"
