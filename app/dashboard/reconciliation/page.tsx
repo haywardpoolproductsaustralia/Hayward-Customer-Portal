@@ -17,11 +17,16 @@ const COL_ORDER  = [66, 84, 80, 78];                      // Order: PO, Customer
 const COL_ARROW  = [120, 112, 76, 76, 60, 64, 56];        // Arrow AU: Stock, Supplier SKU, Order date, ETA, Ordered, Received, SOH
 const COL_SUPPLY = [100, 56, 56, 76, 76, 104];            // Supplier: PO ref, ENT, SHPD, Ship date, ETA, US SO#
 const COL_SUPPLY_COLLAPSED = [34];                        // Supplier group collapsed to one narrow toggle column
-const COL_SHIP   = [56, 168, 112, 76, 92];                // Shipment: On water, Container, Vessel, Cont. ETA, Supplier
+const COL_SHIP   = [56, 230, 140, 76, 120];               // Shipment: On water, Container, Vessel, Cont. ETA, Supplier (minimums)
+// Whatever width is left after the fixed columns is shared between these Shipment columns (weights) so the
+// table always reaches the right edge of the card — the sticky Order/Arrow columns keep fixed widths because
+// their frozen offsets are hard-coded.
+const FLEX_SHIP  = [0, 3, 2, 0, 2];
 const colWidths = (supplierOpen: boolean) => [...COL_ORDER, ...COL_ARROW, ...(supplierOpen ? COL_SUPPLY : COL_SUPPLY_COLLAPSED), ...COL_SHIP];
 const COL_W = colWidths(true);
 const TABLE_W = COL_W.reduce((a, b) => a + b, 0);
 const MIN_ZOOM = 0.55;
+const MAX_ZOOM = 1.3;  // fit-to-screen may also scale UP (bigger text) when the screen is wider than the table
 // Full-width PO reconciliation: Arrow AU vs AS400 (Snowflake upload) vs CDS-Net shipments.
 // AS400 data is uploaded in the browser; shipment/container data comes from the container store
 // (Century CSV, ShipsGo, supplier PDFs — and the CDS xlsx if one ever arrives via the mailbox).
@@ -520,9 +525,9 @@ export default function ReconciliationPage() {
   const [supplierOpen, setSupplierOpen] = useState(false);
   useEffect(() => { try { setSupplierOpen(localStorage.getItem('recon.supplierOpen') === '1'); } catch { /* ignore */ } }, []);
   const toggleSupplier = useCallback(() => setSupplierOpen((v) => { try { localStorage.setItem('recon.supplierOpen', v ? '0' : '1'); } catch { /* ignore */ } return !v; }), []);
-  const cols = colWidths(supplierOpen);
-  const tableW = cols.reduce((a, b) => a + b, 0);
-  const colCount = cols.length;
+  const baseCols = colWidths(supplierOpen);
+  const baseW = baseCols.reduce((a, b) => a + b, 0);
+  const colCount = baseCols.length;
   const [availWidth,  setAvailWidth]  = useState<number>(TABLE_W);
   const tableWrapRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -534,7 +539,16 @@ export default function ReconciliationPage() {
     ro.observe(el);
     return () => ro.disconnect();
   }, [loading]); // wrapper only exists once data has loaded
-  const tableZoom = fitToScreen ? Math.max(MIN_ZOOM, Math.min(1, (availWidth - 2) / tableW)) : 1;
+  // Fit: scale so the fixed columns fit (down to MIN_ZOOM) or, on a wide screen, scale up to MAX_ZOOM; then give any
+  // width still left over to the flexible Shipment columns so the table ends at the card's right edge either way.
+  const tableZoom = fitToScreen ? Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, (availWidth - 2) / baseW)) : 1;
+  const slack = Math.max(0, (availWidth - 2) / tableZoom - baseW);
+  const flexSum = FLEX_SHIP.reduce((a, b) => a + b, 0);
+  const cols = baseCols.map((w, i) => {
+    const fi = i - (colCount - COL_SHIP.length);
+    return fi >= 0 && FLEX_SHIP[fi] ? Math.floor(w + (slack * FLEX_SHIP[fi]) / flexSum) : w;
+  });
+  const tableW = cols.reduce((a, b) => a + b, 0);
 
   useEffect(() => {
     Promise.all([
@@ -906,7 +920,7 @@ export default function ReconciliationPage() {
               className="flex items-center gap-2 rounded-xl border border-ink/10 bg-white px-4 py-2 text-sm font-medium shadow-soft hover:border-wave/30 transition-colors"
             >
               {fitToScreen ? '⤢ Actual size' : '⤡ Fit to screen'}
-              {fitToScreen && tableZoom < 1 && <span className="text-xs text-slate-400">{Math.round(tableZoom * 100)}%</span>}
+              {fitToScreen && Math.round(tableZoom * 100) !== 100 && <span className="text-xs text-slate-400">{Math.round(tableZoom * 100)}%</span>}
             </button>
             <button
               onClick={() => {
