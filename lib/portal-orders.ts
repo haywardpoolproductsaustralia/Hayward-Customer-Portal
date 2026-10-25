@@ -28,7 +28,13 @@ import { redis } from "@/lib/redis";
 
 export const CLAIM_TTL_MS = 20 * 60 * 1000; // 20 minutes
 
-export type PortalOrderStatus = "new" | "claimed" | "keyed" | "cancelled";
+/**
+ * `void` is the staff "this should never have existed" state - test orders,
+ * fat-finger submissions. Unlike `cancelled` it needs no claim and no reason,
+ * can be applied to an already-exported order, and is reversible (unvoid).
+ * Voided orders are hidden from the queue and never exported to Arrow.
+ */
+export type PortalOrderStatus = "new" | "claimed" | "keyed" | "cancelled" | "void";
 
 export interface PortalOrderLine {
   sku: string;
@@ -93,6 +99,17 @@ export interface PortalOrder extends PortalOrderData {
   /** Free-text reason captured when staff cancel/reject an order. */
   cancelReason: string | null;
 
+  // Set when staff void the order (test order, raised by mistake). Reversible.
+  voidedAt: number | null;
+  voidedBy: string | null;
+  voidedByName: string | null;
+
+  // Set when staff have eyeballed a price-mismatch order and are happy with
+  // the stored (server-recomputed) prices. Clears the "price differs" warning
+  // without touching the order itself.
+  priceReviewedAt: number | null;
+  priceReviewedByName: string | null;
+
   // Set when the order is exported to Arrow's sales-order import CSV. The
   // export is the replacement for keying, so a set exportedAt means "this
   // order is on its way into Arrow - do not export or key it again".
@@ -121,6 +138,9 @@ export function customerStatus(o: PortalOrder): { label: string; detail: string 
   if (o.status === "cancelled") {
     return { label: "Cancelled", detail: o.cancelReason };
   }
+  if (o.status === "void") {
+    return { label: "Cancelled", detail: null };
+  }
   if (o.seenInArrow && o.arrowOrderNo) {
     return { label: "Accepted", detail: `Hayward order ${o.arrowOrderNo}` };
   }
@@ -145,6 +165,11 @@ function rowToRecord(id: string, h: Record<string, unknown>): PortalOrder {
     keyedByName: (h.keyedByName as string) || null,
     keyedAt: num(h.keyedAt),
     cancelReason: (h.cancelReason as string) || null,
+    voidedAt: num(h.voidedAt) || null,
+    voidedBy: (h.voidedBy as string) || null,
+    voidedByName: (h.voidedByName as string) || null,
+    priceReviewedAt: num(h.priceReviewedAt) || null,
+    priceReviewedByName: (h.priceReviewedByName as string) || null,
     exportedAt: num(h.exportedAt) || null,
     exportedBy: (h.exportedBy as string) || null,
     exportedByName: (h.exportedByName as string) || null,
@@ -180,16 +205,22 @@ async function hydrate(ids: string[]): Promise<PortalOrder[]> {
 }
 
 /**
- * Staff view: newest first. Hides closed orders unless asked. An order is
- * closed once it is keyed, cancelled, or has been seen in Arrow - the last one
- * matters now orders go in by CSV import: nobody presses "Mark keyed", so the
- * Arrow matcher finding the order is what takes it off the open queue.
+ * An order is closed once it is keyed, cancelled, voided, or has been seen in
+ * Arrow - the last one matters now orders go in by CSV import: nobody presses
+ * "Mark keyed", so the Arrow matcher finding the order is what takes it off
+ * the open queue. Shared with the UI so the warning banner counts the same
+ * set of orders the list shows by default.
  */
+export function isClosed(o: Pick<PortalOrder, "status" | "seenInArrow">): boolean {
+  return o.status === "keyed" || o.status === "cancelled" || o.status === "void" || o.seenInArrow;
+}
+
+/** Staff view: newest first. Hides closed orders unless asked. */
 export async function listPortalOrders(opts: { includeClosed?: boolean } = {}): Promise<PortalOrder[]> {
   const ids = await redis.zrange<string[]>(INDEX, 0, -1, { rev: true });
   const all = await hydrate(ids);
   if (opts.includeClosed) return all;
-  return all.filter((o) => o.status !== "keyed" && o.status !== "cancelled" && !o.seenInArrow);
+  return all.filter((o) => !isClosed(o));
 }
 
 /** Customer view: their own orders across every account code they can see. */
@@ -237,6 +268,11 @@ export async function createPortalOrder(data: PortalOrderData): Promise<string> 
     keyedByName: "",
     keyedAt: "0",
     cancelReason: "",
+    voidedAt: "0",
+    voidedBy: "",
+    voidedByName: "",
+    priceReviewedAt: "0",
+    priceReviewedByName: "",
     exportedAt: "0",
     exportedBy: "",
     exportedByName: "",
@@ -265,7 +301,7 @@ const CLAIM_LUA = `
 local exists = redis.call('EXISTS', KEYS[1])
 if exists == 0 then return 'NOT_FOUND' end
 local status = redis.call('HGET', KEYS[1], 'status')
-if status == 'keyed' or status == 'cancelled' then return 'CLOSED' end
+if status == 'keyed' or status == 'cancelled' or status == 'void' then return 'CLOSED' end
 local owner = redis.call('HGET', KEYS[1], 'claimedBy')
 local expires = tonumber(redis.call('HGET', KEYS[1], 'claimExpiresAt')) or 0
 local now = tonumber(ARGV[3])
@@ -299,6 +335,35 @@ if status == 'keyed' then return 'ALREADY_KEYED' end
 local owner = redis.call('HGET', KEYS[1], 'claimedBy')
 if owner ~= ARGV[1] then return 'NOT_OWNER' end
 redis.call('HSET', KEYS[1], 'status', 'cancelled', 'cancelReason', ARGV[2], 'keyedBy', ARGV[1], 'keyedByName', ARGV[3], 'keyedAt', ARGV[4])
+return 'OK'
+`;
+
+/**
+ * Void needs no claim: whoever is on the queue can do it, even if someone else
+ * holds the claim (the claim is cleared). The only thing it refuses is an order
+ * keyed by hand - that one is in Arrow already and voiding here would just lie.
+ * An exported order CAN be voided; the UI warns that Arrow may need cleaning up.
+ */
+const VOID_LUA = `
+if redis.call('EXISTS', KEYS[1]) == 0 then return 'NOT_FOUND' end
+local status = redis.call('HGET', KEYS[1], 'status')
+if status == 'keyed' then return 'ALREADY_KEYED' end
+if status == 'void' then return 'OK' end
+redis.call('HSET', KEYS[1], 'status', 'void', 'voidedBy', ARGV[1], 'voidedByName', ARGV[2], 'voidedAt', ARGV[3], 'claimedBy', '', 'claimedByName', '', 'claimAt', '0', 'claimExpiresAt', '0')
+return 'OK'
+`;
+
+const UNVOID_LUA = `
+if redis.call('EXISTS', KEYS[1]) == 0 then return 'NOT_FOUND' end
+local status = redis.call('HGET', KEYS[1], 'status')
+if status ~= 'void' then return 'CLOSED' end
+redis.call('HSET', KEYS[1], 'status', 'new', 'voidedBy', '', 'voidedByName', '', 'voidedAt', '0')
+return 'OK'
+`;
+
+const PRICE_REVIEW_LUA = `
+if redis.call('EXISTS', KEYS[1]) == 0 then return 'NOT_FOUND' end
+redis.call('HSET', KEYS[1], 'priceReviewedAt', ARGV[1], 'priceReviewedByName', ARGV[2])
 return 'OK'
 `;
 
@@ -353,6 +418,21 @@ export async function cancelOrder(
   return toOutcome(res);
 }
 
+export async function voidOrder(id: string, userId: string, userName: string): Promise<ClaimOutcome> {
+  const res = (await redis.eval(VOID_LUA, [itemKey(id)], [userId, userName, String(Date.now())])) as string;
+  return toOutcome(res);
+}
+
+export async function unvoidOrder(id: string): Promise<ClaimOutcome> {
+  const res = (await redis.eval(UNVOID_LUA, [itemKey(id)], [])) as string;
+  return toOutcome(res);
+}
+
+export async function markPriceReviewed(id: string, userName: string): Promise<ClaimOutcome> {
+  const res = (await redis.eval(PRICE_REVIEW_LUA, [itemKey(id)], [String(Date.now()), userName])) as string;
+  return toOutcome(res);
+}
+
 export async function heartbeatOrder(id: string, userId: string): Promise<ClaimOutcome> {
   const res = (await redis.eval(
     HEARTBEAT_LUA,
@@ -364,7 +444,7 @@ export async function heartbeatOrder(id: string, userId: string): Promise<ClaimO
 
 // --- export to Arrow CSV ---------------------------------------------------
 
-export type ExportSkipReason = "not_found" | "cancelled" | "keyed" | "in_arrow" | "exported" | "claimed";
+export type ExportSkipReason = "not_found" | "cancelled" | "void" | "keyed" | "in_arrow" | "exported" | "claimed";
 
 /**
  * Atomically stamp an order as exported, unless something says it must not
@@ -377,6 +457,7 @@ const EXPORT_LUA = `
 if redis.call('EXISTS', KEYS[1]) == 0 then return 'NOT_FOUND' end
 local status = redis.call('HGET', KEYS[1], 'status')
 if status == 'cancelled' then return 'CANCELLED' end
+if status == 'void' then return 'VOID' end
 if status == 'keyed' then return 'KEYED' end
 if redis.call('HGET', KEYS[1], 'seenInArrow') == '1' then return 'IN_ARROW' end
 local exported = tonumber(redis.call('HGET', KEYS[1], 'exportedAt')) or 0
@@ -393,6 +474,7 @@ return 'OK'
 const EXPORT_REASON: Record<string, ExportSkipReason> = {
   NOT_FOUND: "not_found",
   CANCELLED: "cancelled",
+  VOID: "void",
   KEYED: "keyed",
   IN_ARROW: "in_arrow",
   EXPORTED: "exported",

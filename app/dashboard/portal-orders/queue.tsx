@@ -1,8 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { PortalOrder } from "@/lib/portal-orders";
-import { Copy, Check, ChevronRight, Lock, Download, AlertTriangle, ShoppingCart, FileUp } from "lucide-react";
+import { isClosed, type PortalOrder } from "@/lib/portal-orders";
+import { Copy, Check, ChevronRight, Lock, Download, AlertTriangle, ShoppingCart, FileUp, Ban, Undo2 } from "lucide-react";
 import * as XLSX from "xlsx";
 
 const POLL_MS = 7_000;
@@ -119,7 +119,9 @@ export default function PortalOrderQueue({ meId, meName }: { meId: string; meNam
           data.reason === "taken"
             ? `${data.by} is already working on that one.`
             : data.reason === "already_keyed"
-              ? "That order has already been keyed."
+              ? action === "void"
+                ? "That order was keyed into Arrow by hand - cancel it in Arrow instead."
+                : "That order has already been keyed."
               : data.reason === "not_owner"
                 ? "Your claim on that order expired - claim it again."
                 : "That didn't go through.";
@@ -261,7 +263,20 @@ export default function PortalOrderQueue({ meId, meName }: { meId: string; meNam
     exportArrow([o.id], !!o.exportedAt);
   }
 
-  const mismatchCount = filtered.filter((o) => o.lines.some((l) => l.priceMismatch)).length;
+  // A mismatch is only worth shouting about on an order someone still has to
+  // act on: open, not yet seen in Arrow, and not already reviewed by staff.
+  const needsPriceCheck = (o: PortalOrder) =>
+    !isClosed(o) && !o.priceReviewedAt && o.lines.some((l) => l.priceMismatch);
+  const mismatchCount = filtered.filter(needsPriceCheck).length;
+
+  function voidOne(o: PortalOrder) {
+    const inArrow = o.seenInArrow && o.arrowOrderNo ? `Arrow order ${o.arrowOrderNo}` : o.exportedAt ? "an Arrow import file" : null;
+    const warning = inArrow
+      ? `\n\n${o.ref} has already gone to ${inArrow}. Voiding it here only hides it on the portal - make sure it is cancelled in Arrow too.`
+      : "";
+    if (!window.confirm(`Void ${o.ref} (${o.debtorName ?? o.debtorCode}, PO ${o.poRef})?\n\nIt will be hidden from the queue and never exported. You can unvoid it from "Show keyed / cancelled / void".${warning}`)) return;
+    act(o.id, "void");
+  }
 
   return (
     <div className="space-y-6">
@@ -276,7 +291,7 @@ export default function PortalOrderQueue({ meId, meName }: { meId: string; meNam
         <div className="flex items-center gap-2">
           <label className="flex items-center gap-2 text-sm text-ink/50">
             <input type="checkbox" checked={showClosed} onChange={(e) => setShowClosed(e.target.checked)} />
-            Show keyed / cancelled
+            Show keyed / cancelled / void
           </label>
           {filtered.length > 0 && (
             <button
@@ -361,6 +376,8 @@ export default function PortalOrderQueue({ meId, meName }: { meId: string; meNam
             const lockedByOther = o.status === "claimed" && !mine;
             const open = expanded[o.id];
             const hasMismatch = o.lines.some((l) => l.priceMismatch);
+            const showMismatch = hasMismatch && !o.priceReviewedAt;
+            const voidable = o.status !== "keyed" && o.status !== "void" && o.status !== "cancelled";
 
             return (
               <div key={o.id} className="rounded-2xl bg-white border border-ink/10 shadow-soft overflow-hidden">
@@ -382,9 +399,17 @@ export default function PortalOrderQueue({ meId, meName }: { meId: string; meNam
                             possible duplicate
                           </span>
                         )}
-                        {hasMismatch && (
+                        {showMismatch && (
                           <span className="rounded-full bg-amber/15 text-amber px-2 py-0.5 text-xs font-medium">
                             price differs
+                          </span>
+                        )}
+                        {hasMismatch && o.priceReviewedAt && (
+                          <span
+                            className="rounded-full bg-splash/10 text-splash px-2 py-0.5 text-xs font-medium"
+                            title={`Prices checked${o.priceReviewedByName ? ` by ${o.priceReviewedByName}` : ""} ${fmtTime(o.priceReviewedAt)}`}
+                          >
+                            price checked
                           </span>
                         )}
                         {o.exportedAt && !o.seenInArrow && (
@@ -403,6 +428,14 @@ export default function PortalOrderQueue({ meId, meName }: { meId: string; meNam
                         {o.status === "cancelled" && (
                           <span className="rounded-full bg-coral/15 text-coral px-2 py-0.5 text-xs font-medium">
                             cancelled
+                          </span>
+                        )}
+                        {o.status === "void" && (
+                          <span
+                            className="rounded-full bg-ink/10 text-ink/60 px-2 py-0.5 text-xs font-medium"
+                            title={`Voided${o.voidedByName ? ` by ${o.voidedByName}` : ""}${o.voidedAt ? ` ${fmtTime(o.voidedAt)}` : ""}`}
+                          >
+                            void
                           </span>
                         )}
                         {o.seenInArrow && o.arrowOrderNo && (
@@ -462,6 +495,25 @@ export default function PortalOrderQueue({ meId, meName }: { meId: string; meNam
                         </button>
                       </>
                     )}
+                    {voidable && (
+                      <button
+                        onClick={() => voidOne(o)}
+                        disabled={busy[o.id]}
+                        title="Void - test order or raised by mistake. Hides it and stops it going to Arrow."
+                        className="rounded-xl border border-ink/10 text-ink/50 hover:text-coral hover:border-coral/30 px-3 py-2 text-sm font-medium disabled:opacity-50 flex items-center gap-1.5"
+                      >
+                        <Ban className="h-3.5 w-3.5" /> Void
+                      </button>
+                    )}
+                    {o.status === "void" && (
+                      <button
+                        onClick={() => act(o.id, "unvoid")}
+                        disabled={busy[o.id]}
+                        className="rounded-xl border border-ink/10 px-3 py-2 text-sm font-medium disabled:opacity-50 flex items-center gap-1.5"
+                      >
+                        <Undo2 className="h-3.5 w-3.5" /> Unvoid
+                      </button>
+                    )}
                   </div>
                 </div>
 
@@ -488,10 +540,30 @@ export default function PortalOrderQueue({ meId, meName }: { meId: string; meNam
                           <p className="text-coral">{o.cancelReason}</p>
                         </div>
                       )}
+                      {o.status === "void" && (
+                        <div className="sm:col-span-2">
+                          <p className="text-xs text-ink/40">Voided</p>
+                          <p className="text-ink/70">
+                            {o.voidedByName ?? "-"}
+                            {o.voidedAt ? ` · ${fmtTime(o.voidedAt)}` : ""}
+                          </p>
+                        </div>
+                      )}
                     </div>
 
                     <div className="flex items-center gap-2 flex-wrap">
-                      {o.status !== "cancelled" && o.status !== "keyed" && !o.seenInArrow && (
+                      {showMismatch && (
+                        <button
+                          onClick={() => act(o.id, "price-reviewed")}
+                          disabled={busy[o.id]}
+                          title="I've checked the lines - the stored prices are right. Clears the warning."
+                          className="flex items-center gap-1.5 text-xs rounded-lg border border-amber/40 bg-white text-amber px-3 py-1.5 font-medium disabled:opacity-40"
+                        >
+                          <Check className="h-3.5 w-3.5" />
+                          Prices checked
+                        </button>
+                      )}
+                      {!isClosed(o) && (
                         <button
                           onClick={() => exportOneToArrow(o)}
                           disabled={exporting || (o.status === "claimed" && o.claimedBy !== meId)}
