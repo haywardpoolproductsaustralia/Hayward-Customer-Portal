@@ -15,6 +15,11 @@
 
 import { getJSON } from '@/lib/redis';
 import type { ShipmentLine } from '@/lib/recon/shipmentIngest';
+import { getAllRecords } from '@/lib/containers/store';
+import { trackOf, type ContainerTrack } from '@/lib/containers/summary';
+import type { ContainerRecord } from '@/lib/containers/types';
+
+export type { ContainerTrack };
 
 export const CONTAINER_ORDERS_KEY = 'container:orders';
 export const CONTAINER_SO_UNMATCHED_KEY = 'container:so_unmatched';
@@ -131,6 +136,14 @@ export interface ContainerOrder extends ContainerOrderRaw {
   daysLate: number | null;
   /** True when the SO was linked by hand from the page. */
   pinned: boolean;
+  /** Live tracking for every box the container store ties to this PO (or to its SO via the forecast sheet):
+   *  ShipsGo / Century / CHR status, best ETA, vessel, live-map link. Superset of `shipments` (which is CDS only). */
+  tracking: ContainerTrack[];
+  /** Going straight to a customer site, by any signal (PO address, forecast sheet, ShipsGo reference, discharge port). */
+  direct: boolean;
+  directWhy: string | null;
+  /** Purchasing's forecast-sheet row for this order, when it has one. */
+  forecast: ContainerTrack['forecast'] | null;
 }
 
 export interface ContainerOrdersPayload {
@@ -179,10 +192,20 @@ export function shipmentsForPo(lines: ShipmentLine[]): ContainerShipment[] {
 export function enrichOrder(
   raw: ContainerOrderRaw,
   shipIdx: Map<string, ShipmentLine[]>,
-  links: Record<string, string>
+  links: Record<string, string>,
+  tracking: ContainerTrack[] = []
 ): ContainerOrder {
-  const shipments = shipmentsForPo(shipIdx.get(raw.po) ?? []);
-  const open = shipments.filter((s) => !s.delivered);
+  const cds = shipmentsForPo(shipIdx.get(raw.po) ?? []);
+  // Boxes the container store knows that the CDS file doesn't (US lane, ShipsGo-only, forecast sheet) join the list
+  // so the page shows one set of containers whichever feed saw them first.
+  const seen = new Set(cds.map((c) => c.container));
+  const extra: ContainerShipment[] = tracking.filter((t) => !seen.has(t.containerNo)).map((t) => ({
+    container: t.containerNo, vessel: t.vessel, etd: null, eta: t.eta, delivered: t.closed ? (t.eta ?? '') : null, destPort: t.pod, units: 0, items: 0,
+  }));
+  const shipments = [...cds, ...extra].sort((a, b) => (a.eta ?? '9999').localeCompare(b.eta ?? '9999'));
+  const trackByNo = new Map(tracking.map((t) => [t.containerNo, t]));
+  const isDone = (s: ContainerShipment) => Boolean(s.delivered) || Boolean(trackByNo.get(s.container)?.closed);
+  const open = shipments.filter((s) => !isDone(s));
   const allDelivered = shipments.length > 0 && open.length === 0;
 
   let status: ContainerStatus;
@@ -191,6 +214,10 @@ export function enrichOrder(
   else if (allDelivered) status = 'arrived';
   else if (shipments.length > 0) status = 'in_transit';
   else status = 'awaiting_shipment';
+
+  const direct = raw.shipTo === 'customer' || tracking.some((t) => t.direct);
+  const directWhy = raw.shipTo === 'customer' ? 'PO delivery address is a customer site' : tracking.find((t) => t.direct)?.directWhy ?? null;
+  const forecast = tracking.find((t) => t.forecast)?.forecast ?? null;
 
   // The order is "there" when its last container lands, so the headline ETA is
   // the latest undelivered container; before anything ships we fall back to
@@ -213,6 +240,28 @@ export function enrichOrder(
     deliveredDate,
     daysLate,
     pinned: Boolean(links[raw.po]),
+    tracking,
+    direct,
+    directWhy,
+    forecast,
+  };
+}
+
+/** Container-store records per PO — by the POs a box carries, and by the Arrow SO the forecast sheet names. */
+function indexTracking(records: ContainerRecord[], orders: ContainerOrderRaw[]) {
+  const directPos = new Set(orders.filter((o) => o.shipTo === 'customer').map((o) => o.po));
+  const byPo = new Map<string, ContainerTrack[]>();
+  const bySo = new Map<string, ContainerTrack[]>();
+  for (const r of records) {
+    const t = trackOf(r, directPos);
+    for (const po of r.pos) (byPo.get(po) ?? byPo.set(po, []).get(po)!).push(t);
+    if (r.forecast?.so) (bySo.get(r.forecast.so) ?? bySo.set(r.forecast.so, []).get(r.forecast.so)!).push(t);
+  }
+  return (o: ContainerOrderRaw): ContainerTrack[] => {
+    const out = new Map<string, ContainerTrack>();
+    for (const t of byPo.get(o.po) ?? []) out.set(t.containerNo, t);
+    for (const t of bySo.get(o.so?.orderNo ?? '') ?? []) out.set(t.containerNo, t);
+    return [...out.values()].sort((a, b) => (a.eta ?? '9999').localeCompare(b.eta ?? '9999'));
   };
 }
 
@@ -222,13 +271,14 @@ export async function loadContainerLinks(): Promise<Record<string, string>> {
 }
 
 export async function getContainerOrders(): Promise<ContainerOrdersPayload> {
-  const [orders, unmatchedSos, meta, links, shipLines, shipMeta] = await Promise.all([
+  const [orders, unmatchedSos, meta, links, shipLines, shipMeta, records] = await Promise.all([
     getJSON<ContainerOrderRaw[]>(CONTAINER_ORDERS_KEY),
     getJSON<ContainerSo[]>(CONTAINER_SO_UNMATCHED_KEY),
     getJSON<ContainerMeta>(CONTAINER_META_KEY),
     loadContainerLinks(),
     getJSON<ShipmentLine[]>('recon:shipment_index'),
     getJSON<{ receivedAt?: string }>('recon:shipment_meta'),
+    getAllRecords().catch(() => [] as ContainerRecord[]),
   ]);
 
   const shipIdx = new Map<string, ShipmentLine[]>();
@@ -240,7 +290,9 @@ export async function getContainerOrders(): Promise<ContainerOrdersPayload> {
     else shipIdx.set(po, [l]);
   }
 
-  const enriched = (Array.isArray(orders) ? orders : []).map((o) => enrichOrder(o, shipIdx, links));
+  const rawOrders = Array.isArray(orders) ? orders : [];
+  const trackingFor = indexTracking(records, rawOrders);
+  const enriched = rawOrders.map((o) => enrichOrder(o, shipIdx, links, trackingFor(o)));
 
   // Newest PO first; unlinked ones sort with the rest by date rather than
   // being pushed to the bottom, so a fresh PO missing its SO is noticed.
