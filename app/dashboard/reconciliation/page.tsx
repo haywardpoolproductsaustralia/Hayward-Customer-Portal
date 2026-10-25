@@ -886,6 +886,13 @@ export default function ReconciliationPage() {
           {/* Export button — right-aligned above table */}
           <div className="flex justify-end items-center gap-2 mb-2">
             <button
+              onClick={() => document.getElementById('uploads')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+              title="Jump to the upload area at the bottom of the page"
+              className="flex items-center gap-2 rounded-xl border border-ink/10 bg-white px-4 py-2 text-sm font-medium shadow-soft hover:border-wave/30 transition-colors"
+            >
+              ↓ Uploads
+            </button>
+            <button
               onClick={handleRefreshTracking}
               disabled={refreshingCt}
               title="Pull the latest status, ETA and milestones for every shipment on the ShipsGo account (the cron does this every 2 hours)"
@@ -953,11 +960,11 @@ export default function ReconciliationPage() {
           >
             <div id="top-scroll-inner" style={{ height: '1px' }} />
           </div>
-          {/* Actual scrollable table — fixed height so thead stays locked while tbody scrolls */}
+          {/* Table — full height (the page scrolls, not the table); horizontal scroll only */}
           <div
             id="bottom-scroll"
-            className="overflow-x-auto overflow-y-auto"
-            style={{ maxHeight: 'calc(100vh - 220px)' }}
+            className="overflow-x-auto"
+            style={{ overflowY: 'visible' }}
             onScroll={(e) => {
               const top = document.getElementById('top-scroll');
               if (top) top.scrollLeft = (e.target as HTMLDivElement).scrollLeft;
@@ -1182,7 +1189,11 @@ export default function ReconciliationPage() {
       </p>
 
       {/* ── Upload banners — bottom of page ── */}
-      <div className="grid gap-3 lg:grid-cols-2 pt-4 border-t border-slate-100">
+      <div id="uploads" className="flex items-center justify-between pt-4 border-t border-slate-100" style={{ scrollMarginTop: '96px' }}>
+        <h2 className="text-sm font-semibold text-slate-700">Uploads</h2>
+        <button onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} className="text-xs text-slate-500 hover:text-slate-800">↑ Back to top</button>
+      </div>
+      <div className="grid gap-3 lg:grid-cols-2">
         <UploadBanner
           label="Container documents"
           sublabel="Century CSV · CHR report · Shipment Schedule · invoices · packing slips · .msg"
