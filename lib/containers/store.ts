@@ -148,9 +148,11 @@ export async function applyLive(no: string, live: LiveStatus, posFromReference: 
 }
 
 /** Is this box finished (at our door or returned)? Used to stop polling / registering. */
-export function isClosed(rec: ContainerRecord, staleDays = 45): boolean {
+/** `polling` = the question is "will anything more arrive from ShipsGo?" (true: a discarded shipment counts as done).
+ *  The page passes false: a discharged box that ShipsGo stopped tracking still has to show until it is gated out / received. */
+export function isClosed(rec: ContainerRecord, staleDays = 45, polling = true): boolean {
   if (rec.live?.containerStatus && ["GATE_OUT", "EMPTY_RETURN"].includes(rec.live.containerStatus)) return true;
-  if (rec.live?.discardedAt) return true; // ShipsGo has stopped tracking it — nothing more will come
+  if (polling && rec.live?.discardedAt) return true; // ShipsGo has stopped tracking it — nothing more will come
   if (rec.century?.status && ["GATE_OUT", "EMPTY_RETURN"].includes(rec.century.status)) return true;
   if (rec.chr?.status && ["GATE_OUT", "EMPTY_RETURN"].includes(rec.chr.status)) return true;
   if (rec.deliveredDate) return true;

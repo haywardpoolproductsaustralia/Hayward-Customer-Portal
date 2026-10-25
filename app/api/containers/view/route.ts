@@ -19,7 +19,7 @@ export async function GET() {
 
   const [records, meta, refresh] = await Promise.all([getAllRecords(), getJSON<any>(K.meta), getJSON<any>(K.refresh)]);
   const containers = records
-    .filter((r) => !isClosed(r, 60))
+    .filter((r) => !isClosed(r, 60, false))
     .map((r) => ({ ...r, lines: r.lines.map((l) => ({ po: l.po, item: l.supplierItem, qty: l.qty, source: l.source, ref: l.sourceRef })) }))
     .sort((a, b) => (a.live?.eta ?? a.eta ?? "9999").localeCompare(b.live?.eta ?? b.eta ?? "9999"));
   return NextResponse.json({ containers, total: records.length, meta, refresh, shipsgoConfigured: !!process.env.SHIPSGO_USER_TOKEN });
