@@ -13,7 +13,7 @@ const SCROLLBAR_STYLE = `
 
 // Fixed column widths (px) — 22 columns. Sticky left offsets are derived from these,
 // so change a width here and the frozen columns stay aligned.
-const COL_ORDER  = [66, 84, 80, 100];                     // Order: PO, Customer PO, Status, Type
+const COL_ORDER  = [66, 84, 92, 100];                     // Order: PO, Customer PO, Status, Type
 const COL_ARROW  = [120, 112, 76, 76, 60, 64, 56];        // Arrow AU: Stock, Supplier SKU, Order date, ETA, Ordered, Received, SOH
 const COL_SUPPLY = [100, 56, 56, 76, 76, 104];            // Supplier: PO ref, ENT, SHPD, Ship date, ETA, US SO#
 const COL_SUPPLY_COLLAPSED = [34];                        // Supplier group collapsed to one narrow toggle column
@@ -117,7 +117,15 @@ type ReconRow = ArrowLine & {
   shipped: boolean;                      // supplier has shipped (SHPD > 0) or a container carries the line
   shipDateOverdue: boolean;              // AS400 ship date has passed but nothing shipped yet
   bestEta: string | null;                // container ETA, else AS400 ETA
+  daysOpen: number;                      // days since the Arrow order date
+  stale: 'po-missing' | 'item-missing' | 'never-shipped' | null;  // see STALE_DAYS
 };
+
+// A line is STALE when it was ordered STALE_DAYS+ ago, nothing has shipped or been received, no container carries
+// it, and AS400 gives no future ETA. Three flavours: the PO isn't in AS400 at all, the PO is but this item isn't
+// (dropped/substituted at the supplier), or it was entered and never shipped. All three want a decision from
+// purchasing — cancel the Arrow line or get the supplier to commit — rather than more waiting.
+const STALE_DAYS = 120;
 
 type As400Meta  = { uploadedAt: string | null; rows: number; filename: string | null };
 type ShipMeta   = { receivedAt: string | null; rows: number; filename: string | null };
@@ -176,6 +184,12 @@ function statusBadge(s: ReconRow['status']) {
   const { label, cls } = map[s];
   return <span className={`inline-block rounded px-2 py-0.5 text-[11px] font-semibold ${cls}`}>{label}</span>;
 }
+
+const STALE_WHY: Record<NonNullable<ReconRow['stale']>, string> = {
+  'po-missing': 'The PO is not in AS400 at all — cancel the Arrow line or have the supplier enter it.',
+  'item-missing': 'The PO is in AS400 but this item is not — dropped or substituted at the supplier; cancel the Arrow line unless they confirm it.',
+  'never-shipped': 'Entered in AS400 but never shipped and the AS400 ETA has passed — chase for a ship date or cancel.',
+};
 
 function isException(x: ReconRow) {
   return x.status !== 'received' && (x.status === 'missing' || x.qtyMismatch || x.matchType === 'alias');
@@ -318,6 +332,7 @@ function reconcile(arrow: ArrowLine[], as400: As400Line[], ship: ShipLine[]): Re
   }
   const a4Map = new Map<string, As400Agg>();
   const a4ByPo = new Map<string, string[]>(); // po -> keys
+  const as400Pos = new Set(as400.map((l) => l.po)); // POs AS400 knows at all (for the stale flavour)
   perSo.forEach((bySo, k) => {
     const list = Array.from(bySo.values());
     const best = list.reduce((x, y) => (y.ord > x.ord ? y : x));
@@ -390,6 +405,10 @@ function reconcile(arrow: ArrowLine[], as400: As400Line[], ship: ShipLine[]): Re
     // AS400's SHIP_DATE is a schedule, not a fact — a passed date alone does NOT make a line shipped.
     const shipped = ctUnits > 0 || (!!a4 && as400Shpd > 0);
     const shipDateOverdue = !shipped && !!a4?.shipDate && a4.shipDate < today && a.qtyOutstanding > 0;
+    const daysOpen = a.orderDate ? Math.round((Date.parse(today) - Date.parse(a.orderDate)) / 86400000) : 0;
+    const stale: ReconRow['stale'] = !shipped && a.qtyReceived <= 0 && a.qtyOutstanding > 0 && daysOpen >= STALE_DAYS && !(a4?.eta && a4.eta > today)
+      ? (!a4 ? (as400Pos.has(a.po) ? 'item-missing' : 'po-missing') : 'never-shipped')
+      : null;
     const onWater = !shipped ? 0
       : ctUnits > 0 ? Math.max(0, Math.max(ctUnits, as400Shpd) - a.qtyReceived)
       : as400Shpd > 0 ? Math.max(0, as400Shpd - a.qtyReceived)
@@ -434,6 +453,8 @@ function reconcile(arrow: ArrowLine[], as400: As400Line[], ship: ShipLine[]): Re
       shipped,
       shipDateOverdue,
       bestEta,
+      daysOpen,
+      stale,
     };
   });
 }
@@ -497,7 +518,7 @@ function UploadBanner({
 // Page
 // ---------------------------------------------------------------------------
 
-type FilterTab = 'all' | 'exceptions' | 'not_received' | 'shipped' | 'in_transit' | 'delivered' | 'received';
+type FilterTab = 'all' | 'exceptions' | 'stale' | 'not_received' | 'shipped' | 'in_transit' | 'delivered' | 'received';
 
 export default function ReconciliationPage() {
   const [arrowLines, setArrowLines] = useState<ArrowLine[]>([]);
@@ -756,6 +777,7 @@ export default function ReconciliationPage() {
       r = r.filter((x) => x.deliveryNote4 === selectedCustomerPO);
     }
     if (tab === 'exceptions')   r = r.filter(isException);
+    if (tab === 'stale')        r = r.filter((x) => !!x.stale);
     if (tab === 'not_received') r = r.filter((x) => x.status === 'not_received');
     if (tab === 'shipped')      r = r.filter((x) => x.status === 'shipped');
     if (tab === 'in_transit')   r = r.filter((x) => x.status === 'in_transit');
@@ -792,6 +814,7 @@ export default function ReconciliationPage() {
     return {
       total:      inScope.length,
       exceptions: inScope.filter(isException).length,
+      stale:      inScope.filter((x) => !!x.stale).length,
       missing:    inScope.filter((x) => x.status === 'missing').length,
       awaiting:   inScope.filter((x) => x.status === 'not_received').length,
       shipped:    inScope.filter((x) => x.status === 'shipped').length,
@@ -830,6 +853,7 @@ export default function ReconciliationPage() {
   const tabs: { id: FilterTab; label: string; count?: number }[] = [
     { id: 'all',          label: 'All',           count: stats.total },
     { id: 'exceptions',   label: 'Exceptions',    count: stats.exceptions },
+    { id: 'stale',        label: `Stale · ${STALE_DAYS}d+`, count: stats.stale },
     { id: 'not_received', label: 'Awaiting ship', count: stats.awaiting },
     { id: 'shipped',      label: 'Shipped · no container', count: stats.shipped },
     { id: 'in_transit',   label: 'In transit',    count: stats.inTransit },
@@ -951,7 +975,7 @@ export default function ReconciliationPage() {
                 const headers = [
                   'PO','Customer PO','Status','Type','Stock Code','Supplier SKU','Order Date','ETA Arrow',
                   'Ordered','Received','SOH','Allocated','Backordered','Arrow PO Ref','AS400 Item','Match','AS400 ENT','AS400 SHPD','Qty Mismatch','Ship Date','AS400 ETA','US SO#',
-                  'On Water','Container','Vessel','Container ETA','Supplier','Tracking status','MBL','Invoice / Slip'
+                  'On Water','Container','Vessel','Container ETA','Supplier','Tracking status','MBL','Invoice / Slip','Days open','Stale'
                 ];
                 const escape = (v: any) => `"${String(v ?? '').replace(/"/g, '""')}"`;
                 const csvRows = filtered.map(r => [
@@ -971,6 +995,7 @@ export default function ReconciliationPage() {
                       Array.from(new Set(cs.flatMap((c) => [...(c.invoiceNos ?? []).map((n) => `Inv ${n}`), ...(c.packingSlipNos ?? []).map((n) => `Slip ${n}`)]))).join(' / '),
                     ];
                   })(),
+                  r.daysOpen, r.stale ? STALE_WHY[r.stale] : '',
                 ].map(escape).join(','));
                 const csv = [headers.map(escape).join(','), ...csvRows].join('\n');
                 const blob = new Blob([csv], { type: 'text/csv' });
@@ -1119,7 +1144,9 @@ export default function ReconciliationPage() {
                       </td>
                       <td className="sticky bg-slate-800 px-2 py-1.5 font-mono text-[11px] whitespace-nowrap text-slate-200" style={{ left: `${left[1]}px` }}>{r.deliveryNote4 || '—'}</td>
                       <td className="sticky bg-slate-800 px-2 py-1.5" style={{ left: `${left[2]}px` }}>
-                        {statusBadge(r.status)}
+                        {r.stale
+                          ? <span className="inline-block rounded bg-slate-500 px-2 py-0.5 text-[11px] font-semibold text-white" title={`${r.status === 'missing' ? 'Missing in AS400' : 'Awaiting ship'} — stale: ${r.daysOpen} days open, nothing shipped or received, no future AS400 ETA. ${STALE_WHY[r.stale]}`}>Stale {r.daysOpen}d</span>
+                          : statusBadge(r.status)}
                       </td>
                       <td className="sticky bg-slate-700 px-2 py-1.5 border-r border-slate-600" style={{ left: `${left[3]}px` }}>
                         {supplierTypeBadge(r.creditor, r.stockCategory)}
