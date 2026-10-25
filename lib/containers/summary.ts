@@ -21,6 +21,7 @@ export interface ContainerTrack {
   vessel: string | null;
   pol: string | null; pod: string | null;
   mapUrl: string | null;
+  reference: string | null;           // ShipsGo reference as keyed
   sources: string[];
   pos: string[];
   direct: boolean;                    // believed to be going straight to a customer site
@@ -70,7 +71,7 @@ export function trackOf(c: ContainerRecord, directPos: Set<string> = new Set()):
     containerNo: c.containerNo, status: s.label, tone: s.tone, closed: s.closed,
     eta: bestEta(c), etaInitial: c.live?.etaInitial ?? null,
     vessel: c.live?.vessel ?? c.vessel ?? null, pol: c.live?.pol ?? c.originPort ?? null, pod: c.live?.pod ?? c.destPort ?? null,
-    mapUrl: c.live?.mapUrl ?? null, sources: c.sources, pos: c.pos, direct: d.direct, directWhy: d.why,
+    mapUrl: c.live?.mapUrl ?? null, reference: c.live?.reference ?? null, sources: c.sources, pos: c.pos, direct: d.direct, directWhy: d.why,
     forecast: c.forecast ? { customer: c.forecast.customer, so: c.forecast.so, notes: c.forecast.notes, value: c.forecast.value, updatedEta: c.forecast.updatedEta, delivered: c.forecast.delivered } : undefined,
     updatedAt: c.live?.updatedAt ?? c.lastSeen,
   };
