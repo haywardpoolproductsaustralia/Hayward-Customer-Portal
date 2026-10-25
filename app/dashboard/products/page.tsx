@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Search,
   PackageX,
@@ -17,7 +17,9 @@ import { ProductDetailModal, StockEntry } from '@/components/ProductDetailModal'
 import { useSelectedCustomer } from '@/components/SelectedCustomerContext';
 import { PriceListExportButton } from '@/components/PriceListExportButton';
 
-const PAGE_SIZE = 30;
+// Products load progressively as you scroll - one long page, no pagination.
+// CHUNK is also the size of each pricing request.
+const CHUNK = 60;
 const LAYOUT_KEY = 'products:layout';
 
 // Keyword-based, not tied to Arrow's STOCK_CATEGORY codes - those are
@@ -115,7 +117,7 @@ export default function ProductsPage() {
   const [allStock, setAllStock] = useState<StockEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [page, setPage] = useState(0);
+  const [limit, setLimit] = useState(CHUNK);
   const [prices, setPrices] = useState<Record<string, PriceInfo>>({});
   const [pricesLoading, setPricesLoading] = useState(false);
   const [pricingAccessError, setPricingAccessError] = useState<string | null>(null);
@@ -211,29 +213,51 @@ export default function ProductsPage() {
     return { inStock, incoming, out: filtered.length - inStock };
   }, [filtered]);
 
-  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const currentPage = Math.min(page, pageCount - 1);
-  const visible = filtered.slice(currentPage * PAGE_SIZE, currentPage * PAGE_SIZE + PAGE_SIZE);
-  const rangeStart = filtered.length === 0 ? 0 : currentPage * PAGE_SIZE + 1;
-  const rangeEnd = Math.min(filtered.length, (currentPage + 1) * PAGE_SIZE);
+  const visible = filtered.slice(0, limit);
+  const hasMore = limit < filtered.length;
 
   useEffect(() => {
-    setPage(0);
+    setLimit(CHUNK);
   }, [query, activeCategory, view, sort]);
 
+  // Prices are per customer, so a change of "pricing as" invalidates them all.
   useEffect(() => {
-    if (visible.length === 0) return;
+    setPrices({});
+  }, [selectedCustomer?.code, view]);
+
+  // Reveal the next chunk when the sentinel below the list scrolls into view.
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el || !hasMore) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) setLimit((l) => Math.min(l + CHUNK, filtered.length));
+      },
+      { rootMargin: '600px 0px' },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [hasMore, filtered.length]);
+
+  // Price only what's newly on screen and not already priced; merge, never reset.
+  const unpriced = useMemo(() => visible.filter((v) => !(v.sku in prices)), [visible, prices]);
+  useEffect(() => {
+    if (unpriced.length === 0) return;
     let cancelled = false;
+    const items = unpriced.slice(0, CHUNK);
+
+    const unanswered = () =>
+      Object.fromEntries(items.map((v) => [v.sku, { listPrice: v.listPrice ?? null, price: null, discountPercent: null }]));
 
     async function loadPrices() {
       setPricesLoading(true);
-      setPrices({});
       try {
         const res = await fetch('/api/pricing/batch', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            items: visible.map((v) => ({ sku: v.sku, stockCategory: v.stockCategory, listPrice: v.listPrice })),
+            items: items.map((v) => ({ sku: v.sku, stockCategory: v.stockCategory, listPrice: v.listPrice })),
             qty: 1,
             customerCode: selectedCustomer?.code,
           }),
@@ -243,6 +267,9 @@ export default function ProductsPage() {
         if (!res.ok) {
           setPricingAccessError(data.error ?? 'Could not load pricing right now.');
           setPricingReason(typeof data.reason === 'string' ? data.reason : null);
+          // Mark this batch as "asked" so a failing endpoint isn't hammered on
+          // every scroll; a customer change clears the map and retries.
+          setPrices((prev) => ({ ...prev, ...unanswered() }));
           return;
         }
         setPricingAccessError(null);
@@ -256,6 +283,7 @@ export default function ProductsPage() {
         if (!cancelled) {
           setPricingAccessError('Could not reach pricing right now.');
           setPricingReason(null);
+          setPrices((prev) => ({ ...prev, ...unanswered() }));
         }
       } finally {
         if (!cancelled) setPricesLoading(false);
@@ -267,7 +295,7 @@ export default function ProductsPage() {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPage, query, activeCategory, view, sort, allStock.length, selectedCustomer?.code]);
+  }, [unpriced, selectedCustomer?.code]);
 
   const needsCustomer = pricingReason === 'select_customer';
 
@@ -409,7 +437,7 @@ export default function ProductsPage() {
         <>
           <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-ink/40">
             <p>
-              {filtered.length > 0 ? `${rangeStart}–${rangeEnd} of ` : ''}
+              {hasMore ? `${visible.length} of ` : ''}
               {filtered.length} {filtered.length === 1 ? 'product' : 'products'}
               {view !== 'all' && viewLabels[view] ? ` · ${viewLabels[view]}` : ''}
               {activeCategory && ` in ${activeCategory}`}
@@ -518,24 +546,15 @@ export default function ProductsPage() {
             </div>
           )}
 
-          {pageCount > 1 && (
-            <div className="flex items-center justify-between pt-2">
+          {/* Scroll sentinel - reveals the next chunk; also a manual fallback. */}
+          {hasMore && (
+            <div ref={sentinelRef} className="flex items-center justify-center py-6">
               <button
-                onClick={() => setPage((p) => Math.max(0, p - 1))}
-                disabled={currentPage === 0}
-                className="rounded-full border border-ink/10 bg-white px-4 py-2 text-sm font-medium shadow-soft disabled:opacity-40"
+                onClick={() => setLimit((l) => Math.min(l + CHUNK, filtered.length))}
+                className="inline-flex items-center gap-2 rounded-full border border-ink/10 bg-white px-4 py-2 text-xs font-medium text-ink/60 shadow-soft hover:border-wave/30"
               >
-                Previous
-              </button>
-              <span className="text-xs text-ink/40">
-                Page {currentPage + 1} of {pageCount}
-              </span>
-              <button
-                onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
-                disabled={currentPage >= pageCount - 1}
-                className="rounded-full border border-ink/10 bg-white px-4 py-2 text-sm font-medium shadow-soft disabled:opacity-40"
-              >
-                Next
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-ink/30" />
+                Loading more · {filtered.length - visible.length} to go
               </button>
             </div>
           )}
