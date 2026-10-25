@@ -697,6 +697,15 @@ export default function ReconciliationPage() {
 
   const toggleRow = useCallback((k: string) => setExpanded((prev) => { const n = new Set(prev); if (n.has(k)) n.delete(k); else n.add(k); return n; }), []);
 
+  // Every container a row can be shown with — confirmed, PO-level, or probable — plus MBLs, for search.
+  // Typing a container number (or part of one) filters to the PO lines that box carries.
+  const containerText = useCallback((x: ReconRow): string => {
+    const line = ctIdx.byLine.get(ctLineKey(x.po, x.supplierSku)) ?? (x.as400Item ? ctIdx.byLine.get(ctLineKey(x.po, x.as400Item)) : undefined) ?? [];
+    const po = ctIdx.byPo.get(x.po) ?? [];
+    const prob = !line.length && !po.length ? probableFor(x).map((p) => p.c) : [];
+    return [...line, ...po, ...prob].map((c) => `${c.containerNo} ${c.mbl ?? ''} ${c.live?.reference ?? ''}`).join(' ').toLowerCase();
+  }, [ctIdx, probableFor]);
+
   const filtered = useMemo(() => {
     let r = rows;
     if (scope === 'paramount') r = r.filter((x) => x.stockCategory === 'PR');
@@ -723,12 +732,13 @@ export default function ReconciliationPage() {
         (x.as400Item ?? '').toLowerCase().includes(q) ||
         (x.container ?? '').toLowerCase().includes(q) ||
         (x.vessel ?? '').toLowerCase().includes(q) ||
+        containerText(x).includes(q.replace(/\s/g, '')) ||
         (x.shipToName ?? '').toLowerCase().includes(q) ||
         (x.shipToCity ?? '').toLowerCase().includes(q),
       );
     }
     return r;
-  }, [rows, tab, search, scope, selectedCustomerPO]);
+  }, [rows, tab, search, scope, selectedCustomerPO, containerText]);
 
   const stats = useMemo(() => {
     const inScope = rows.filter((x) =>
@@ -821,7 +831,7 @@ export default function ReconciliationPage() {
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search PO, SKU, description, supplier code or name…"
+          placeholder="Search PO, SKU, container, MBL, vessel, supplier…"
           className="w-96 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm shadow-sm outline-none focus:border-wave focus:ring-2 focus:ring-wave/20"
         />
         <div className="flex flex-wrap gap-1">
