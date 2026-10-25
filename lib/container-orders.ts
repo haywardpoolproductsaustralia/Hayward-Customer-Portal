@@ -144,6 +144,40 @@ export interface ContainerOrder extends ContainerOrderRaw {
   directWhy: string | null;
   /** Purchasing's forecast-sheet row for this order, when it has one. */
   forecast: ContainerTrack['forecast'] | null;
+  /** Data the portal needs keyed in Arrow / ShipsGo so this order links itself without the forecast sheet. */
+  needs: KeyingNeed[];
+}
+
+export type KeyingField = 'so' | 'poSoRef' | 'soAddress' | 'soFlag' | 'shipsgoRef';
+export interface KeyingNeed {
+  field: KeyingField;           // which cell on the page to highlight
+  where: string;                // "Arrow PO 918400 · Despatch notes"
+  what: string;                 // "Type: SO 446304"
+  why: string;                  // one line
+}
+
+/** What is missing in Arrow / ShipsGo for this order to link and route itself. */
+export function keyingNeeds(raw: ContainerOrderRaw, tracking: ContainerTrack[], direct: boolean, forecastSo?: string): KeyingNeed[] {
+  const out: KeyingNeed[] = [];
+  const soNo = raw.so?.orderNo ?? forecastSo ?? null;
+  if (!raw.so && !forecastSo) {
+    out.push({ field: 'so', where: `Arrow PO ${raw.po} · Despatch notes`, what: 'Type: SO <number>', why: 'No sales order could be matched to this PO, so there is no customer or delivery address to show.' });
+  } else if (!raw.poSoRef || (soNo && raw.poSoRef !== soNo)) {
+    out.push({ field: 'poSoRef', where: `Arrow PO ${raw.po} · Despatch notes`, what: `Type: SO ${soNo}`, why: raw.poSoRef ? `Despatch notes say SO ${raw.poSoRef}; the match is SO ${soNo}.` : `Linked only by ${raw.matchMethod === 'manual' ? 'a pin on this page' : raw.matchMethod === 'customerPo' ? 'the customer PO reference' : 'the forecast sheet'} — the SO number on the PO makes it permanent.` });
+  }
+  if (raw.so && direct && raw.so.address.source !== 'delivery') {
+    out.push({ field: 'soAddress', where: `Arrow SO ${raw.so.orderNo} · Delivery address`, what: 'Key the customer site address', why: 'Direct container, but the SO carries only the account address — the driver needs the site.' });
+  }
+  if (raw.so && direct && !raw.so.isContainerFlag) {
+    out.push({ field: 'soFlag', where: `Arrow SO ${raw.so.orderNo} · Order Descn 1`, what: 'Type: CONTAINER WUXI (or US / MEL)', why: 'Marks the SO as a direct container order so the sync picks it up without a manual link.' });
+  }
+  for (const t of tracking) {
+    if (!t.sources.includes('shipsgo')) continue;
+    const ref = (t.reference ?? '').replace(/\s/g, '');
+    const mentions = ref.includes(raw.po) || (soNo && ref.includes(soNo));
+    if (!mentions) out.push({ field: 'shipsgoRef', where: `ShipsGo · ${t.containerNo} · Reference`, what: `Add: PO ${raw.po}${soNo ? ` / SO ${soNo}` : ''}`, why: `Reference is “${(t.reference ?? '').slice(0, 50) || 'blank'}” — the box only links to this order through a document today.` });
+  }
+  return out;
 }
 
 export interface ContainerOrdersPayload {
@@ -218,6 +252,7 @@ export function enrichOrder(
   const direct = raw.shipTo === 'customer' || tracking.some((t) => t.direct);
   const directWhy = raw.shipTo === 'customer' ? 'PO delivery address is a customer site' : tracking.find((t) => t.direct)?.directWhy ?? null;
   const forecast = tracking.find((t) => t.forecast)?.forecast ?? null;
+  const needs = raw.poStatusFlag === 'X' || raw.poStatusFlag === 'C' ? [] : keyingNeeds(raw, tracking, direct, forecast?.so);
 
   // The order is "there" when its last container lands, so the headline ETA is
   // the latest undelivered container; before anything ships we fall back to
@@ -244,6 +279,7 @@ export function enrichOrder(
     direct,
     directWhy,
     forecast,
+    needs,
   };
 }
 

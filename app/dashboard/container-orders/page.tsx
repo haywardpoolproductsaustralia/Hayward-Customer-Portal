@@ -14,8 +14,25 @@ import {
   ChevronDown, ChevronUp, Search, Download, Loader2, RefreshCw, MapPin, Phone, X,
 } from 'lucide-react';
 import type {
-  ContainerOrder, ContainerOrdersPayload, ContainerSo, ContainerStatus, ContainerTrack,
+  ContainerOrder, ContainerOrdersPayload, ContainerSo, ContainerStatus, ContainerTrack, KeyingField, KeyingNeed,
 } from '@/lib/container-orders';
+
+/** Amber "key this in" prompt shown inside the cell that owns the missing data. */
+function Ask({ needs, field }: { needs: KeyingNeed[]; field: KeyingField }) {
+  const n = needs.filter((x) => x.field === field);
+  if (!n.length) return null;
+  return (
+    <div className="mt-1 space-y-1">
+      {n.map((x, i) => (
+        <div key={i} className="rounded-md border border-amber/40 bg-amber/10 px-2 py-1 text-[11px] leading-snug text-[#78350F]" title={x.why}>
+          <div className="font-semibold">✎ {x.what}</div>
+          <div className="text-[10px] text-[#92400E]">{x.where}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+const needCell = (needs: KeyingNeed[], ...fields: KeyingField[]) => needs.some((n) => fields.includes(n.field)) ? 'bg-amber/5 ring-1 ring-inset ring-amber/30' : '';
 
 const TONE: Record<ContainerTrack['tone'], string> = {
   done: 'bg-emerald-50 text-emerald-800 border-emerald-200',
@@ -253,7 +270,7 @@ function OrderRow({ o, expanded, toggle, links, onLinks }: {
         </td>
 
         {/* Sales order */}
-        <td className="px-2 py-3">
+        <td className={`px-2 py-3 ${needCell(o.needs, 'so', 'poSoRef', 'soFlag')}`}>
           {o.so ? (
             <>
               <div className="font-mono text-sm text-ink">SO {o.so.orderNo}</div>
@@ -265,12 +282,14 @@ function OrderRow({ o, expanded, toggle, links, onLinks }: {
               {o.ambiguousCandidates > 1 && (
                 <div className="text-[10px] uppercase tracking-wide text-amber inline-flex items-center gap-0.5"><AlertTriangle className="h-3 w-3" />{o.ambiguousCandidates} SOs share this ref</div>
               )}
+              <Ask needs={o.needs} field="poSoRef" /><Ask needs={o.needs} field="soFlag" />
             </>
           ) : (
             <div className="space-y-1">
               <div className="text-xs font-semibold text-amber inline-flex items-center gap-1"><AlertTriangle className="h-3 w-3" /> No SO found</div>
               {o.poSoRef && <div className="text-[11px] text-coral">PO says SO {o.poSoRef} — not in Arrow&apos;s last 24 months of orders</div>}
               {pinPending && <div className="text-[11px] text-wave">Pinned to SO {pinnedTo} — shows after next sync</div>}
+              <Ask needs={o.needs} field="so" /><Ask needs={o.needs} field="poSoRef" />
               <LinkSo po={o.po} current={pinnedTo} onDone={onLinks} />
             </div>
           )}
@@ -285,7 +304,7 @@ function OrderRow({ o, expanded, toggle, links, onLinks }: {
         </td>
 
         {/* Containers */}
-        <td className="px-2 py-3">
+        <td className={`px-2 py-3 ${needCell(o.needs, 'shipsgoRef')}`}>
           {o.shipments.length ? (
             <div className="space-y-1.5">
               {o.shipments.slice(0, 3).map((c) => {
@@ -307,12 +326,13 @@ function OrderRow({ o, expanded, toggle, links, onLinks }: {
           ) : (
             <span className="text-xs text-ink/30">No container yet</span>
           )}
+          <Ask needs={o.needs} field="shipsgoRef" />
         </td>
 
         {/* Deliver to */}
-        <td className="px-2 py-3 min-w-[12rem]">
+        <td className={`px-2 py-3 min-w-[12rem] ${needCell(o.needs, 'soAddress')}`}>
           {o.so ? (
-            <Address so={o.so} />
+            <><Address so={o.so} /><Ask needs={o.needs} field="soAddress" /></>
           ) : o.shipTo === 'customer' && o.poDeliveryAddress.length ? (
             <div className="text-xs leading-snug">
               {o.poDeliveryAddress.map((l, i) => (
@@ -460,6 +480,7 @@ export default function ContainerOrdersPage() {
   const [supplier, setSupplier] = useState<string>('all');
   const [unlinkedOnly, setUnlinkedOnly] = useState(false);
   const [directOnly, setDirectOnly] = useState(false);
+  const [needsOnly, setNeedsOnly] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>('eta');
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [exporting, setExporting] = useState(false);
@@ -490,6 +511,8 @@ export default function ContainerOrdersPage() {
       unlinked: orders.filter((o) => !o.so && o.status !== 'cancelled').length,
       direct: open.filter((o) => o.direct).length,
       directMoving: open.filter((o) => o.direct && o.tracking.some((t) => !t.closed)).length,
+      needs: open.filter((o) => o.needs.length).length,
+      needItems: open.reduce((n, o) => n + o.needs.length, 0),
       openValue: open.reduce((s, o) => s + (o.so?.netValue ?? 0), 0),
     };
   }, [orders]);
@@ -504,6 +527,7 @@ export default function ContainerOrdersPage() {
       if (supplier !== 'all' && o.supplierName !== supplier) return false;
       if (unlinkedOnly && o.so) return false;
       if (directOnly && !o.direct) return false;
+      if (needsOnly && !o.needs.length) return false;
       if (!q) return true;
       const hay = [
         o.po, o.customerPoRef, o.so?.orderNo, o.so?.customerName, o.so?.customerCode, o.so?.customerOrderNo,
@@ -520,7 +544,7 @@ export default function ContainerOrdersPage() {
     };
     rows = [...rows].sort(cmp[sortKey]);
     return rows;
-  }, [orders, query, statusFilter, supplier, unlinkedOnly, directOnly, sortKey]);
+  }, [orders, query, statusFilter, supplier, unlinkedOnly, directOnly, needsOnly, sortKey]);
 
   const onLinks = useCallback((links: Record<string, string>) => {
     setData((d) => (d ? { ...d, links } : d));
@@ -548,6 +572,7 @@ export default function ContainerOrdersPage() {
         'Direct because': o.directWhy ?? '',
         'Tracking': o.tracking.map((t) => `${t.containerNo} ${t.status}${t.eta ? ` ETA ${t.eta}` : ''}`).join(' | '),
         'Live map': o.tracking.map((t) => t.mapUrl).filter(Boolean).join(' '),
+        'Needs keying': o.needs.map((n) => `${n.where}: ${n.what}`).join(' | '),
         'PO date': o.poDate ?? '',
         'PO units': o.poQty,
         'Received': o.poReceived,
@@ -610,14 +635,15 @@ export default function ContainerOrdersPage() {
       )}
 
       {/* Tiles */}
-      <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-3">
         <Tile label="Open orders" value={counts.open} hint={AUD(counts.openValue) + ' SO value'} accent="text-deep" active={statusFilter === 'open' && !unlinkedOnly} onClick={() => { setStatusFilter('open'); setUnlinkedOnly(false); }} />
         <Tile label="In transit" value={counts.inTransit} accent="text-wave" active={statusFilter === 'in_transit'} onClick={() => { setStatusFilter('in_transit'); setUnlinkedOnly(false); }} />
         <Tile label="Arriving ≤ 30 days" value={counts.arriving30} accent="text-splash" active={false} onClick={() => { setStatusFilter('in_transit'); setSortKey('eta'); setUnlinkedOnly(false); }} />
         <Tile label="Awaiting shipment" value={counts.awaiting} accent="text-amber" active={statusFilter === 'awaiting_shipment'} onClick={() => { setStatusFilter('awaiting_shipment'); setUnlinkedOnly(false); }} />
         <Tile label="Running late" value={counts.late} hint="container ETA past PO date" accent="text-coral" active={false} onClick={() => { setStatusFilter('open'); setSortKey('eta'); setUnlinkedOnly(false); }} />
         <Tile label="Direct to customer" value={counts.direct} hint={`${counts.directMoving} with a box moving`} accent="text-wave" active={directOnly} onClick={() => { setDirectOnly((v) => !v); setUnlinkedOnly(false); setStatusFilter('open'); }} />
-        <Tile label="PO without SO" value={counts.unlinked} hint="needs a link" accent={counts.unlinked ? 'text-amber' : 'text-ink/40'} active={unlinkedOnly} onClick={() => { setUnlinkedOnly((v) => !v); setDirectOnly(false); setStatusFilter('all'); }} />
+        <Tile label="PO without SO" value={counts.unlinked} hint="needs a link" accent={counts.unlinked ? 'text-amber' : 'text-ink/40'} active={unlinkedOnly} onClick={() => { setUnlinkedOnly((v) => !v); setDirectOnly(false); setNeedsOnly(false); setStatusFilter('all'); }} />
+        <Tile label="Needs keying" value={counts.needs} hint={`${counts.needItems} field${counts.needItems === 1 ? '' : 's'} in Arrow / ShipsGo`} accent={counts.needs ? 'text-amber' : 'text-ink/40'} active={needsOnly} onClick={() => { setNeedsOnly((v) => !v); setUnlinkedOnly(false); setDirectOnly(false); setStatusFilter('open'); }} />
       </div>
 
       {/* Filters */}
