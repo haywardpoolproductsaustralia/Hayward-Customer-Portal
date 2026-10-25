@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic";
  * two files by two people (or one double-click) and imported into Arrow twice.
  *
  * Orders that must not go to Arrow are skipped and reported back rather than
- * failing the whole export: cancelled, keyed by hand, already seen in Arrow,
+ * failing the whole export: cancelled, voided, keyed by hand, already seen in Arrow,
  * already exported (unless force), or claimed by someone else right now.
  *
  * Staff only - same requireAgent() gate as the rest of the queue.
@@ -24,6 +24,7 @@ const MAX_ORDERS = 200;
 const REASON_TEXT: Record<ExportSkipReason, string> = {
   not_found: "no longer exists",
   cancelled: "was cancelled",
+  void: "was voided",
   keyed: "was keyed into Arrow by hand",
   in_arrow: "is already in Arrow",
   exported: "was already exported - use its own Download CSV button to export it again",

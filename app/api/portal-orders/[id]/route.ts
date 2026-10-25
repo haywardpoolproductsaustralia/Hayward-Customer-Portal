@@ -6,6 +6,9 @@ import {
   markKeyed,
   cancelOrder,
   heartbeatOrder,
+  voidOrder,
+  unvoidOrder,
+  markPriceReviewed,
 } from "@/lib/portal-orders";
 
 // Next 14 route param signature (this repo is next ^14.2.25).
@@ -33,6 +36,15 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       result = await cancelOrder(id, agent.userId, agent.name, reason);
       break;
     }
+    case "void":
+      result = await voidOrder(id, agent.userId, agent.name);
+      break;
+    case "unvoid":
+      result = await unvoidOrder(id);
+      break;
+    case "price-reviewed":
+      result = await markPriceReviewed(id, agent.name);
+      break;
     case "heartbeat":
       result = await heartbeatOrder(id, agent.userId);
       break;
