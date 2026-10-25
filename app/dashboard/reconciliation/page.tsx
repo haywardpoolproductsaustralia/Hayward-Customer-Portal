@@ -1083,7 +1083,9 @@ export default function ReconciliationPage() {
                   return (
                     <Fragment key={rowKey}>
                     <tr
-                      className={`${rowBase} hover:brightness-[0.97] transition-colors`}
+                      className={`${rowBase} hover:brightness-[0.97] transition-colors ${hasTracking ? 'cursor-pointer' : ''}`}
+                      title={hasTracking ? (isOpen ? 'Click to hide the container' : 'Click to show the container') : undefined}
+                      onClick={(e) => { if (hasTracking && !(e.target as HTMLElement).closest('a')) toggleRow(rowKey); }}
                     >
                       <td className="sticky left-0 z-10 bg-slate-900 px-2 py-1.5 whitespace-nowrap">
                         <Link href={`/dashboard/reconciliation?po=${r.po}`} className="font-bold text-white hover:text-wave">{r.po}</Link>
@@ -1150,7 +1152,7 @@ export default function ReconciliationPage() {
                       <td className="bg-violet-50 px-2 py-1.5 whitespace-nowrap text-violet-800">
                         {hasTracking ? (
                           <button
-                            onClick={() => toggleRow(rowKey)}
+                            onClick={(e) => { e.stopPropagation(); toggleRow(rowKey); }}
                             title={isOpen ? 'Hide tracking' : lineCts.length
                               ? `Show tracking (${lineCts.length} container${lineCts.length === 1 ? '' : 's'} carrying this line)`
                               : `${poCts.length} container${poCts.length === 1 ? '' : 's'} on PO ${r.po} carry other lines — this line isn't confirmed in any yet`}
