@@ -345,14 +345,14 @@ export default function OrdersPage() {
 
   const filtered = useMemo(() => {
     const orderNoTrim = orderNoSearch.trim();
-    const customerOrderNoTrim = customerOrderNoSearch.trim();
+    const customerOrderNoTrim = customerOrderNoSearch.trim().toUpperCase();
     const skuTrim = skuSearch.trim().toUpperCase();
     const fromTime = dateFrom ? new Date(dateFrom).getTime() : null;
     const toTime = dateTo ? new Date(dateTo).getTime() : null;
 
     let result = orders
       .filter((o) => !orderNoTrim || o.orderNo.includes(orderNoTrim))
-      .filter((o) => !customerOrderNoTrim || (o.customerOrderNo ?? '').includes(customerOrderNoTrim))
+      .filter((o) => !customerOrderNoTrim || (o.customerOrderNo ?? '').toUpperCase().includes(customerOrderNoTrim))
       .filter((o) => !skuTrim || o.sku.toUpperCase().includes(skuTrim))
       .filter((o) => branchFilter === 'all' || o.customerCode === branchFilter)
       .filter((o) => statusFilter === 'all' || o.statusFlag === statusFilter)
@@ -536,6 +536,7 @@ export default function OrdersPage() {
             label="Branch"
             placeholder="All branches"
             mono={false}
+            liveFilter={false}
             options={branchStringOptions}
             value={branchFilter === 'all' ? '' : (branchLabelByCode.get(branchFilter) ?? '')}
             onChange={(v) => setBranchFilter(v ? (branchCodeByLabel.get(v) ?? 'all') : 'all')}
