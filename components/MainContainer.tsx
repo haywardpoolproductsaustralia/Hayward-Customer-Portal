@@ -7,6 +7,7 @@ import { usePathname } from 'next/navigation';
  */
 const FULL_WIDTH_ROUTES = [
   '/dashboard/orders',
+  '/dashboard/products',
   '/dashboard/reconciliation',
   '/dashboard/container-orders',
 ];

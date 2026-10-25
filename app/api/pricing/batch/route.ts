@@ -32,7 +32,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'No customer code resolved for pricing' }, { status: 404 });
   }
   if (!priceType) {
-    return NextResponse.json({ error: 'No price type found for this customer' }, { status: 404 });
+    // Staff on "All customers" with nobody picked is the normal default state,
+    // not a data problem - let the UI show a prompt instead of a warning.
+    const reason = access.isAggregate && !requestedCode ? 'select_customer' : 'no_price_type';
+    return NextResponse.json({ error: 'No price type found for this customer', reason }, { status: 404 });
   }
 
   // One rules fetch, reused for every item in the batch.
