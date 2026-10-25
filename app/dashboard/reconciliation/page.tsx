@@ -13,7 +13,7 @@ const SCROLLBAR_STYLE = `
 
 // Fixed column widths (px) — 23 columns. Sticky left offsets are derived from these,
 // so change a width here and the frozen columns stay aligned.
-const COL_ORDER  = [66, 84, 92, 100, 54];                 // Order: PO, Customer PO, Status, Type, Arrow PO status
+const COL_ORDER  = [66, 84, 92, 100, 60];                 // Order: PO, Customer PO, Status, Type, Arrow PO status
 const COL_ARROW  = [120, 112, 76, 76, 60, 64, 56];        // Arrow AU: Stock, Supplier SKU, Order date, ETA, Ordered, Received, SOH
 const COL_SUPPLY = [100, 56, 56, 76, 76, 104];            // Supplier: PO ref, ENT, SHPD, Ship date, ETA, US SO#
 const COL_SUPPLY_COLLAPSED = [34];                        // Supplier group collapsed to one narrow toggle column
@@ -188,7 +188,7 @@ function statusBadge(s: ReconRow['status']) {
   return <span className={`inline-block rounded px-2 py-0.5 text-[11px] font-semibold ${cls}`}>{label}</span>;
 }
 
-const PO_STATUS_LABEL: Record<string, string> = { O: 'Open PO', Q: 'Quote', '': 'No status flag keyed', I: 'Status I', R: 'Status R' };
+const PO_STATUS_LABEL: Record<string, string> = { O: 'Open — nothing received yet', I: 'Something received on this PO (Arrow status I)', Q: 'Quote', '': 'No status flag keyed', R: 'Status R' };
 
 const STALE_WHY: Record<NonNullable<ReconRow['stale']>, string> = {
   'po-missing': 'The PO is not in AS400 at all — cancel the Arrow line or have the supplier enter it.',
@@ -1080,7 +1080,7 @@ export default function ReconciliationPage() {
                 <th title="Customer PO (DELIVERY_NOTE_4)" className="sticky bg-slate-700 px-2 py-2 whitespace-nowrap text-white opacity-100" style={{ left: `${left[1]}px` }}>Cust PO</th>
                 <th className="sticky bg-slate-700 px-2 py-2 whitespace-nowrap text-white opacity-100" style={{ left: `${left[2]}px` }}>Status</th>
                 <th className="sticky bg-slate-600 px-2 py-2 whitespace-nowrap text-white opacity-100" style={{ left: `${left[3]}px` }}>Type</th>
-                <th title="Arrow PO status flag (PORMAST.STATUS_FLAG): O = open, Q = quote. Closed/cancelled POs never reach this page." className="sticky bg-slate-600 px-2 py-2 whitespace-nowrap text-white border-r border-slate-500 opacity-100" style={{ left: `${left[4]}px` }}>Arrow</th>
+                <th title="Arrow PO status (PORMAST.STATUS_FLAG): Open = nothing received yet, I = something received, Q = quote. Closed/cancelled POs never reach this page. Shows · until the sync sends it." className="sticky bg-slate-600 px-2 py-2 whitespace-nowrap text-white border-r border-slate-500 opacity-100" style={{ left: `${left[4]}px` }}>PO st</th>
                 <th className="sticky bg-emerald-200 px-2 py-2 whitespace-nowrap text-emerald-900 opacity-100" style={{ left: `${left[5]}px` }}>Stock code</th>
                 <th className="sticky bg-emerald-200 px-2 py-2 whitespace-nowrap text-emerald-900 opacity-100" style={{ left: `${left[6]}px` }}>Supplier SKU</th>
                 <th title="PO order date" className="sticky bg-emerald-200 px-2 py-2 whitespace-nowrap text-emerald-900 opacity-100" style={{ left: `${left[7]}px` }}>Order dt</th>
@@ -1162,6 +1162,7 @@ export default function ReconciliationPage() {
                           title={r.poStatus == null ? 'Arrow PO status not in this sync yet — update arrow-recon.js / arrow-open-pos.sql' : PO_STATUS_LABEL[r.poStatus] ?? `Arrow STATUS_FLAG "${r.poStatus}"`}>
                         {r.poStatus == null ? <span className="text-slate-500">·</span>
                           : r.poStatus === 'O' ? <span className="text-emerald-300">Open</span>
+                          : r.poStatus === 'I' ? <span className="text-sky-300" title="Arrow status I — something on this PO has been received">Part</span>
                           : r.poStatus === '' ? <span className="text-slate-400">—</span>
                           : <span className="text-amber-300">{r.poStatus}</span>}
                       </td>
