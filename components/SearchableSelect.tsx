@@ -1,7 +1,7 @@
 'use client';
 
-import { useMemo, useRef, useState } from 'react';
-import { ChevronDown, X, Search } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { ChevronDown, X, Search, CornerDownLeft } from 'lucide-react';
 
 interface Props {
   label: string;
@@ -10,43 +10,40 @@ interface Props {
   value: string;
   onChange: (v: string) => void;
   mono?: boolean;
-  /**
-   * true (default): free-text mode — every keystroke is pushed to onChange so the
-   * parent filters as you type; the dropdown is just a convenience for picking an
-   * exact value. false: pick-only mode — typing narrows the list but onChange only
-   * fires when an option is chosen (used where the value must be one of the options,
-   * e.g. Branch, which maps label → code).
-   */
-  liveFilter?: boolean;
 }
 
-// Combo-box: type to filter, pick from the list or just keep typing, clear to reset.
-// Used for the Orders page order-number / SKU / branch filters where
-// copy-pasting is error-prone but free-text search is still needed.
-export function SearchableSelect({
-  label,
-  placeholder,
-  options,
-  value,
-  onChange,
-  mono = true,
-  liveFilter = true,
-}: Props) {
+const MAX_SHOWN = 100;
+
+// Combo-box: type to narrow the list, then pick with a click, arrow keys + Enter, or just
+// press Enter to apply what you typed. The parent filter is only updated on commit (not on
+// every keystroke) — the Orders table has thousands of lines and re-filtering per keystroke
+// made typing lag.
+export function SearchableSelect({ label, placeholder, options, value, onChange, mono = true }: Props) {
   const [open, setOpen] = useState(false);
-  const [pickQuery, setPickQuery] = useState(''); // only used in pick-only mode
+  const [query, setQuery] = useState('');
+  const [active, setActive] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
 
-  const query = liveFilter ? value : pickQuery;
+  const q = query.trim();
+  const { shown, total } = useMemo(() => {
+    const u = q.toUpperCase();
+    const all = u ? options.filter((o) => o.toUpperCase().includes(u)) : options;
+    return { shown: all.slice(0, MAX_SHOWN), total: all.length };
+  }, [q, options]);
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toUpperCase();
-    if (!q) return options.slice(0, 100); // cap at 100 so it doesn't lag with huge lists
-    return options.filter((o) => o.toUpperCase().includes(q)).slice(0, 100);
-  }, [query, options]);
+  // Reset keyboard highlight whenever the list changes
+  useEffect(() => { setActive(0); }, [q, open]);
 
-  function select(opt: string) {
-    onChange(opt);
-    setPickQuery('');
+  // Keep the highlighted row scrolled into view
+  useEffect(() => {
+    const el = listRef.current?.children[active] as HTMLElement | undefined;
+    el?.scrollIntoView({ block: 'nearest' });
+  }, [active]);
+
+  function commit(v: string) {
+    onChange(v);
+    setQuery('');
     setOpen(false);
     inputRef.current?.blur();
   }
@@ -54,24 +51,38 @@ export function SearchableSelect({
   function clear(e: React.MouseEvent) {
     e.stopPropagation();
     onChange('');
-    setPickQuery('');
+    setQuery('');
     setOpen(false);
   }
 
-  function handleInput(v: string) {
-    if (liveFilter) onChange(v);
-    else setPickQuery(v);
-    setOpen(true);
-  }
-
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key === 'Escape') {
-      setOpen(false);
-      inputRef.current?.blur();
-    } else if (e.key === 'Enter') {
-      // Enter = keep what's typed (live mode) or take the single remaining match (pick mode)
-      if (!liveFilter && filtered.length === 1) select(filtered[0]);
-      else setOpen(false);
+    switch (e.key) {
+      case 'ArrowDown':
+        e.preventDefault();
+        setOpen(true);
+        setActive((i) => Math.min(i + 1, shown.length - 1));
+        break;
+      case 'ArrowUp':
+        e.preventDefault();
+        setActive((i) => Math.max(i - 1, 0));
+        break;
+      case 'Enter': {
+        e.preventDefault();
+        // Exact option typed, or a single remaining match → select it.
+        // Otherwise apply the typed text as-is (it still works as a substring filter).
+        const exact = shown.find((o) => o.toUpperCase() === q.toUpperCase());
+        if (exact) commit(exact);
+        else if (shown.length === 1) commit(shown[0]);
+        else if (q && shown[active] && active > 0) commit(shown[active]);
+        else if (q) commit(q);
+        else if (shown[active]) commit(shown[active]);
+        break;
+      }
+      case 'Escape':
+        setOpen(false);
+        setQuery('');
+        inputRef.current?.blur();
+        break;
     }
   }
 
@@ -79,12 +90,9 @@ export function SearchableSelect({
     // Only close if focus left the whole component
     if (!e.currentTarget.contains(e.relatedTarget as Node)) {
       setOpen(false);
-      setPickQuery('');
+      setQuery('');
     }
   }
-
-  const displayValue = liveFilter ? value : open ? pickQuery : value;
-  const inputPlaceholder = !liveFilter && open && value ? value : placeholder;
 
   return (
     <div onBlur={handleBlur} className="relative">
@@ -98,16 +106,14 @@ export function SearchableSelect({
         <Search className="h-3.5 w-3.5 text-ink/30 flex-shrink-0" />
         <input
           ref={inputRef}
-          value={displayValue}
-          onChange={(e) => handleInput(e.target.value)}
+          value={open ? query : value}
+          onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
           onFocus={() => setOpen(true)}
           onKeyDown={handleKeyDown}
-          placeholder={inputPlaceholder}
+          placeholder={open && value ? value : placeholder}
           autoComplete="off"
           spellCheck={false}
-          className={`flex-1 text-sm outline-none bg-transparent min-w-0 ${
-            mono && displayValue ? 'font-mono' : ''
-          }`}
+          className={`flex-1 text-sm outline-none bg-transparent min-w-0 ${mono && (open ? query : value) ? 'font-mono' : ''}`}
         />
         {value ? (
           <button
@@ -124,22 +130,45 @@ export function SearchableSelect({
         )}
       </div>
 
-      {open && filtered.length > 0 && !(liveFilter && filtered.length === 1 && filtered[0] === value) && (
-        <div className="absolute z-20 mt-1 w-full rounded-xl border border-ink/10 bg-white shadow-soft overflow-hidden max-h-56 overflow-y-auto">
-          {filtered.map((opt) => (
-            <button
-              key={opt}
-              type="button"
-              tabIndex={-1}
-              onMouseDown={(e) => e.preventDefault()} // prevent blur before click
-              onClick={() => select(opt)}
-              className={`w-full text-left pl-9 pr-3 py-2 text-sm hover:bg-foam border-b border-ink/5 last:border-0 ${mono ? 'font-mono' : ''} ${
-                opt === value ? 'bg-wave/5 text-wave font-semibold' : 'text-ink'
-              }`}
-            >
-              {opt}
-            </button>
-          ))}
+      {open && (
+        <div className="absolute z-20 mt-1.5 w-full rounded-xl border border-deep/15 bg-white shadow-[0_12px_32px_-8px_rgba(7,89,133,0.25)] overflow-hidden">
+          <div ref={listRef} className="max-h-60 overflow-y-auto py-1">
+            {shown.length === 0 ? (
+              <p className="px-3 py-3 text-sm text-ink/40">No matches{q ? ` for “${q}”` : ''}</p>
+            ) : (
+              shown.map((opt, i) => {
+                const selected = opt === value;
+                const highlighted = i === active;
+                return (
+                  <button
+                    key={opt}
+                    type="button"
+                    tabIndex={-1}
+                    onMouseDown={(e) => e.preventDefault()} // prevent blur before click
+                    onMouseEnter={() => setActive(i)}
+                    onClick={() => commit(opt)}
+                    className={`w-full text-left flex items-center gap-2 px-3 py-1.5 text-sm transition-colors ${
+                      mono ? 'font-mono' : ''
+                    } ${
+                      highlighted ? 'bg-deep text-white' : selected ? 'bg-foam text-deep font-semibold' : 'text-ink'
+                    }`}
+                  >
+                    <span className={`h-1.5 w-1.5 rounded-full flex-shrink-0 ${highlighted ? 'bg-sky-300' : selected ? 'bg-wave' : 'bg-transparent'}`} />
+                    <span className="truncate">{opt}</span>
+                  </button>
+                );
+              })
+            )}
+          </div>
+          <div className="flex items-center justify-between gap-2 border-t border-ink/5 bg-foam/60 px-3 py-1.5 text-[11px] text-ink/50">
+            <span>
+              {total > MAX_SHOWN ? `Showing ${MAX_SHOWN} of ${total}` : `${total} match${total === 1 ? '' : 'es'}`}
+            </span>
+            <span className="flex items-center gap-1 whitespace-nowrap">
+              <CornerDownLeft className="h-3 w-3" />
+              {q ? 'apply' : 'select'}
+            </span>
+          </div>
         </div>
       )}
     </div>

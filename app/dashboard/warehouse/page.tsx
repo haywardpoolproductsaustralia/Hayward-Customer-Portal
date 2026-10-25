@@ -558,7 +558,6 @@ export default function WarehousePage() {
           <SearchableSelect
             label=""
             placeholder="Filter by branch…"
-            liveFilter={false}
             options={branchOptions}
             value={branchFilter}
             onChange={setBranchFilter}

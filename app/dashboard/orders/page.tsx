@@ -536,7 +536,6 @@ export default function OrdersPage() {
             label="Branch"
             placeholder="All branches"
             mono={false}
-            liveFilter={false}
             options={branchStringOptions}
             value={branchFilter === 'all' ? '' : (branchLabelByCode.get(branchFilter) ?? '')}
             onChange={(v) => setBranchFilter(v ? (branchCodeByLabel.get(v) ?? 'all') : 'all')}
