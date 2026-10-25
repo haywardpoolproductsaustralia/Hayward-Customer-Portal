@@ -13,12 +13,13 @@ const SCROLLBAR_STYLE = `
 
 // Fixed column widths (px) — 22 columns. Sticky left offsets are derived from these,
 // so change a width here and the frozen columns stay aligned.
-const COL_W = [
-  66, 84, 80, 78,                 // Order: PO, Customer PO, Status, Type
-  120, 112, 76, 76, 60, 64, 56,   // Arrow AU: Stock, Supplier SKU, Order date, ETA, Ordered, Received, SOH
-  100, 56, 56, 76, 76, 104,       // Supplier: PO ref, ENT, SHPD, Ship date, ETA, US SO#
-  56, 168, 112, 76, 92,           // Shipment: On water, Container, Vessel, Cont. ETA, Supplier
-];
+const COL_ORDER  = [66, 84, 80, 78];                      // Order: PO, Customer PO, Status, Type
+const COL_ARROW  = [120, 112, 76, 76, 60, 64, 56];        // Arrow AU: Stock, Supplier SKU, Order date, ETA, Ordered, Received, SOH
+const COL_SUPPLY = [100, 56, 56, 76, 76, 104];            // Supplier: PO ref, ENT, SHPD, Ship date, ETA, US SO#
+const COL_SUPPLY_COLLAPSED = [34];                        // Supplier group collapsed to one narrow toggle column
+const COL_SHIP   = [56, 168, 112, 76, 92];                // Shipment: On water, Container, Vessel, Cont. ETA, Supplier
+const colWidths = (supplierOpen: boolean) => [...COL_ORDER, ...COL_ARROW, ...(supplierOpen ? COL_SUPPLY : COL_SUPPLY_COLLAPSED), ...COL_SHIP];
+const COL_W = colWidths(true);
 const TABLE_W = COL_W.reduce((a, b) => a + b, 0);
 const MIN_ZOOM = 0.55;
 // Full-width PO reconciliation: Arrow AU vs AS400 (Snowflake upload) vs CDS-Net shipments.
@@ -515,6 +516,13 @@ export default function ReconciliationPage() {
 
   // Fit-to-screen: scale the table so all 22 columns are visible at 100% browser zoom.
   const [fitToScreen, setFitToScreen] = useState(true);
+  // Supplier USA-China column group: collapsed by default (like hiding a column group in Excel); remembered per browser.
+  const [supplierOpen, setSupplierOpen] = useState(false);
+  useEffect(() => { try { setSupplierOpen(localStorage.getItem('recon.supplierOpen') === '1'); } catch { /* ignore */ } }, []);
+  const toggleSupplier = useCallback(() => setSupplierOpen((v) => { try { localStorage.setItem('recon.supplierOpen', v ? '0' : '1'); } catch { /* ignore */ } return !v; }), []);
+  const cols = colWidths(supplierOpen);
+  const tableW = cols.reduce((a, b) => a + b, 0);
+  const colCount = cols.length;
   const [availWidth,  setAvailWidth]  = useState<number>(TABLE_W);
   const tableWrapRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -526,7 +534,7 @@ export default function ReconciliationPage() {
     ro.observe(el);
     return () => ro.disconnect();
   }, [loading]); // wrapper only exists once data has loaded
-  const tableZoom = fitToScreen ? Math.max(MIN_ZOOM, Math.min(1, (availWidth - 2) / TABLE_W)) : 1;
+  const tableZoom = fitToScreen ? Math.max(MIN_ZOOM, Math.min(1, (availWidth - 2) / tableW)) : 1;
 
   useEffect(() => {
     Promise.all([
@@ -971,9 +979,9 @@ export default function ReconciliationPage() {
               }
             }}
           >
-          <table id="recon-table" className="text-left text-xs" style={{ width: `${TABLE_W}px`, tableLayout: 'fixed', borderCollapse: 'collapse', zoom: tableZoom }}>
+          <table id="recon-table" className="text-left text-xs" style={{ width: `${tableW}px`, tableLayout: 'fixed', borderCollapse: 'collapse', zoom: tableZoom }}>
             <colgroup>
-              {COL_W.map((w, ci) => <col key={ci} style={{ width: `${w}px` }} />)}
+              {cols.map((w, ci) => <col key={ci} style={{ width: `${w}px` }} />)}
             </colgroup>
             <thead className="sticky top-0 z-20">
               <tr className="text-[11px] font-bold uppercase tracking-widest">
@@ -983,8 +991,10 @@ export default function ReconciliationPage() {
                 <th colSpan={7} style={{ background: '#059669', color: 'white', padding: '6px 8px', borderRight: '2px solid white', opacity: 1 }}>
                   Arrow AU
                 </th>
-                <th colSpan={6} style={{ background: '#f59e0b', color: 'white', padding: '6px 8px', borderRight: '2px solid white', opacity: 1 }}>
-                  Supplier USA-China
+                <th colSpan={supplierOpen ? 6 : 1} onClick={toggleSupplier}
+                    title={supplierOpen ? 'Collapse the Supplier USA-China columns' : 'Expand the Supplier USA-China columns (AS400 PO ref, ENT, SHPD, ship date, ETA, US SO#)'}
+                    style={{ background: '#f59e0b', color: 'white', padding: '6px 8px', borderRight: '2px solid white', opacity: 1, cursor: 'pointer', userSelect: 'none', textAlign: supplierOpen ? 'left' : 'center' }}>
+                  {supplierOpen ? '◂ Supplier USA-China' : '▸'}
                 </th>
                 <th colSpan={5} style={{ background: '#7c3aed', color: 'white', padding: '6px 8px', opacity: 1 }}>
                   Shipment On Water
@@ -1002,12 +1012,16 @@ export default function ReconciliationPage() {
                 <th title="Qty ordered in Arrow" className="sticky bg-emerald-200 px-2 py-2 text-right whitespace-nowrap text-emerald-900 opacity-100" style={{ left: '692px' }}>Qty</th>
                 <th title="Qty received in Arrow" className="sticky bg-emerald-200 px-2 py-2 text-right whitespace-nowrap text-emerald-900 opacity-100" style={{ left: '752px' }}>Rcvd</th>
                 <th title="Stock on hand in Arrow, all locations (hover for allocated / backordered)" className="sticky bg-emerald-200 px-2 py-2 text-right whitespace-nowrap text-emerald-900 border-r-2 border-emerald-400 opacity-100" style={{ left: '816px' }}>SOH</th>
+                {supplierOpen ? (<>
                 <th title="Matched AS400 PO / item" className="bg-[#fef3c7] px-2 py-2 whitespace-nowrap text-[#78350f] opacity-100">Arrow PO</th>
                 <th className="bg-[#fef3c7] px-2 py-2 text-right whitespace-nowrap text-[#78350f] opacity-100">ENT</th>
                 <th className="bg-[#fef3c7] px-2 py-2 text-right whitespace-nowrap text-[#78350f] opacity-100">SHPD</th>
                 <th title="AS400 ship date" className="bg-[#fef3c7] px-2 py-2 whitespace-nowrap text-[#78350f] opacity-100">Ship dt</th>
                 <th className="bg-[#fef3c7] px-2 py-2 whitespace-nowrap text-[#78350f] opacity-100">ETA</th>
                 <th className="bg-[#fef3c7] px-2 py-2 whitespace-nowrap text-[#78350f] border-r-2 border-[#fcd34d] opacity-100">US SO#</th>
+                </>) : (
+                <th title="AS400 match (click the orange header to expand)" className="bg-[#fef3c7] px-1 py-2 text-center whitespace-nowrap text-[#78350f] border-r-2 border-[#fcd34d] opacity-100">AS400</th>
+                )}
                 <th title="Qty shipped, not yet received" className="bg-violet-100 px-2 py-2 text-right whitespace-nowrap text-violet-900 opacity-100">On water</th>
                 <th className="bg-violet-100 px-2 py-2 whitespace-nowrap text-violet-900 opacity-100">Container</th>
                 <th className="bg-violet-100 px-2 py-2 whitespace-nowrap text-violet-900 opacity-100">Vessel</th>
@@ -1018,7 +1032,7 @@ export default function ReconciliationPage() {
             <tbody className="divide-y divide-slate-100">
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={22} className="py-12 text-center text-slate-400">
+                  <td colSpan={colCount} className="py-12 text-center text-slate-400">
                     No rows match the current filter.
                   </td>
                 </tr>
@@ -1074,6 +1088,7 @@ export default function ReconciliationPage() {
                           : (r.backordered ?? 0) > 0 ? <span className="font-semibold text-amber-700">{r.onHand}</span>
                           : <span className="text-slate-700">{r.onHand}</span>}
                       </td>
+                      {supplierOpen ? (<>
                       <td className="bg-[#fffbeb] px-2 py-1.5 whitespace-nowrap font-mono text-[11px]">
                         {!r.matchType
                           ? <span className="text-red-400">—</span>
@@ -1096,6 +1111,15 @@ export default function ReconciliationPage() {
                       </td>
                       <td className="bg-[#fffbeb] px-2 py-1.5 whitespace-nowrap text-slate-600">{fmt(r.as400Eta)}</td>
                       <td className="bg-[#fffbeb] px-2 py-1.5 font-mono text-[11px] text-slate-500 border-r-2 border-[#fde68a]"><span title={r.usSoNumber ?? ''}>{r.usSoNumber ?? '—'}</span></td>
+                      </>) : (
+                      <td className="bg-[#fffbeb] px-1 py-1.5 text-center border-r-2 border-[#fde68a]"
+                          title={!r.matchType ? 'Not entered by supplier' : `AS400 ${r.po}: entered ${r.as400Ord}, shipped ${r.as400Shpd || 0}${r.shipDate ? `, ship date ${fmt(r.shipDate)}` : ''}${r.usSoNumber ? ` · US SO ${r.usSoNumber}` : ''}${r.qtyMismatch ? ' · QTY MISMATCH' : ''}`}>
+                        {!r.matchType ? <span className="font-semibold text-red-600">✗</span>
+                          : r.qtyMismatch ? <span className="font-semibold text-red-700">≠</span>
+                          : r.matchType === 'alias' ? <span className="text-[#b45309]">≈</span>
+                          : <span className="text-green-700">✓</span>}
+                      </td>
+                      )}
                       <td className="bg-violet-50 px-2 py-2 text-center">
                         {r.onWater > 0
                           ? <span className="font-bold text-violet-700">{r.onWater}</span>
@@ -1137,7 +1161,7 @@ export default function ReconciliationPage() {
                     </tr>
                     {isOpen && (
                       <tr className="bg-violet-50/40">
-                        <td colSpan={22} className="p-0" style={{ whiteSpace: 'normal' }}>
+                        <td colSpan={colCount} className="p-0" style={{ whiteSpace: 'normal' }}>
                           <TrackingPanel po={r.po} item={r.as400Item ?? r.supplierSku} lineContainers={lineCts} poContainers={poCts} probable={probable} />
                         </td>
                       </tr>
