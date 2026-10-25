@@ -150,6 +150,7 @@ export async function applyLive(no: string, live: LiveStatus, posFromReference: 
 /** Is this box finished (at our door or returned)? Used to stop polling / registering. */
 export function isClosed(rec: ContainerRecord, staleDays = 45): boolean {
   if (rec.live?.containerStatus && ["GATE_OUT", "EMPTY_RETURN"].includes(rec.live.containerStatus)) return true;
+  if (rec.live?.discardedAt) return true; // ShipsGo has stopped tracking it — nothing more will come
   if (rec.century?.status && ["GATE_OUT", "EMPTY_RETURN"].includes(rec.century.status)) return true;
   if (rec.chr?.status && ["GATE_OUT", "EMPTY_RETURN"].includes(rec.chr.status)) return true;
   if (rec.deliveredDate) return true;

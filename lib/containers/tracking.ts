@@ -113,7 +113,9 @@ export async function registerNew(nos: string[], dryRun = false) {
  */
 export async function syncFromShipsgo(opts: { force?: boolean; limit?: number } = {}) {
   const started = Date.now();
-  const summaries = (await sg.listAllShipments()).filter((s) => !s.discarded_at);
+  // ShipsGo sets discarded_at when it stops tracking a shipment after discharge — those still show in the dashboard
+  // and still carry their final status/ETA/movements, so we pull them once and then treat them as closed.
+  const summaries = await sg.listAllShipments();
   const records = new Map((await getAllRecords()).map((r) => [r.containerNo, r] as const));
   const changed: Array<{ containerNo: string; from?: string; to?: string; status?: string }> = [];
   const errors: Array<{ shipmentId: number; error: string }> = [];
@@ -134,6 +136,7 @@ export async function syncFromShipsgo(opts: { force?: boolean; limit?: number } 
         const prev = records.get(no);
         const live = sg.toLiveStatus(full, no, prev?.live);
         live.sourceUpdatedAt = s.updated_at;
+        if (s.discarded_at) live.discardedAt = s.discarded_at;
         if (!prev) newFromShipsgo++;
         const rec = await applyLive(no, live, refPos);
         records.set(no, rec);

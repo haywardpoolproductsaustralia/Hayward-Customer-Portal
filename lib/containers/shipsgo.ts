@@ -130,17 +130,6 @@ export async function listAllShipments(): Promise<SgShipment[]> {
   return out;
 }
 
-/** Diagnostic: how does the list endpoint page? (the dashboard shows more shipments than listAllShipments returns) */
-export async function probeList(): Promise<any> {
-  const res = await call(`/ocean/shipments?skip=0&take=100`);
-  const ships: any[] = Array.isArray(res?.shipments) ? res.shipments : [];
-  return {
-    n: ships.length,
-    keys: Object.keys(ships[0] ?? {}),
-    rows: ships.map((x) => ({ id: x.id, status: x.status, discarded_at: x.discarded_at ?? null, archived_at: x.archived_at ?? null, container: x.container_number, updated_at: x.updated_at, created_at: x.created_at })),
-  };
-}
-
 /** Is this container already tracked on the account? (free — no credit) */
 export async function findByContainerNumber(containerNo: string): Promise<SgShipment | null> {
   const { shipments } = await listShipments(0, 1, { container_number: `eq:${containerNo}` });
