@@ -10,8 +10,10 @@ import {
   findDuplicate,
   getPortalOrder,
   nextRef,
+  PortalOrderData,
   PortalOrderLine,
 } from "@/lib/portal-orders";
+import { notifyNewPortalOrder } from "@/lib/order-notifications";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -313,7 +315,7 @@ export async function POST(req: NextRequest) {
   const customerNames = await getJSON<Record<string, string>>("customerNames");
 
   const ref = await nextRef();
-  const id = await createPortalOrder({
+  const order: PortalOrderData = {
     ref,
     submittedAt: Date.now(),
     orgId,
@@ -333,7 +335,12 @@ export async function POST(req: NextRequest) {
     priceType,
     subTotal,
     duplicateOf: existingId ?? null,
-  });
+  };
+  const id = await createPortalOrder(order);
+
+  // Tell the order desk. Awaited (Vercel won't keep work alive after the
+  // response) but never allowed to fail the order - it's already stored.
+  await notifyNewPortalOrder(order, id);
 
   return NextResponse.json({ ok: true, id, ref, subTotal, lineCount: lines.length });
 }
