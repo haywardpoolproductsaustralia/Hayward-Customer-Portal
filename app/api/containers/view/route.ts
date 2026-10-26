@@ -17,7 +17,7 @@ export async function GET() {
   if (!access) return NextResponse.json({ error: "No organization selected" }, { status: 403 });
   if (!access.isAggregate) return NextResponse.json({ containers: [], meta: null, refresh: null });
 
-  const [records, meta, refresh] = await Promise.all([getAllRecords(), getJSON<any>(K.meta), getJSON<any>(K.refresh)]);
+  const [records, meta, refresh] = await Promise.all([getAllRecords(), getJSON<any>(K.meta), getJSON<any>(K.refresh).then(async (r) => ({ ...(r ?? {}), cronHit: await getJSON<any>("ct:cronhit") }))]);
   const containers = records
     .filter((r) => !isClosed(r, 60, false))
     .map((r) => ({ ...r, lines: r.lines.map((l) => ({ po: l.po, item: l.supplierItem, qty: l.qty, source: l.source, ref: l.sourceRef })) }))
