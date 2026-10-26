@@ -32,8 +32,21 @@ async function run(req: NextRequest) {
 }
 
 export async function GET(req: NextRequest) {
-  if (!cronAuthorized(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  return run(req);
+  // Record every hit on the cron path — authorised or not — so "is Vercel calling us at all?" is answerable from the page.
+  const authorized = cronAuthorized(req);
+  try {
+    await redis.set("ct:cronhit", JSON.stringify({
+      at: new Date().toISOString(), authorized, ua: req.headers.get("user-agent") ?? null,
+      hasAuthHeader: !!req.headers.get("authorization"), cronSecretSet: !!process.env.CRON_SECRET,
+    }));
+  } catch { /* best effort */ }
+  if (!authorized) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  try {
+    return await run(req);
+  } catch (e: any) {
+    try { await redis.set("ct:cronhit", JSON.stringify({ at: new Date().toISOString(), authorized, error: e?.message ?? String(e) })); } catch { /* ignore */ }
+    return NextResponse.json({ error: e?.message ?? String(e) }, { status: 500 });
+  }
 }
 
 export async function POST(req: NextRequest) {
