@@ -36,7 +36,7 @@ const MAX_ZOOM = 1.3;  // fit-to-screen may also scale UP (bigger text) when the
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import {
-  TrackingPanel, StatusChip, indexContainers, lineKey as ctLineKey, bestEta, bestVessel, bestCarrier, deliveredOf, ctStatus,
+  TrackingPanel, StatusChip, ContainerCard, indexContainers, lineKey as ctLineKey, bestEta, bestVessel, bestCarrier, deliveredOf, ctStatus,
   type CtContainer,
 } from '@/components/ContainerTracking';
 
@@ -760,8 +760,9 @@ export default function ReconciliationPage() {
     // Only the boxes this row is actually SHOWN with: its own line-level containers; else the US-SO match; else
     // (line in no box yet) the PO-level boxes / probable match. A container search must not hit every line of a PO.
     const so = !line.length && x.usSoNumber ? ctIdx.bySo.get(x.usSoNumber.replace(/^0+/, '')) ?? [] : [];
-    const po = !line.length && !so.length ? ctIdx.byPo.get(x.po) ?? [] : [];
-    const prob = !line.length && !so.length && !po.length ? probableFor(x).map((p) => p.c) : [];
+    // A line already placed by the CDS shipment file (x.container) is shown with THAT box — PO-level boxes don't apply.
+    const po = !line.length && !so.length && !x.container ? ctIdx.byPo.get(x.po) ?? [] : [];
+    const prob = !line.length && !so.length && !po.length && !x.container ? probableFor(x).map((p) => p.c) : [];
     return [...line, ...so, ...po, ...prob].map((c) => `${c.containerNo} ${c.mbl ?? ''} ${c.live?.reference ?? ''}`).join(' ').toLowerCase();
   }, [ctIdx, probableFor]);
 
@@ -798,6 +799,14 @@ export default function ReconciliationPage() {
     }
     return r;
   }, [rows, tab, search, scope, containerText]);
+
+  // Containers in the tracking store that the search names but no visible PO line carries — so a box Dimi registered
+  // with no PO in the reference (or an outbound Paramount box) is still findable here instead of "no rows".
+  const orphanHits = useMemo(() => {
+    const q = normKey(search);
+    if (q.length < 4) return [] as CtContainer[];
+    return ctContainers.filter((c) => c.containerNo.includes(q) || normKey(c.mbl ?? '').includes(q) || normKey(c.live?.reference ?? '').includes(q));
+  }, [search, ctContainers]);
 
   const stats = useMemo(() => {
     const inScope = rows.filter((x) =>
@@ -1065,8 +1074,18 @@ export default function ReconciliationPage() {
             <tbody className="divide-y divide-slate-100">
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={colCount} className="py-12 text-center text-slate-400">
-                    No rows match the current filter.
+                  <td colSpan={colCount} className="py-10 px-6 text-slate-400" style={{ whiteSpace: 'normal' }}>
+                    <div className="text-center">No PO line matches the current filter.</div>
+                    {orphanHits.length > 0 && (
+                      <div className="mx-auto mt-6 max-w-5xl text-left">
+                        <p className="mb-2 text-xs text-slate-600">
+                          <b>{orphanHits.length === 1 ? 'This container is' : `${orphanHits.length} containers are`} being tracked but {orphanHits.length === 1 ? 'is' : 'are'} not tied to any open PO line</b> — nothing names a PO or item for {orphanHits.length === 1 ? 'it' : 'them'} yet (ShipsGo reference, invoice, Century/CDS row or forecast sheet). Outbound and customer-direct boxes show on <Link href="/dashboard/container-orders" className="text-violet-700 underline">Container orders</Link>.
+                        </p>
+                        <div className="space-y-2">
+                          {orphanHits.map((c) => <ContainerCard key={c.containerNo} c={c} po={c.pos[0] ?? ''} item="" poOnly={c.pos.length > 0} />)}
+                        </div>
+                      </div>
+                    )}
                   </td>
                 </tr>
               ) : (
