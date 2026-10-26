@@ -76,7 +76,7 @@ export function toLiveStatus(s: SgShipment, containerNo: string, previous?: Live
   const legs = movements.filter((m) => m.vessel && ["LOAD", "DEPA", "ARRV", "DISC"].includes(m.event));
   const leg = [...legs].reverse().find((m) => m.status === "ACT") ?? legs[0];
   return {
-    shipmentId: s.id, reference: s.reference ?? undefined, shipmentStatus: s.status, containerStatus: c?.status,
+    shipmentId: s.id, reference: s.reference ?? undefined, tags: (s.tags ?? []).map((t) => t.name).filter((n): n is string => !!n), shipmentStatus: s.status, containerStatus: c?.status,
     carrier: s.carrier?.name ?? undefined, carrierScac: s.carrier?.scac ?? undefined,
     pol: s.route?.port_of_loading?.location?.name ?? undefined, pod: s.route?.port_of_discharge?.location?.name ?? undefined,
     etd: d(s.route?.port_of_loading?.date_of_loading), eta,
