@@ -36,7 +36,7 @@ const MAX_ZOOM = 1.3;  // fit-to-screen may also scale UP (bigger text) when the
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import {
-  TrackingPanel, StatusChip, indexContainers, lineKey as ctLineKey, bestEta, bestVessel, bestCarrier, deliveredOf, ctStatus,
+  TrackingPanel, StatusChip, ContainerCard, indexContainers, lineKey as ctLineKey, bestEta, bestVessel, bestCarrier, deliveredOf, ctStatus,
   type CtContainer,
 } from '@/components/ContainerTracking';
 
@@ -799,6 +799,14 @@ export default function ReconciliationPage() {
     return r;
   }, [rows, tab, search, scope, containerText]);
 
+  // Containers in the tracking store that the search names but no visible PO line carries — so a box Dimi registered
+  // with no PO in the reference (or an outbound Paramount box) is still findable here instead of "no rows".
+  const orphanHits = useMemo(() => {
+    const q = normKey(search);
+    if (q.length < 4) return [] as CtContainer[];
+    return ctContainers.filter((c) => c.containerNo.includes(q) || normKey(c.mbl ?? '').includes(q) || normKey(c.live?.reference ?? '').includes(q));
+  }, [search, ctContainers]);
+
   const stats = useMemo(() => {
     const inScope = rows.filter((x) =>
       scope === 'paramount' ? x.stockCategory === 'PR'
@@ -1065,8 +1073,18 @@ export default function ReconciliationPage() {
             <tbody className="divide-y divide-slate-100">
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={colCount} className="py-12 text-center text-slate-400">
-                    No rows match the current filter.
+                  <td colSpan={colCount} className="py-10 px-6 text-slate-400" style={{ whiteSpace: 'normal' }}>
+                    <div className="text-center">No PO line matches the current filter.</div>
+                    {orphanHits.length > 0 && (
+                      <div className="mx-auto mt-6 max-w-5xl text-left">
+                        <p className="mb-2 text-xs text-slate-600">
+                          <b>{orphanHits.length === 1 ? 'This container is' : `${orphanHits.length} containers are`} being tracked but {orphanHits.length === 1 ? 'is' : 'are'} not tied to any open PO line</b> — nothing names a PO or item for {orphanHits.length === 1 ? 'it' : 'them'} yet (ShipsGo reference, invoice, Century/CDS row or forecast sheet). Outbound and customer-direct boxes show on <Link href="/dashboard/container-orders" className="text-violet-700 underline">Container orders</Link>.
+                        </p>
+                        <div className="space-y-2">
+                          {orphanHits.map((c) => <ContainerCard key={c.containerNo} c={c} po={c.pos[0] ?? ''} item="" poOnly={c.pos.length > 0} />)}
+                        </div>
+                      </div>
+                    )}
                   </td>
                 </tr>
               ) : (
