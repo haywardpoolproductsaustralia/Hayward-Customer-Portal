@@ -389,7 +389,7 @@ export default function WarehousePage() {
       {/* Header */}
       <div className="flex items-end justify-between flex-wrap gap-3">
         <div>
-          <h1 className="font-display text-3xl text-deep font-bold">Warehouse fulfillment</h1>
+          <h1 className="font-display text-2xl sm:text-3xl text-deep font-bold">Warehouse fulfillment</h1>
           <p className="text-ink/50 mt-1">Backordered lines that can be dispatched from current stock.</p>
         </div>
         <div className="flex items-center gap-2">

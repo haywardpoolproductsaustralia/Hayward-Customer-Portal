@@ -1,9 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname } from 'next/navigation';
+import { OrganizationSwitcher } from '@clerk/nextjs';
 // Inbox, TrendingUp and Hourglass are intentionally not imported while their
 // nav items are commented out below - re-add them when restoring those pages.
 import { Boxes, Receipt, Tag, BookOpen, Menu, X, Home, Sparkles, Warehouse, UserSearch, ShieldCheck, GitCompareArrows, ShoppingCart, Container } from 'lucide-react';
@@ -110,6 +111,12 @@ function NavLinks({
 // per-group page hiding (e.g. Reece doesn't get Warranty). It's separate from
 // isAggregate on purpose: Hayward's org contains every group's codes, so any
 // code-based test would hide staff pages too.
+//
+// Mobile: this component no longer renders its own top bar. It renders an
+// inline hamburger + logo that app/dashboard/layout.tsx places at the left of
+// the single sticky header, so phones get one bar instead of two stacked ones.
+// The desktop <aside> and the drawer are position:fixed, so where this sits in
+// the DOM doesn't affect them.
 export function SidebarNav({
   isAggregate = false,
   groupKey = null,
@@ -120,34 +127,77 @@ export function SidebarNav({
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
 
+  // Close the drawer on route change (e.g. browser back) and lock body scroll
+  // while it's open so the page behind doesn't scroll on touch devices.
+  useEffect(() => { setOpen(false); }, [pathname]);
+  useEffect(() => {
+    if (!open) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    window.addEventListener('keydown', onKey);
+    return () => {
+      document.body.style.overflow = prev;
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
   return (
     <>
-      {/* Mobile top bar */}
-      <div className="lg:hidden flex items-center justify-between px-4 py-3 bg-white border-b border-ink/10 sticky top-0 z-40">
-        <Image src="/hayward-logo.png" alt="Hayward" width={105} height={24} className="h-6 w-auto" priority />
-        <button onClick={() => setOpen(true)} aria-label="Open menu" className="p-2">
-          <Menu className="h-5 w-5 text-ink/60" />
+      {/* Mobile: hamburger + logo, inline in the dashboard header */}
+      <div className="lg:hidden flex items-center gap-1 min-w-0">
+        <button
+          onClick={() => setOpen(true)}
+          aria-label="Open menu"
+          aria-expanded={open}
+          className="-ml-2 p-2 rounded-lg text-ink/60 hover:bg-ink/5 active:bg-ink/10"
+        >
+          <Menu className="h-5 w-5" />
         </button>
+        <Link href="/dashboard" className="flex items-center">
+          <Image src="/hayward-logo.png" alt="Hayward" width={105} height={24} className="h-6 w-auto" priority />
+        </Link>
       </div>
 
       {/* Mobile drawer */}
       {open && (
         <div className="lg:hidden fixed inset-0 z-50 flex">
-          <div className="w-72 bg-white p-4 flex flex-col gap-1 shadow-soft">
-            <div className="flex items-center justify-between mb-4 px-2">
+          <div
+            className="w-[min(18rem,85vw)] bg-white flex flex-col shadow-soft"
+            style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Navigation"
+          >
+            <div className="flex items-center justify-between px-4 py-3 border-b border-ink/10">
               <Image src="/hayward-logo.png" alt="Hayward" width={105} height={24} className="h-6 w-auto" />
-              <button onClick={() => setOpen(false)} aria-label="Close menu" className="p-2">
-                <X className="h-5 w-5 text-ink/60" />
+              <button onClick={() => setOpen(false)} aria-label="Close menu" className="p-2 -mr-2 rounded-lg text-ink/60 hover:bg-ink/5">
+                <X className="h-5 w-5" />
               </button>
             </div>
-            <NavLinks
-              pathname={pathname}
-              isAggregate={isAggregate}
-              groupKey={groupKey}
-              onNavigate={() => setOpen(false)}
-            />
+            <div className="flex-1 overflow-y-auto p-3">
+              <NavLinks
+                pathname={pathname}
+                isAggregate={isAggregate}
+                groupKey={groupKey}
+                onNavigate={() => setOpen(false)}
+              />
+            </div>
+            <div className="border-t border-ink/10 px-4 py-3">
+              <p className="text-[11px] font-medium uppercase tracking-wide text-ink/40 mb-1.5">Organisation</p>
+              <OrganizationSwitcher
+                hidePersonal
+                afterSelectOrganizationUrl="/dashboard"
+                appearance={{ elements: { rootBox: 'flex w-full', organizationSwitcherTrigger: 'py-1.5 px-2 rounded-lg w-full justify-between' } }}
+              />
+            </div>
           </div>
-          <div className="flex-1 bg-ink/40" onClick={() => setOpen(false)} />
+          <button
+            type="button"
+            aria-label="Close menu"
+            className="flex-1 bg-ink/40 cursor-default"
+            onClick={() => setOpen(false)}
+          />
         </div>
       )}
 

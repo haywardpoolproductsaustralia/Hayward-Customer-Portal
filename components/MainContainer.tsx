@@ -17,7 +17,10 @@ export function MainContainer({ children }: { children: React.ReactNode }) {
     (route) => pathname === route || pathname.startsWith(`${route}/`),
   );
   return (
-    <main className={`px-4 sm:px-8 py-8 ${fullWidth ? 'w-full' : 'max-w-6xl'}`}>
+    <main
+      className={`px-4 sm:px-8 py-5 sm:py-8 ${fullWidth ? 'w-full' : 'max-w-6xl'}`}
+      style={{ paddingBottom: 'max(2rem, env(safe-area-inset-bottom))' }}
+    >
       {children}
     </main>
   );

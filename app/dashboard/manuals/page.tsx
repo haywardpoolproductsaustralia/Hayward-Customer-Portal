@@ -26,7 +26,7 @@ export default function ManualsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="font-display text-3xl text-deep font-bold">Manuals</h1>
+        <h1 className="font-display text-2xl sm:text-3xl text-deep font-bold">Manuals</h1>
         <p className="text-ink/50 mt-1">Tech manuals and install guides, searchable in one place.</p>
       </div>
 

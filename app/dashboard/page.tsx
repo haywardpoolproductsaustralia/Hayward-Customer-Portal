@@ -47,7 +47,7 @@ export default async function DashboardHome() {
     <div className="space-y-8">
       <div>
         <p className="text-sm font-medium text-wave mb-1">Welcome back</p>
-        <h1 className="font-display text-3xl text-deep font-bold">
+        <h1 className="font-display text-2xl sm:text-3xl text-deep font-bold">
           {access.groupName}
           {access.branchCode ? '' : ' \u00b7 Head office'}
         </h1>

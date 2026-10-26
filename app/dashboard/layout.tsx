@@ -30,20 +30,25 @@ export default async function DashboardLayout({
   return (
     <SelectedCustomerProvider>
       <div className="min-h-screen bg-foam">
-        {/* groupKey drives per-group page hiding in the nav (lib/page-visibility.ts). */}
-        <SidebarNav isAggregate={access?.isAggregate} groupKey={access?.groupKey ?? null} />
-
         <div className="lg:pl-60">
+          {/* One sticky header on every breakpoint. On phones SidebarNav
+              renders the hamburger + logo at the left (the drawer and the
+              desktop sidebar are fixed, so they don't care where it sits);
+              the org switcher moves into the drawer below lg. */}
           <header className="sticky top-0 z-20 bg-white/80 backdrop-blur border-b border-ink/10">
-            <div className="px-4 sm:px-8 py-3 flex items-center justify-between gap-4">
-              <OrganizationSwitcher
-                hidePersonal
-                afterSelectOrganizationUrl="/dashboard"
-                appearance={{ elements: { rootBox: 'flex', organizationSwitcherTrigger: 'py-1.5 px-2 rounded-lg' } }}
-              />
-              <div className="flex items-center gap-3">
+            <div className="px-3 sm:px-8 py-2.5 sm:py-3 flex items-center justify-between gap-2 sm:gap-4">
+              {/* groupKey drives per-group page hiding in the nav (lib/page-visibility.ts). */}
+              <SidebarNav isAggregate={access?.isAggregate} groupKey={access?.groupKey ?? null} />
+              <div className="hidden lg:block">
+                <OrganizationSwitcher
+                  hidePersonal
+                  afterSelectOrganizationUrl="/dashboard"
+                  appearance={{ elements: { rootBox: 'flex', organizationSwitcherTrigger: 'py-1.5 px-2 rounded-lg' } }}
+                />
+              </div>
+              <div className="flex items-center gap-2 sm:gap-3 min-w-0">
                 {access?.isAggregate && <CustomerPicker />}
-                <span className="hidden sm:flex items-center gap-1.5 text-xs text-ink/40">
+                <span className="hidden md:flex items-center gap-1.5 text-xs text-ink/40 whitespace-nowrap">
                   <span className="relative flex h-2 w-2">
                     <span className="absolute inline-flex h-full w-full rounded-full bg-splash opacity-75 animate-ping" />
                     <span className="relative inline-flex h-2 w-2 rounded-full bg-splash" />
@@ -60,7 +65,7 @@ export default async function DashboardLayout({
               <div className="rounded-2xl bg-white border border-amber/20 shadow-soft px-5 py-4 flex items-center gap-3">
                 <Sparkles className="h-5 w-5 text-amber flex-shrink-0" />
                 <p className="text-sm text-ink/70">
-                  Select an organization from the switcher above to see your stock, orders, and pricing.
+                  Select an organization from the menu to see your stock, orders, and pricing.
                 </p>
               </div>
             </div>
