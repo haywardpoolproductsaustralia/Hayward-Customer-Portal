@@ -251,8 +251,12 @@ export function ContainerCard({ c, po, item, poOnly, probable, matched }: { c: C
 }
 
 /** The expandable panel rendered under a Purchasing row: PO · SKU → the container(s) it is in. */
-export function TrackingPanel({ po, item, lineContainers, poContainers, probable = [], matched = [] }: {
+export type PoCustomer = { customer: string; customerCode?: string; so?: string; direct: boolean; deliverTo?: string };
+
+export function TrackingPanel({ po, item, lineContainers, poContainers, probable = [], matched = [], customer }: {
   po: string; item: string; lineContainers: CtContainer[]; poContainers: CtContainer[];
+  /** who the PO is for (Container orders join) — shown first, because that is the question purchasing asks */
+  customer?: PoCustomer | null;
   probable?: Array<{ c: CtContainer; why: string }>;
   /** boxes whose ShipsGo/CHR reference names this line's US sales order — confirmed by SO, item qty unknown */
   matched?: Array<{ c: CtContainer; why: string }>;
@@ -264,8 +268,22 @@ export function TrackingPanel({ po, item, lineContainers, poContainers, probable
   }
   const inBoxes = lineContainers.reduce((n, c) => n + (qtyInContainer(c, po, item) ?? 0), 0);
   const head = <>PO <b>{po}</b> · <span className="font-mono font-semibold">{item}</span></>;
+  const shipsgoRef = [...lineContainers, ...matched.map((m) => m.c), ...probable.map((p) => p.c)].map((c) => c.live?.reference).find(Boolean);
+  const forecast = [...lineContainers, ...matched.map((m) => m.c)].map((c) => c.forecast).find(Boolean);
   return (
     <div className="space-y-2 px-3 py-2">
+      {(customer || shipsgoRef || forecast) && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+          {customer
+            ? <span className={`rounded-md px-2 py-0.5 font-semibold ${customer.direct ? 'bg-sky-100 text-sky-900' : 'bg-slate-100 text-slate-800'}`} title={customer.deliverTo ?? ''}>
+                {customer.direct ? 'Direct to ' : 'For '}{customer.customer}{customer.so ? ` · SO ${customer.so}` : ''}{customer.direct && customer.deliverTo ? ` · ${customer.deliverTo}` : ''}
+              </span>
+            : forecast
+              ? <span className="rounded-md bg-sky-100 px-2 py-0.5 font-semibold text-sky-900">Direct to {forecast.customer}{forecast.so ? ` · SO ${forecast.so}` : ''} <span className="font-normal text-sky-700">(forecast sheet)</span></span>
+              : null}
+          {shipsgoRef && <span className="text-slate-600"><span className="text-slate-400">ShipsGo ref</span> {shipsgoRef}</span>}
+        </div>
+      )}
       <div className="text-xs text-slate-700">
         {head}{' '}
         {lineContainers.length
