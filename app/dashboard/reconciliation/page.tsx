@@ -37,7 +37,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import Link from 'next/link';
 import {
   TrackingPanel, StatusChip, ContainerCard, indexContainers, lineKey as ctLineKey, bestEta, bestVessel, bestCarrier, deliveredOf, ctStatus,
-  type CtContainer,
+  type CtContainer, type PoCustomer,
 } from '@/components/ContainerTracking';
 
 // ---------------------------------------------------------------------------
@@ -537,6 +537,7 @@ export default function ReconciliationPage() {
   // Container tracking store (ShipsGo live + supplier PDFs + CDS container facts)
   const [ctContainers, setCtContainers] = useState<CtContainer[]>([]);
   const [ctInfo, setCtInfo] = useState<{ meta: any; refresh: any; shipsgoConfigured: boolean; total: number }>({ meta: null, refresh: null, shipsgoConfigured: false, total: 0 });
+  const [poCustomers, setPoCustomers] = useState<Record<string, PoCustomer>>({});
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [refreshingCt, setRefreshingCt] = useState(false);
   const [uploadingDocs, setUploadingDocs] = useState(false);
@@ -606,6 +607,7 @@ export default function ReconciliationPage() {
       setAs400Meta({ uploadedAt: a400.uploadedAt ?? null, rows: a400.lines?.length ?? 0, filename: a400.filename ?? null });
       setCtContainers(Array.isArray(ct?.containers) ? ct.containers : []);
       setCtInfo({ meta: ct?.meta ?? null, refresh: ct?.refresh ?? null, shipsgoConfigured: !!ct?.shipsgoConfigured, total: ct?.total ?? 0 });
+      setPoCustomers(ct?.poCustomers ?? {});
     }).finally(() => setLoading(false));
   }, []);
 
@@ -613,6 +615,7 @@ export default function ReconciliationPage() {
     const ct = await fetch('/api/containers/view').then((r) => r.json()).catch(() => ({}));
     setCtContainers(Array.isArray(ct?.containers) ? ct.containers : []);
     setCtInfo({ meta: ct?.meta ?? null, refresh: ct?.refresh ?? null, shipsgoConfigured: !!ct?.shipsgoConfigured, total: ct?.total ?? 0 });
+      setPoCustomers(ct?.poCustomers ?? {});
     const ship = await fetch('/api/recon/shipment').then((r) => r.json()).catch(() => ({}));
     if (Array.isArray(ship?.lines)) {
       setShipLines(ship.lines);
@@ -1232,7 +1235,7 @@ export default function ReconciliationPage() {
                     {isOpen && (
                       <tr className="bg-violet-50/40">
                         <td colSpan={colCount} className="p-0" style={{ whiteSpace: 'normal' }}>
-                          <TrackingPanel po={r.po} item={r.as400Item ?? r.supplierSku} lineContainers={lineCts} poContainers={poCts} probable={probable} matched={matched} />
+                          <TrackingPanel po={r.po} item={r.as400Item ?? r.supplierSku} lineContainers={lineCts} poContainers={poCts} probable={probable} matched={matched} customer={poCustomers[r.po] ?? null} />
                         </td>
                       </tr>
                     )}
