@@ -947,6 +947,36 @@ export default function ReconciliationPage() {
             </button>
             <button
               onClick={() => {
+                // Paramount export — Paramount (PR) lines only, trimmed to the Order columns + ShipsGo reference.
+                // No Arrow, Supplier USA-China, On Water or AS400 Delivery Address columns.
+                const headers = ['PO', 'Customer PO', 'Status', 'Type', 'ShipsGo reference'];
+                const escape = (v: any) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+                const prRows = filtered.filter((r) => r.stockCategory === 'PR');
+                const csvRows = prRows.map((r) => {
+                  const cs = ctIdx.byLine.get(ctLineKey(r.po, r.supplierSku)) ?? (r.as400Item ? ctIdx.byLine.get(ctLineKey(r.po, r.as400Item)) ?? [] : []);
+                  return [
+                    r.po,
+                    r.deliveryNote4 ?? '',
+                    r.status,
+                    HAYWARD_CREDITORS.has(r.creditor ?? '') ? 'Hayward' : '3rd Party',
+                    Array.from(new Set(cs.map((c) => c.live?.reference ?? c.chr?.reference).filter(Boolean))).join(' / '),
+                  ].map(escape).join(',');
+                });
+                const csv = [headers.map(escape).join(','), ...csvRows].join('\n');
+                const blob = new Blob([csv], { type: 'text/csv' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url; a.download = `paramount-${new Date().toISOString().slice(0, 10)}.csv`;
+                a.click(); URL.revokeObjectURL(url);
+              }}
+              title="Export Paramount lines only — PO, Customer PO, Status, Type and ShipsGo reference"
+              className="flex items-center gap-2 rounded-xl border border-ink/10 bg-white px-4 py-2 text-sm font-medium shadow-soft hover:border-purple-400 transition-colors"
+            >
+              <svg className="h-4 w-4 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+              Paramount export
+            </button>
+            <button
+              onClick={() => {
                 const headers = [
                   'PO','Customer PO','Status','Type','Arrow PO status','Stock Code','Supplier SKU','Order Date','ETA Arrow',
                   'Ordered','Received','SOH','Allocated','Backordered','Arrow PO Ref','AS400 Item','Match','AS400 ENT','AS400 SHPD','Qty Mismatch','Ship Date','AS400 ETA','US SO#',
