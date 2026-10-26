@@ -157,7 +157,7 @@ function EtaCell({ c }: { c: CtContainer }) {
   );
 }
 
-function ContainerCard({ c, po, item, poOnly, probable, matched }: { c: CtContainer; po: string; item: string; poOnly?: boolean; probable?: string; matched?: string }) {
+export function ContainerCard({ c, po, item, poOnly, probable, matched }: { c: CtContainer; po: string; item: string; poOnly?: boolean; probable?: string; matched?: string }) {
   const qty = qtyInContainer(c, po, item);
   const shown = c.live?.movements ?? []; // every milestone, always — no manual expand
   const otherPos = c.pos.filter((p) => p !== po);
