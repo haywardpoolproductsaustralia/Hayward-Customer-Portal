@@ -115,7 +115,11 @@ export async function syncFromShipsgo(opts: { force?: boolean; limit?: number } 
   const started = Date.now();
   // ShipsGo sets discarded_at when it stops tracking a shipment after discharge — those still show in the dashboard
   // and still carry their final status/ETA/movements, so we pull them once and then treat them as closed.
-  const summaries = await sg.listAllShipments();
+  // Dimi sometimes re-registers a box (ShipsGo won't let a discarded shipment be edited), so one container can sit on
+  // two shipments. Process discarded ones first and newest-updated last so the live record ends up from the active,
+  // most recent shipment — the one carrying the reference he just typed.
+  const summaries = (await sg.listAllShipments()).sort((a, b) =>
+    (a.discarded_at ? 0 : 1) - (b.discarded_at ? 0 : 1) || String(a.updated_at ?? "").localeCompare(String(b.updated_at ?? "")));
   const records = new Map((await getAllRecords()).map((r) => [r.containerNo, r] as const));
   const changed: Array<{ containerNo: string; from?: string; to?: string; status?: string }> = [];
   const errors: Array<{ shipmentId: number; error: string }> = [];
