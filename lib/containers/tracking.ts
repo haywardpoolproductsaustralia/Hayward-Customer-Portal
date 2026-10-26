@@ -115,7 +115,11 @@ export async function syncFromShipsgo(opts: { force?: boolean; limit?: number } 
   const started = Date.now();
   // ShipsGo sets discarded_at when it stops tracking a shipment after discharge — those still show in the dashboard
   // and still carry their final status/ETA/movements, so we pull them once and then treat them as closed.
-  const summaries = await sg.listAllShipments();
+  // Dimi sometimes re-registers a box (ShipsGo won't let a discarded shipment be edited), so one container can sit on
+  // two shipments. Process discarded ones first and newest-updated last so the live record ends up from the active,
+  // most recent shipment — the one carrying the reference he just typed.
+  const summaries = (await sg.listAllShipments()).sort((a, b) =>
+    (a.discarded_at ? 0 : 1) - (b.discarded_at ? 0 : 1) || String(a.updated_at ?? "").localeCompare(String(b.updated_at ?? "")));
   const records = new Map((await getAllRecords()).map((r) => [r.containerNo, r] as const));
   const changed: Array<{ containerNo: string; from?: string; to?: string; status?: string }> = [];
   const errors: Array<{ shipmentId: number; error: string }> = [];
@@ -134,9 +138,15 @@ export async function syncFromShipsgo(opts: { force?: boolean; limit?: number } 
       for (const c of full.containers ?? []) {
         const no = c.number.toUpperCase();
         const prev = records.get(no);
-        const live = sg.toLiveStatus(full, no, prev?.live);
+        let live = sg.toLiveStatus(full, no, prev?.live);
         live.sourceUpdatedAt = s.updated_at;
         if (s.discarded_at) live.discardedAt = s.discarded_at;
+        // A freshly re-registered shipment (InProgress, no container status yet) must not wipe the voyage data the
+        // older shipment for the same box already gave us: keep its status / ETA / movements, take the new reference.
+        const pl = prev?.live;
+        if (pl && (!live.containerStatus || live.containerStatus === "UNKNOWN") && pl.containerStatus && pl.containerStatus !== "UNKNOWN" && !live.movements.length) {
+          live = { ...pl, shipmentId: live.shipmentId, reference: live.reference ?? pl.reference, tags: live.tags?.length ? live.tags : pl.tags, sourceUpdatedAt: live.sourceUpdatedAt, discardedAt: undefined, updatedAt: live.updatedAt };
+        }
         if (!prev) newFromShipsgo++;
         const rec = await applyLive(no, live, refPos);
         records.set(no, rec);
