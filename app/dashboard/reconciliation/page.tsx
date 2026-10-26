@@ -760,8 +760,9 @@ export default function ReconciliationPage() {
     // Only the boxes this row is actually SHOWN with: its own line-level containers; else the US-SO match; else
     // (line in no box yet) the PO-level boxes / probable match. A container search must not hit every line of a PO.
     const so = !line.length && x.usSoNumber ? ctIdx.bySo.get(x.usSoNumber.replace(/^0+/, '')) ?? [] : [];
-    const po = !line.length && !so.length ? ctIdx.byPo.get(x.po) ?? [] : [];
-    const prob = !line.length && !so.length && !po.length ? probableFor(x).map((p) => p.c) : [];
+    // A line already placed by the CDS shipment file (x.container) is shown with THAT box — PO-level boxes don't apply.
+    const po = !line.length && !so.length && !x.container ? ctIdx.byPo.get(x.po) ?? [] : [];
+    const prob = !line.length && !so.length && !po.length && !x.container ? probableFor(x).map((p) => p.c) : [];
     return [...line, ...so, ...po, ...prob].map((c) => `${c.containerNo} ${c.mbl ?? ''} ${c.live?.reference ?? ''}`).join(' ').toLowerCase();
   }, [ctIdx, probableFor]);
 
