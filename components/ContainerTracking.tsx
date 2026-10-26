@@ -10,7 +10,7 @@
 export type CtLine = { po: string; item: string; qty: number; source: string; ref: string };
 export type CtMovement = { event: string; status: 'ACT' | 'EST'; location?: string; vessel?: string; voyage?: string; timestamp: string };
 export type CtLive = {
-  shipmentId: number; reference?: string; shipmentStatus?: string; containerStatus?: string;
+  shipmentId: number; reference?: string; tags?: string[]; shipmentStatus?: string; containerStatus?: string;
   carrier?: string; carrierScac?: string; pol?: string; pod?: string; etd?: string; eta?: string; etaInitial?: string;
   etaPredicted?: string; mapUrl?: string;
   previousEta?: string; etaChangedAt?: string; vessel?: string; voyage?: string; transitPercentage?: number;
@@ -24,6 +24,7 @@ export type CtContainer = {
   mbl?: string; hbl?: string; forwarder?: string; vendor?: string; originPort?: string; destPort?: string; shipMode?: 'O' | 'A';
   vessel?: string; voyage?: string; etd?: string; eta?: string; deliveredDate?: string; size?: string; shipKey?: string;
   invoiceNos?: string[]; packingSlipNos?: string[]; live?: CtLive; century?: CtCentury; chr?: CtChr; schedule?: CtSchedule;
+  forecast?: { customer: string; so?: string; customerPo?: string; notes?: string; delivered: boolean };
   registration?: { shipmentId: number; by: string; number: string; at: string };
 };
 
@@ -180,6 +181,14 @@ export function ContainerCard({ c, po, item, poOnly, probable, matched }: { c: C
         )}
       </div>
 
+      {(c.live?.reference || c.live?.tags?.length || c.chr?.reference || c.forecast) && (
+        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+          {c.live?.reference && <span className="text-slate-800"><span className="text-slate-400">ShipsGo ref</span> <b>{c.live.reference}</b></span>}
+          {c.live?.tags?.map((t) => <span key={t} className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">{t}</span>)}
+          {!c.live?.reference && c.chr?.reference && <span className="text-slate-800"><span className="text-slate-400">CHR ref</span> <b>{c.chr.reference}</b></span>}
+          {c.forecast && <span className="text-slate-800"><span className="text-slate-400">Forecast sheet</span> <b>{c.forecast.customer}</b>{c.forecast.so ? ` · SO ${c.forecast.so}` : ''}</span>}
+        </div>
+      )}
       <div className="mt-2 grid gap-x-6 gap-y-1 sm:grid-cols-2 lg:grid-cols-4">
         <div><span className="text-slate-400">Route</span><br />{c.live?.pol ?? c.originPort ?? '—'} → {c.live?.pod ?? c.destPort ?? '—'}</div>
         <div><span className="text-slate-400">ETD / ETA</span><br />{fmtD(c.live?.etd ?? c.etd)} → <EtaCell c={c} /></div>

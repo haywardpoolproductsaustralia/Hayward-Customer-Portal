@@ -947,7 +947,7 @@ export default function ReconciliationPage() {
                 const headers = [
                   'PO','Customer PO','Status','Type','Arrow PO status','Stock Code','Supplier SKU','Order Date','ETA Arrow',
                   'Ordered','Received','SOH','Allocated','Backordered','Arrow PO Ref','AS400 Item','Match','AS400 ENT','AS400 SHPD','Qty Mismatch','Ship Date','AS400 ETA','US SO#',
-                  'On Water','Container','Vessel','Container ETA','Supplier','Tracking status','MBL','Invoice / Slip','Days open','Stale'
+                  'On Water','Container','Vessel','Container ETA','Supplier','Tracking status','MBL','Invoice / Slip','ShipsGo reference','Days open','Stale'
                 ];
                 const escape = (v: any) => `"${String(v ?? '').replace(/"/g, '""')}"`;
                 const csvRows = filtered.map(r => [
@@ -965,6 +965,7 @@ export default function ReconciliationPage() {
                       Array.from(new Set(cs.map((c) => ctStatus(c).label))).join(' / '),
                       Array.from(new Set(cs.map((c) => c.mbl).filter(Boolean))).join(' / '),
                       Array.from(new Set(cs.flatMap((c) => [...(c.invoiceNos ?? []).map((n) => `Inv ${n}`), ...(c.packingSlipNos ?? []).map((n) => `Slip ${n}`)]))).join(' / '),
+                      Array.from(new Set(cs.map((c) => c.live?.reference ?? c.chr?.reference).filter(Boolean))).join(' / '),
                     ];
                   })(),
                   r.daysOpen, r.stale ? STALE_WHY[r.stale] : '',

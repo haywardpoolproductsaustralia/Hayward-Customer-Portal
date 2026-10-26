@@ -90,7 +90,8 @@ export interface Movement {
 /** What ShipsGo last told us about this container. */
 export interface LiveStatus {
   shipmentId: number;
-  reference?: string;
+  reference?: string;         // as Dimi keyed it on ShipsGo — usually the customer and PO ("POOL & SPA WAREHOUSE, PO918464")
+  tags?: string[];            // ShipsGo tags ("Pool Pro Direct", "Hayward Various stock")
   shipmentStatus?: string;    // NEW | INPROGRESS | BOOKED | LOADED | SAILING | ARRIVED | DISCHARGED | UNTRACKED
   containerStatus?: string;   // EMPTY_SHIPPER | GATE_IN | LOADED | SAILING | ARRIVED | DISCHARGED | GATE_OUT | EMPTY_RETURN | UNKNOWN
   carrier?: string;
