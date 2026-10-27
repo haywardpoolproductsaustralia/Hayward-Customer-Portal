@@ -253,8 +253,10 @@ export function ContainerCard({ c, po, item, poOnly, probable, matched }: { c: C
 /** The expandable panel rendered under a Purchasing row: PO · SKU → the container(s) it is in. */
 export type PoCustomer = { customer: string; customerCode?: string; so?: string; direct: boolean; deliverTo?: string };
 
-export function TrackingPanel({ po, item, lineContainers, poContainers, probable = [], matched = [], customer }: {
+export function TrackingPanel({ po, item, lineContainers, poContainers, probable = [], matched = [], customer, focus }: {
   po: string; item: string; lineContainers: CtContainer[]; poContainers: CtContainer[];
+  /** the container (or part of one) the user searched for — its card is shown; the line's other boxes fold away */
+  focus?: string;
   /** who the PO is for (Container orders join) — shown first, because that is the question purchasing asks */
   customer?: PoCustomer | null;
   probable?: Array<{ c: CtContainer; why: string }>;
@@ -294,7 +296,22 @@ export function TrackingPanel({ po, item, lineContainers, poContainers, probable
             ? <>→ probably in <span className="font-mono font-semibold">{probable.map((p) => p.c.containerNo).join(', ')}</span> (matched by ship date — see note on the card)</>
             : <>→ <b>not in any container yet</b>. PO {po}'s {extra.length} box{extra.length === 1 ? '' : 'es'} ({extra.map((c) => c.containerNo).join(', ')}) carr{extra.length === 1 ? 'ies' : 'y'} other lines of the PO.</>}
       </div>
-      {lineContainers.map((c) => <ContainerCard key={c.containerNo} c={c} po={po} item={item} />)}
+      {(() => {
+        const f = normKey(focus);
+        const hit = f.length >= 4 ? lineContainers.filter((c) => c.containerNo.includes(f)) : [];
+        const rest = hit.length ? lineContainers.filter((c) => !c.containerNo.includes(f)) : lineContainers;
+        return (
+          <>
+            {hit.map((c) => <ContainerCard key={c.containerNo} c={c} po={po} item={item} />)}
+            {hit.length && rest.length ? (
+              <details className="text-xs">
+                <summary className="cursor-pointer text-slate-500">This line is also in {rest.length} other box{rest.length === 1 ? '' : 'es'}: <span className="font-mono">{rest.map((c) => `${c.containerNo} × ${qtyInContainer(c, po, item) ?? '?'}`).join(', ')}</span></summary>
+                <div className="mt-2 space-y-2">{rest.map((c) => <ContainerCard key={c.containerNo} c={c} po={po} item={item} />)}</div>
+              </details>
+            ) : rest.map((c) => <ContainerCard key={c.containerNo} c={c} po={po} item={item} />)}
+          </>
+        );
+      })()}
       {matched.map(({ c, why }) => <ContainerCard key={`m-${c.containerNo}`} c={c} po={po} item={item} matched={why} />)}
       {probable.map(({ c, why }) => <ContainerCard key={`p-${c.containerNo}`} c={c} po={po} item={item} probable={why} />)}
     </div>

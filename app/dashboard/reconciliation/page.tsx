@@ -1144,9 +1144,12 @@ export default function ReconciliationPage() {
                   // Chip follows the same container the Vessel / Cont ETA columns show: the latest-ETA box
                   // (reconcile() picks that one), so a split shipment reads "Empty to shipper · EVER SMART · 21 Nov", not a mix.
                   const shownCts = lineCts.length ? lineCts : soCts;
-                  const chipCt = shownCts.length
+                  // When the search names a container, the row shows THAT box (not the latest-ETA one of a split line).
+                  const focusKey = normKey(search);
+                  const focused = focusKey.length >= 4 ? shownCts.find((c) => c.containerNo.includes(focusKey)) : undefined;
+                  const chipCt = focused ?? (shownCts.length
                     ? [...shownCts].sort((a, b) => (bestEta(b) ?? '').localeCompare(bestEta(a) ?? ''))[0]
-                    : undefined;
+                    : undefined);
                   const rowKey = `${r.po}|${r.arrowStock}|${i}`;
                   const isOpen = expanded.has(rowKey);
                   return (
@@ -1250,10 +1253,10 @@ export default function ReconciliationPage() {
                         )}
                       </td>
                       <td className="bg-violet-50 px-2 py-1.5 whitespace-nowrap text-slate-700">
-                        <span title={r.vessel ?? bestVessel((chipCt ?? probable[0]?.c) ?? ({} as CtContainer)) ?? ''}>{r.vessel ?? ((chipCt ?? probable[0]?.c) ? bestVessel((chipCt ?? probable[0]?.c)!) : null) ?? '—'}</span>
+                        <span title={(focused ? bestVessel(focused) : r.vessel ?? bestVessel((chipCt ?? probable[0]?.c) ?? ({} as CtContainer))) ?? ''}>{(focused ? bestVessel(focused) : r.vessel ?? ((chipCt ?? probable[0]?.c) ? bestVessel((chipCt ?? probable[0]?.c)!) : null)) ?? '—'}</span>
                       </td>
                       <td className="bg-violet-50 px-2 py-1.5 whitespace-nowrap text-slate-600">
-                        {fmt(r.containerEta ?? ((chipCt ?? probable[0]?.c) ? bestEta((chipCt ?? probable[0]?.c)!) : null))}
+                        {fmt(focused ? bestEta(focused) : r.containerEta ?? ((chipCt ?? probable[0]?.c) ? bestEta((chipCt ?? probable[0]?.c)!) : null))}
                         {chipCt?.live?.previousEta && chipCt.live.eta && chipCt.live.previousEta < chipCt.live.eta && (
                           <span className="ml-1 text-rose-600" title={`ETA slipped — was ${fmt(chipCt.live.previousEta)}`}>▲</span>
                         )}
@@ -1265,7 +1268,7 @@ export default function ReconciliationPage() {
                     {isOpen && (
                       <tr className="bg-violet-50/40">
                         <td colSpan={colCount} className="p-0" style={{ whiteSpace: 'normal' }}>
-                          <TrackingPanel po={r.po} item={r.as400Item ?? r.supplierSku} lineContainers={lineCts} poContainers={poCts} probable={probable} matched={matched} customer={poCustomers[r.po] ?? null} />
+                          <TrackingPanel po={r.po} item={r.as400Item ?? r.supplierSku} lineContainers={lineCts} poContainers={poCts} probable={probable} matched={matched} customer={poCustomers[r.po] ?? null} focus={search} />
                         </td>
                       </tr>
                     )}
