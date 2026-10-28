@@ -53,8 +53,8 @@ export async function GET() {
     try {
       const lists = await Promise.all(['stock:all', 'pr:stock:all', 'fc:stock:all'].map((k) => redis.get(k)));
       const soh = new Map<string, { onHand: number; allocated: number; backordered: number }>();
-      // Product name as the Products page shows it — the Arrow PO extract only carries STOCK_NAME_2, which is blank
-      // for most Paramount / Flow Control SKUs; the stock sync has the full name (STOCK_NAME_1).
+      // Product name exactly as the Products page shows it (STOCK_NAME_1 from the stock sync). The Arrow PO extract
+      // only carries STOCK_NAME_2 — a secondary line ("CPVC", "SWIMCLEAR") that is blank for most Paramount SKUs.
       const names = new Map<string, string>();
       for (const raw of lists) {
         const list = raw ? (typeof raw === 'string' ? JSON.parse(raw) : raw) : [];
@@ -78,7 +78,8 @@ export async function GET() {
           const key = String(l.arrowStock ?? '').trim().toUpperCase();
           const t = soh.get(key);
           const nm = names.get(key);
-          const description = String(l.description ?? '').trim() || nm || null;
+          // Products-page name first (STOCK_NAME_1 via the stock sync); Arrow's STOCK_NAME_2 ("CPVC", "SWIMCLEAR") only as a fallback
+          const description = nm || String(l.description ?? '').trim() || null;
           return { ...l, description, ...(t ? { onHand: t.onHand, allocated: t.allocated, backordered: t.backordered } : {}) };
         });
       }
