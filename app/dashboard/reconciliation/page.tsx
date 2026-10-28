@@ -11,10 +11,11 @@ const SCROLLBAR_STYLE = `
   #recon-table th, #recon-table td { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 `;
 
-// Fixed column widths (px) — 23 columns. Sticky left offsets are derived from these,
+// Fixed column widths (px) — 24 columns (Supplier SKU toggles). Sticky left offsets are derived from these,
 // so change a width here and the frozen columns stay aligned.
 const COL_ORDER  = [66, 84, 92, 100, 54];                 // Order: PO, Customer PO, Status, Type, Arrow PO status
-const COL_ARROW  = [120, 112, 76, 76, 60, 64, 56];        // Arrow AU: Stock, Supplier SKU, Order date, ETA, Ordered, Received, SOH
+const COL_ARROW  = [120, 112, 200, 76, 76, 60, 64, 56];   // Arrow AU: Stock, Supplier SKU (toggle), Description, Order date, ETA, Ordered, Received, SOH
+const COL_ARROW_NO_SKU = [120, 200, 76, 76, 60, 64, 56];  // Supplier SKU hidden (default)
 const COL_SUPPLY = [100, 56, 56, 76, 76, 104];            // Supplier: PO ref, ENT, SHPD, Ship date, ETA, US SO#
 const COL_SUPPLY_COLLAPSED = [34];                        // Supplier group collapsed to one narrow toggle column
 const COL_SHIP   = [56, 230, 140, 76, 120];               // Shipment: On water, Container, Vessel, Cont. ETA, Supplier (minimums)
@@ -22,7 +23,7 @@ const COL_SHIP   = [56, 230, 140, 76, 120];               // Shipment: On water,
 // table always reaches the right edge of the card — the sticky Order/Arrow columns keep fixed widths because
 // their frozen offsets are hard-coded.
 const FLEX_SHIP  = [0, 3, 2, 0, 2];
-const colWidths = (supplierOpen: boolean) => [...COL_ORDER, ...COL_ARROW, ...(supplierOpen ? COL_SUPPLY : COL_SUPPLY_COLLAPSED), ...COL_SHIP];
+const colWidths = (supplierOpen: boolean, skuOpen = true) => [...COL_ORDER, ...(skuOpen ? COL_ARROW : COL_ARROW_NO_SKU), ...(supplierOpen ? COL_SUPPLY : COL_SUPPLY_COLLAPSED), ...COL_SHIP];
 const COL_W = colWidths(true);
 const TABLE_W = COL_W.reduce((a, b) => a + b, 0);
 const MIN_ZOOM = 0.55;
@@ -545,13 +546,21 @@ export default function ReconciliationPage() {
   // Stock scope: 'all' (default) shows every Arrow line; the other two narrow it.
   const [scope,            setScope]            = useState<'all' | 'hayward' | 'paramount'>('all');
 
-  // Fit-to-screen: scale the table so all 23 columns are visible at 100% browser zoom.
+  // Fit-to-screen: scale the table so all columns are visible at 100% browser zoom.
   const [fitToScreen, setFitToScreen] = useState(true);
   // Supplier USA-China column group: collapsed by default (like hiding a column group in Excel); remembered per browser.
   const [supplierOpen, setSupplierOpen] = useState(false);
   useEffect(() => { try { setSupplierOpen(localStorage.getItem('recon.supplierOpen') === '1'); } catch { /* ignore */ } }, []);
   const toggleSupplier = useCallback(() => setSupplierOpen((v) => { try { localStorage.setItem('recon.supplierOpen', v ? '0' : '1'); } catch { /* ignore */ } return !v; }), []);
-  const baseCols = colWidths(supplierOpen);
+  // Supplier SKU column: hidden by default (the stock code + description identify the item); remembered per browser.
+  const [skuOpen, setSkuOpen] = useState(false);
+  useEffect(() => { try { setSkuOpen(localStorage.getItem('recon.skuOpen') === '1'); } catch { /* ignore */ } }, []);
+  const toggleSku = useCallback(() => setSkuOpen((v) => { try { localStorage.setItem('recon.skuOpen', v ? '0' : '1'); } catch { /* ignore */ } return !v; }), []);
+  // Frozen-column index of each Arrow column, given whether Supplier SKU is shown
+  const A = skuOpen
+    ? { stock: 5, sku: 6, desc: 7, odt: 8, eta: 9, qty: 10, rcvd: 11, soh: 12 }
+    : { stock: 5, sku: -1, desc: 6, odt: 7, eta: 8, qty: 9, rcvd: 10, soh: 11 };
+  const baseCols = colWidths(supplierOpen, skuOpen);
   const baseW = baseCols.reduce((a, b) => a + b, 0);
   const colCount = baseCols.length;
   const [availWidth,  setAvailWidth]  = useState<number>(TABLE_W);
@@ -1079,14 +1088,14 @@ export default function ReconciliationPage() {
             <button
               onClick={() => {
                 const headers = [
-                  'PO','Customer PO','Status','Type','Arrow PO status','Stock Code','Supplier SKU','Order Date','ETA Arrow',
+                  'PO','Customer PO','Status','Type','Arrow PO status','Stock Code','Supplier SKU','Description','Order Date','ETA Arrow',
                   'Ordered','Received','SOH','Allocated','Backordered','Arrow PO Ref','AS400 Item','Match','AS400 ENT','AS400 SHPD','Qty Mismatch','Ship Date','AS400 ETA','US SO#',
                   'On Water','Container','Vessel','Container ETA','Supplier','Tracking status','MBL','Invoice / Slip','ShipsGo reference','Days open','Stale'
                 ];
                 const escape = (v: any) => `"${String(v ?? '').replace(/"/g, '""')}"`;
                 const csvRows = filtered.map(r => [
                   r.po, r.deliveryNote4 ?? '', r.status, HAYWARD_CREDITORS.has(r.creditor ?? '') ? 'Hayward' : '3rd Party', r.poStatus ?? '',
-                  r.arrowStock, r.supplierSku, r.orderDate ?? '', r.requestedDate ?? '',
+                  r.arrowStock, r.supplierSku, r.description ?? '', r.orderDate ?? '', r.requestedDate ?? '',
                   r.qtyOrdered, r.qtyReceived, r.onHand ?? '', r.allocated ?? '', r.backordered ?? '',
                   r.matchType ? r.po : '', r.as400Item ?? '', r.matchType ?? 'missing',
                   r.matchType ? r.as400Ord : 'missing', r.as400Shpd, r.qtyMismatch ? 'YES' : '',
@@ -1164,8 +1173,12 @@ export default function ReconciliationPage() {
                 <th colSpan={5} style={{ background: '#334155', color: 'white', padding: '6px 8px', borderRight: '2px solid white', position: 'sticky', left: 0, zIndex: 11, opacity: 1 }}>
                   Order
                 </th>
-                <th colSpan={7} style={{ background: '#059669', color: 'white', padding: '6px 8px', borderRight: '2px solid white', opacity: 1 }}>
+                <th colSpan={skuOpen ? 8 : 7} style={{ background: '#059669', color: 'white', padding: '6px 8px', borderRight: '2px solid white', opacity: 1 }}>
                   Arrow AU
+                  <button onClick={toggleSku} title={skuOpen ? 'Hide the Supplier SKU column' : 'Show the Supplier SKU column'}
+                          style={{ marginLeft: 12, fontSize: 10, fontWeight: 600, letterSpacing: 1, opacity: 0.85, background: 'rgba(255,255,255,0.18)', borderRadius: 6, padding: '1px 8px' }}>
+                    {skuOpen ? '◂ hide supplier SKU' : '▸ supplier SKU'}
+                  </button>
                 </th>
                 <th colSpan={supplierOpen ? 6 : 1} onClick={toggleSupplier}
                     title={supplierOpen ? 'Collapse the Supplier USA-China columns' : 'Expand the Supplier USA-China columns (AS400 PO ref, ENT, SHPD, ship date, ETA, US SO#)'}
@@ -1182,13 +1195,14 @@ export default function ReconciliationPage() {
                 <th className="sticky bg-slate-700 px-2 py-2 whitespace-nowrap text-white opacity-100" style={{ left: `${left[2]}px` }}>Status</th>
                 <th className="sticky bg-slate-600 px-2 py-2 whitespace-nowrap text-white opacity-100" style={{ left: `${left[3]}px` }}>Type</th>
                 <th title="Arrow PO status flag (PORMAST.STATUS_FLAG): O = open, Q = quote. Closed/cancelled POs never reach this page." className="sticky bg-slate-600 px-2 py-2 whitespace-nowrap text-white border-r border-slate-500 opacity-100" style={{ left: `${left[4]}px` }}>Arrow</th>
-                <th className="sticky bg-emerald-200 px-2 py-2 whitespace-nowrap text-emerald-900 opacity-100" style={{ left: `${left[5]}px` }}>Stock code</th>
-                <th className="sticky bg-emerald-200 px-2 py-2 whitespace-nowrap text-emerald-900 opacity-100" style={{ left: `${left[6]}px` }}>Supplier SKU</th>
-                <th title="PO order date" className="sticky bg-emerald-200 px-2 py-2 whitespace-nowrap text-emerald-900 opacity-100" style={{ left: `${left[7]}px` }}>Order dt</th>
-                <th title="Date keyed on the Arrow PO — reference only, not a forecast" className="sticky bg-emerald-200 px-2 py-2 whitespace-nowrap text-emerald-900 opacity-100" style={{ left: `${left[8]}px` }}>ETA</th>
-                <th title="Qty ordered in Arrow" className="sticky bg-emerald-200 px-2 py-2 text-right whitespace-nowrap text-emerald-900 opacity-100" style={{ left: `${left[9]}px` }}>Qty</th>
-                <th title="Qty received in Arrow" className="sticky bg-emerald-200 px-2 py-2 text-right whitespace-nowrap text-emerald-900 opacity-100" style={{ left: `${left[10]}px` }}>Rcvd</th>
-                <th title="Stock on hand in Arrow, all locations (hover for allocated / backordered)" className="sticky bg-emerald-200 px-2 py-2 text-right whitespace-nowrap text-emerald-900 border-r-2 border-emerald-400 opacity-100" style={{ left: `${left[11]}px` }}>SOH</th>
+                <th className="sticky bg-emerald-200 px-2 py-2 whitespace-nowrap text-emerald-900 opacity-100" style={{ left: `${left[A.stock]}px` }}>Stock code</th>
+                {skuOpen && <th className="sticky bg-emerald-200 px-2 py-2 whitespace-nowrap text-emerald-900 opacity-100" style={{ left: `${left[A.sku]}px` }}>Supplier SKU</th>}
+                <th title="Arrow stock description (STKMAST)" className="sticky bg-emerald-200 px-2 py-2 whitespace-nowrap text-emerald-900 opacity-100" style={{ left: `${left[A.desc]}px` }}>Description</th>
+                <th title="PO order date" className="sticky bg-emerald-200 px-2 py-2 whitespace-nowrap text-emerald-900 opacity-100" style={{ left: `${left[A.odt]}px` }}>Order dt</th>
+                <th title="Date keyed on the Arrow PO — reference only, not a forecast" className="sticky bg-emerald-200 px-2 py-2 whitespace-nowrap text-emerald-900 opacity-100" style={{ left: `${left[A.eta]}px` }}>ETA</th>
+                <th title="Qty ordered in Arrow" className="sticky bg-emerald-200 px-2 py-2 text-right whitespace-nowrap text-emerald-900 opacity-100" style={{ left: `${left[A.qty]}px` }}>Qty</th>
+                <th title="Qty received in Arrow" className="sticky bg-emerald-200 px-2 py-2 text-right whitespace-nowrap text-emerald-900 opacity-100" style={{ left: `${left[A.rcvd]}px` }}>Rcvd</th>
+                <th title="Stock on hand in Arrow, all locations (hover for allocated / backordered)" className="sticky bg-emerald-200 px-2 py-2 text-right whitespace-nowrap text-emerald-900 border-r-2 border-emerald-400 opacity-100" style={{ left: `${left[A.soh]}px` }}>SOH</th>
                 {supplierOpen ? (<>
                 <th title="Matched AS400 PO / item" className="bg-[#fef3c7] px-2 py-2 whitespace-nowrap text-[#78350f] opacity-100">Arrow PO</th>
                 <th className="bg-[#fef3c7] px-2 py-2 text-right whitespace-nowrap text-[#78350f] opacity-100">ENT</th>
@@ -1279,15 +1293,16 @@ export default function ReconciliationPage() {
                           : r.poStatus === '' ? <span className="text-slate-400">—</span>
                           : <span className="text-amber-300">{r.poStatus}</span>}
                       </td>
-                      <td className="sticky bg-emerald-50 px-2 py-1.5 font-mono text-[11px] whitespace-nowrap text-slate-800" style={{ left: `${left[5]}px` }}>{r.arrowStock}</td>
-                      <td className="sticky bg-emerald-50 px-2 py-1.5 font-mono text-[11px] whitespace-nowrap text-slate-700" style={{ left: `${left[6]}px` }}>{r.supplierSku || '—'}</td>
-                      <td className="sticky bg-emerald-50 px-2 py-1.5 whitespace-nowrap text-slate-500" style={{ left: `${left[7]}px` }}>{fmt(r.orderDate)}</td>
-                      <td className="sticky bg-emerald-50 px-2 py-1.5 whitespace-nowrap text-slate-700" style={{ left: `${left[8]}px` }}>
+                      <td className="sticky bg-emerald-50 px-2 py-1.5 font-mono text-[11px] whitespace-nowrap text-slate-800" style={{ left: `${left[A.stock]}px` }} title={r.supplierSku ? `Supplier SKU ${r.supplierSku}` : ''}>{r.arrowStock}</td>
+                      {skuOpen && <td className="sticky bg-emerald-50 px-2 py-1.5 font-mono text-[11px] whitespace-nowrap text-slate-700" style={{ left: `${left[A.sku]}px` }}>{r.supplierSku || '—'}</td>}
+                      <td className="sticky bg-emerald-50 px-2 py-1.5 whitespace-nowrap text-slate-700" style={{ left: `${left[A.desc]}px` }} title={r.description ?? ''}>{r.description || <span className="text-slate-300">—</span>}</td>
+                      <td className="sticky bg-emerald-50 px-2 py-1.5 whitespace-nowrap text-slate-500" style={{ left: `${left[A.odt]}px` }}>{fmt(r.orderDate)}</td>
+                      <td className="sticky bg-emerald-50 px-2 py-1.5 whitespace-nowrap text-slate-700" style={{ left: `${left[A.eta]}px` }}>
                         {fmt(r.requestedDate)}
                       </td>
-                      <td className="sticky bg-emerald-50 px-2 py-1.5 text-right font-bold text-emerald-900" style={{ left: `${left[9]}px` }}>{r.qtyOrdered}</td>
-                      <td className="sticky bg-emerald-50 px-2 py-1.5 text-right text-slate-600" style={{ left: `${left[10]}px` }}>{r.qtyReceived}</td>
-                      <td className="sticky bg-emerald-50 px-2 py-1.5 text-right border-r-2 border-emerald-300" style={{ left: `${left[11]}px` }}
+                      <td className="sticky bg-emerald-50 px-2 py-1.5 text-right font-bold text-emerald-900" style={{ left: `${left[A.qty]}px` }}>{r.qtyOrdered}</td>
+                      <td className="sticky bg-emerald-50 px-2 py-1.5 text-right text-slate-600" style={{ left: `${left[A.rcvd]}px` }}>{r.qtyReceived}</td>
+                      <td className="sticky bg-emerald-50 px-2 py-1.5 text-right border-r-2 border-emerald-300" style={{ left: `${left[A.soh]}px` }}
                           title={r.onHand != null ? `On hand ${r.onHand} · allocated ${r.allocated ?? 0} · backordered ${r.backordered ?? 0}` : 'No stock record'}>
                         {r.onHand == null ? <span className="text-slate-300">—</span>
                           : r.onHand <= 0 ? <span className="font-semibold text-rose-600">{r.onHand}</span>
