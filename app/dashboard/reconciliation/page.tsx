@@ -778,10 +778,14 @@ export default function ReconciliationPage() {
   const prContainersOf = useCallback((x: ReconRow): string[] => {
     const line = ctIdx.byLine.get(ctLineKey(x.po, x.supplierSku)) ?? (x.as400Item ? ctIdx.byLine.get(ctLineKey(x.po, x.as400Item)) : undefined) ?? [];
     const so = !line.length && x.usSoNumber ? ctIdx.bySo.get(x.usSoNumber.replace(/^0+/, '')) ?? [] : [];
-    const fromStore = [...line, ...so].map((c) => c.containerNo);
+    // Same association rules as the Container cell: own box → US-SO box → (unplaced line) PO-level boxes → probable
+    // CHR match — so a box that only shows as "≈ HAMU3949021" still counts as carrying Paramount stock.
+    const po = !line.length && !so.length && !x.container ? ctIdx.byPo.get(x.po) ?? [] : [];
+    const prob = !line.length && !so.length && !po.length && !x.container ? probableFor(x).map((p) => p.c) : [];
+    const fromStore = [...line, ...so, ...po, ...prob].map((c) => c.containerNo);
     const fromCds = (x.container ?? '').split(',').map((c) => c.trim()).filter(Boolean);
     return [...new Set([...fromStore, ...fromCds])];
-  }, [ctIdx]);
+  }, [ctIdx, probableFor]);
   const prOptions = useMemo(() => {
     const skus = [...new Set(prRowsAll.map((x) => x.arrowStock))].sort();
     const byCustPo = new Map<string, Set<string>>();
