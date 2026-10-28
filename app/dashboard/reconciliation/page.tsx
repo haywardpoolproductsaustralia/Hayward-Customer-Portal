@@ -36,7 +36,7 @@ const MAX_ZOOM = 1.3;  // fit-to-screen may also scale UP (bigger text) when the
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import {
-  TrackingPanel, StatusChip, ContainerCard, indexContainers, lineKey as ctLineKey, bestEta, bestVessel, bestCarrier, deliveredOf, ctStatus,
+  TrackingPanel, StatusChip, ContainerCard, qtyInContainer, indexContainers, lineKey as ctLineKey, bestEta, bestVessel, bestCarrier, deliveredOf, ctStatus,
   type CtContainer, type PoCustomer,
 } from '@/components/ContainerTracking';
 
@@ -769,9 +769,34 @@ export default function ReconciliationPage() {
     return [...line, ...so, ...po, ...prob].map((c) => `${c.containerNo} ${c.mbl ?? ''} ${c.live?.reference ?? ''}`).join(' ').toLowerCase();
   }, [ctIdx, probableFor]);
 
+  const qtyInContainerFor = (c: CtContainer, r: ReconRow) => qtyInContainer(c, r.po, r.supplierSku) ?? (r.as400Item ? qtyInContainer(c, r.po, r.as400Item) : null);
+  // Paramount drill-downs: SKU, PO (grouped by its customer PO), container carrying Paramount stock.
+  const [prSku, setPrSku] = useState('');
+  const [prPo, setPrPo] = useState('');
+  const [prContainer, setPrContainer] = useState('');
+  const prRowsAll = useMemo(() => rows.filter((x) => x.stockCategory === 'PR'), [rows]);
+  const prContainersOf = useCallback((x: ReconRow): string[] => {
+    const line = ctIdx.byLine.get(ctLineKey(x.po, x.supplierSku)) ?? (x.as400Item ? ctIdx.byLine.get(ctLineKey(x.po, x.as400Item)) : undefined) ?? [];
+    const so = !line.length && x.usSoNumber ? ctIdx.bySo.get(x.usSoNumber.replace(/^0+/, '')) ?? [] : [];
+    const fromStore = [...line, ...so].map((c) => c.containerNo);
+    const fromCds = (x.container ?? '').split(',').map((c) => c.trim()).filter(Boolean);
+    return [...new Set([...fromStore, ...fromCds])];
+  }, [ctIdx]);
+  const prOptions = useMemo(() => {
+    const skus = [...new Set(prRowsAll.map((x) => x.arrowStock))].sort();
+    const byCustPo = new Map<string, Set<string>>();
+    for (const x of prRowsAll) (byCustPo.get(x.deliveryNote4 || '(no customer PO)') ?? byCustPo.set(x.deliveryNote4 || '(no customer PO)', new Set()).get(x.deliveryNote4 || '(no customer PO)')!).add(x.po);
+    const pos = [...byCustPo.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([custPo, set]) => ({ custPo, pos: [...set].sort() }));
+    const containers = [...new Set(prRowsAll.flatMap(prContainersOf))].sort();
+    return { skus, pos, containers };
+  }, [prRowsAll, prContainersOf]);
+
   const filtered = useMemo(() => {
     let r = rows;
     if (scope === 'paramount') r = r.filter((x) => x.stockCategory === 'PR');
+    if (prSku)       r = r.filter((x) => x.arrowStock === prSku);
+    if (prPo)        r = r.filter((x) => x.po === prPo);
+    if (prContainer) r = r.filter((x) => prContainersOf(x).includes(prContainer));
     if (scope === 'hayward')   r = r.filter((x) => x.stockCategory !== 'PR');
     if (tab === 'exceptions')   r = r.filter(isException);
     if (tab === 'stale')        r = r.filter((x) => !!x.stale);
@@ -801,7 +826,7 @@ export default function ReconciliationPage() {
       );
     }
     return r;
-  }, [rows, tab, search, scope, containerText]);
+  }, [rows, tab, search, scope, containerText, prSku, prPo, prContainer, prContainersOf]);
 
   // Containers in the tracking store that the search names but no visible PO line carries — so a box Dimi registered
   // with no PO in the reference (or an outbound Paramount box) is still findable here instead of "no rows".
@@ -891,6 +916,34 @@ export default function ReconciliationPage() {
           ))}
         </div>
 
+        {/* Paramount drill-downs — SKU / PO (by customer PO) / container */}
+        {prOptions.skus.length > 0 && (
+          <div className="mr-4 flex items-center gap-1.5">
+            <select value={prSku} onChange={(e) => { setPrSku(e.target.value); if (e.target.value) setScope('paramount'); }} title="Paramount stock codes on open POs"
+              className={`max-w-[12rem] rounded-lg border px-2 py-1.5 text-xs ${prSku ? 'border-purple-600 bg-purple-50 text-purple-900' : 'border-slate-200 bg-white text-slate-600'}`}>
+              <option value="">Paramount SKUs ({prOptions.skus.length})</option>
+              {prOptions.skus.map((k) => <option key={k} value={k}>{k}</option>)}
+            </select>
+            <select value={prPo} onChange={(e) => { setPrPo(e.target.value); if (e.target.value) setScope('paramount'); }} title="Paramount POs, grouped by the customer PO they were raised for"
+              className={`max-w-[14rem] rounded-lg border px-2 py-1.5 text-xs ${prPo ? 'border-purple-600 bg-purple-50 text-purple-900' : 'border-slate-200 bg-white text-slate-600'}`}>
+              <option value="">Paramount POs ({prOptions.pos.reduce((n, g) => n + g.pos.length, 0)})</option>
+              {prOptions.pos.map((g) => (
+                <optgroup key={g.custPo} label={g.custPo}>
+                  {g.pos.map((po) => <option key={po} value={po}>{po} · {g.custPo}</option>)}
+                </optgroup>
+              ))}
+            </select>
+            <select value={prContainer} onChange={(e) => { setPrContainer(e.target.value); if (e.target.value) setScope('paramount'); }} title="Containers carrying Paramount stock"
+              className={`max-w-[12rem] rounded-lg border px-2 py-1.5 text-xs font-mono ${prContainer ? 'border-purple-600 bg-purple-50 text-purple-900' : 'border-slate-200 bg-white text-slate-600'}`}>
+              <option value="">Paramount containers ({prOptions.containers.length})</option>
+              {prOptions.containers.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+            {(prSku || prPo || prContainer) && (
+              <button onClick={() => { setPrSku(''); setPrPo(''); setPrContainer(''); }} className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-500 hover:text-slate-800" title="Clear the Paramount filters">×</button>
+            )}
+          </div>
+        )}
+
         {/* Search and tabs — CENTER */}
         <input
           value={search}
@@ -947,29 +1000,73 @@ export default function ReconciliationPage() {
             </button>
             <button
               onClick={() => {
-                // Paramount export — Paramount (PR) lines only, trimmed to the Order columns + ShipsGo reference.
-                // No Arrow, Supplier USA-China, On Water or AS400 Delivery Address columns.
-                const headers = ['PO', 'Customer PO', 'Status', 'Type', 'ShipsGo reference'];
-                const escape = (v: any) => `"${String(v ?? '').replace(/"/g, '""')}"`;
-                const prRows = filtered.filter((r) => r.stockCategory === 'PR');
-                const csvRows = prRows.map((r) => {
-                  const cs = ctIdx.byLine.get(ctLineKey(r.po, r.supplierSku)) ?? (r.as400Item ? ctIdx.byLine.get(ctLineKey(r.po, r.as400Item)) ?? [] : []);
-                  return [
-                    r.po,
-                    r.deliveryNote4 ?? '',
-                    r.status,
-                    HAYWARD_CREDITORS.has(r.creditor ?? '') ? 'Hayward' : '3rd Party',
-                    Array.from(new Set(cs.map((c) => c.live?.reference ?? c.chr?.reference).filter(Boolean))).join(' / '),
-                  ].map(escape).join(',');
-                });
-                const csv = [headers.map(escape).join(','), ...csvRows].join('\n');
-                const blob = new Blob([csv], { type: 'text/csv' });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url; a.download = `paramount-${new Date().toISOString().slice(0, 10)}.csv`;
-                a.click(); URL.revokeObjectURL(url);
+                // Paramount export — every column of the main export for PR lines, as a workbook: sheet 1 lines (with
+                // clickable tracking links), sheet 2 one row per container carrying Paramount stock.
+                (async () => {
+                  const XLSX = await import('xlsx');
+                  const prRows = filtered.filter((r) => r.stockCategory === 'PR');
+                  const ctsOf = (r: ReconRow) => {
+                    const line = ctIdx.byLine.get(ctLineKey(r.po, r.supplierSku)) ?? (r.as400Item ? ctIdx.byLine.get(ctLineKey(r.po, r.as400Item)) : undefined) ?? [];
+                    const so = !line.length && r.usSoNumber ? ctIdx.bySo.get(r.usSoNumber.replace(/^0+/, '')) ?? [] : [];
+                    return line.length ? line : so;
+                  };
+                  const linkOf = (c: CtContainer) => c.live?.mapUrl ?? (c.shipKey ? `https://centuryvms.com/ui/container/view/${c.shipKey}/${c.containerNo}` : c.live ? 'https://shipsgo.com/dashboard/track-and-trace/my-shipments' : '');
+                  const lines = prRows.map((r) => {
+                    const cs = ctsOf(r);
+                    const cust = poCustomers[r.po];
+                    return {
+                      'PO': r.po, 'Customer PO': r.deliveryNote4 ?? '', 'Customer': cust?.customer ?? '', 'Sales order': cust?.so ?? '', 'Deliver to': cust?.deliverTo ?? '',
+                      'Status': r.stale ? `Stale ${r.daysOpen}d` : r.status, 'Type': HAYWARD_CREDITORS.has(r.creditor ?? '') ? 'Hayward' : '3rd Party', 'Arrow PO status': r.poStatus ?? '',
+                      'Stock Code': r.arrowStock, 'Supplier SKU': r.supplierSku, 'Description': r.description ?? '', 'Order Date': r.orderDate ?? '', 'ETA Arrow': r.requestedDate ?? '',
+                      'Ordered': r.qtyOrdered, 'Received': r.qtyReceived, 'Outstanding': r.qtyOutstanding, 'SOH': r.onHand ?? '', 'Allocated': r.allocated ?? '', 'Backordered': r.backordered ?? '',
+                      'AS400 Item': r.as400Item ?? '', 'Match': r.matchType ?? 'missing', 'AS400 ENT': r.matchType ? r.as400Ord : '', 'AS400 SHPD': r.as400Shpd, 'Qty Mismatch': r.qtyMismatch ? 'YES' : '',
+                      'Ship Date': r.shipDate ?? '', 'AS400 ETA': r.as400Eta ?? '', 'US SO#': r.usSoNumber ?? '',
+                      'On Water': r.onWater, 'Container': cs.length ? cs.map((c) => c.containerNo).join(', ') : r.container ?? '',
+                      'Tracking status': Array.from(new Set(cs.map((c) => ctStatus(c).label))).join(' / '),
+                      'Vessel': r.vessel ?? cs.map(bestVessel).filter(Boolean).join(' / '), 'Container ETA': r.containerEta ?? cs.map(bestEta).filter(Boolean).join(' / '),
+                      'Supplier': creditorName[r.creditor ?? ''] ?? r.creditor ?? '',
+                      'MBL': Array.from(new Set(cs.map((c) => c.mbl).filter(Boolean))).join(' / '),
+                      'Invoice / Slip': Array.from(new Set(cs.flatMap((c) => [...(c.invoiceNos ?? []).map((n) => `Inv ${n}`), ...(c.packingSlipNos ?? []).map((n) => `Slip ${n}`)]))).join(' / '),
+                      'ShipsGo reference': Array.from(new Set(cs.map((c) => c.live?.reference ?? c.chr?.reference).filter(Boolean))).join(' / '),
+                      'Tracking link': cs.map(linkOf).filter(Boolean)[0] ?? '',
+                      'Days open': r.daysOpen, 'Stale': r.stale ? STALE_WHY[r.stale] : '',
+                    };
+                  });
+                  const ws1 = XLSX.utils.json_to_sheet(lines);
+                  // make the Tracking link column clickable
+                  const linkCol = Object.keys(lines[0] ?? {}).indexOf('Tracking link');
+                  if (linkCol >= 0) for (let i = 0; i < lines.length; i++) {
+                    const ref = XLSX.utils.encode_cell({ r: i + 1, c: linkCol });
+                    const cell = ws1[ref];
+                    if (cell?.v) cell.l = { Target: String(cell.v), Tooltip: 'Open live tracking' };
+                  }
+                  // sheet 2: containers carrying Paramount stock
+                  const byNo = new Map<string, { c: CtContainer; lines: ReconRow[] }>();
+                  for (const r of prRows) for (const c of ctsOf(r)) (byNo.get(c.containerNo) ?? byNo.set(c.containerNo, { c, lines: [] }).get(c.containerNo)!).lines.push(r);
+                  const boxes = [...byNo.values()].sort((a, b) => (bestEta(a.c) ?? '9999').localeCompare(bestEta(b.c) ?? '9999')).map(({ c, lines: ls }) => ({
+                    'Container': c.containerNo, 'Status': ctStatus(c).label, 'ETA': bestEta(c) ?? '', 'ETA was': c.live?.previousEta ?? c.live?.etaInitial ?? '', 'Vessel': bestVessel(c) ?? '', 'Carrier': bestCarrier(c) ?? '',
+                    'Route': `${c.live?.pol ?? c.originPort ?? ''} → ${c.live?.pod ?? c.destPort ?? ''}`,
+                    'Paramount POs': [...new Set(ls.map((r) => r.po))].join(', '), 'Customer POs': [...new Set(ls.map((r) => r.deliveryNote4).filter(Boolean))].join(', '),
+                    'Customers': [...new Set(ls.map((r) => poCustomers[r.po]?.customer).filter(Boolean))].join(', '),
+                    'Paramount units': ls.reduce((n, r) => n + (qtyInContainerFor(c, r) ?? 0), 0), 'Paramount lines': ls.length,
+                    'ShipsGo reference': c.live?.reference ?? c.chr?.reference ?? '', 'MBL': c.mbl ?? '', 'Sources': c.sources.join(' + '),
+                    'Live map': c.live?.mapUrl ?? '', 'Century': c.shipKey ? `https://centuryvms.com/ui/container/view/${c.shipKey}/${c.containerNo}` : '',
+                    'Last checked': c.live?.checkedAt ?? c.live?.updatedAt ?? c.lastSeen,
+                  }));
+                  const ws2 = XLSX.utils.json_to_sheet(boxes);
+                  for (const col of ['Live map', 'Century']) {
+                    const ci = Object.keys(boxes[0] ?? {}).indexOf(col);
+                    if (ci >= 0) for (let i = 0; i < boxes.length; i++) { const cell = ws2[XLSX.utils.encode_cell({ r: i + 1, c: ci })]; if (cell?.v) cell.l = { Target: String(cell.v) }; }
+                  }
+                  ws1['!cols'] = Object.keys(lines[0] ?? {}).map((k) => ({ wch: Math.min(40, Math.max(10, k.length + 2)) }));
+                  ws2['!cols'] = Object.keys(boxes[0] ?? {}).map((k) => ({ wch: Math.min(40, Math.max(12, k.length + 2)) }));
+                  const wb = XLSX.utils.book_new();
+                  XLSX.utils.book_append_sheet(wb, ws1, 'Paramount lines');
+                  XLSX.utils.book_append_sheet(wb, ws2, 'Paramount containers');
+                  XLSX.writeFile(wb, `paramount-${new Date().toISOString().slice(0, 10)}.xlsx`);
+                })();
               }}
-              title="Export Paramount lines only — PO, Customer PO, Status, Type and ShipsGo reference"
+              title="Export the Paramount lines in the current filter as a workbook: every column plus clickable tracking links, and a second sheet of the containers carrying Paramount stock"
               className="flex items-center gap-2 rounded-xl border border-ink/10 bg-white px-4 py-2 text-sm font-medium shadow-soft hover:border-purple-400 transition-colors"
             >
               <svg className="h-4 w-4 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
