@@ -53,6 +53,9 @@ export async function GET() {
     try {
       const lists = await Promise.all(['stock:all', 'pr:stock:all', 'fc:stock:all'].map((k) => redis.get(k)));
       const soh = new Map<string, { onHand: number; allocated: number; backordered: number }>();
+      // Product name as the Products page shows it — the Arrow PO extract only carries STOCK_NAME_2, which is blank
+      // for most Paramount / Flow Control SKUs; the stock sync has the full name (STOCK_NAME_1).
+      const names = new Map<string, string>();
       for (const raw of lists) {
         const list = raw ? (typeof raw === 'string' ? JSON.parse(raw) : raw) : [];
         if (!Array.isArray(list)) continue;
@@ -66,12 +69,17 @@ export async function GET() {
             t.backordered += Number(loc?.backordered ?? 0) || 0;
           }
           soh.set(sku, t);
+          const nm = String(e?.name ?? '').trim();
+          if (nm && !names.has(sku)) names.set(sku, nm);
         }
       }
       if (Array.isArray(lines)) {
         lines = (lines as any[]).map((l) => {
-          const t = soh.get(String(l.arrowStock ?? '').trim().toUpperCase());
-          return t ? { ...l, onHand: t.onHand, allocated: t.allocated, backordered: t.backordered } : l;
+          const key = String(l.arrowStock ?? '').trim().toUpperCase();
+          const t = soh.get(key);
+          const nm = names.get(key);
+          const description = String(l.description ?? '').trim() || nm || null;
+          return { ...l, description, ...(t ? { onHand: t.onHand, allocated: t.allocated, backordered: t.backordered } : {}) };
         });
       }
     } catch { /* stock keys unavailable — lines go out without SOH */ }
